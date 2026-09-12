@@ -260,6 +260,37 @@ def test_topic_advice() -> None:
     print("[ok] 활동별 조언 — 의도 인식, 문장에서 지역 추출, 근거 없으면 침묵")
 
 
+def test_explicit_date() -> None:
+    """"9월 18일" 처럼 날짜를 콕 집으면 그 하루만 답한다."""
+    from src.mention import _explicit_date
+
+    today = dt.date(2026, 9, 12)
+    assert _explicit_date("9월 18일 부산 날씨", today) == dt.date(2026, 9, 18)
+    assert _explicit_date("18일 날씨", today) == dt.date(2026, 9, 18)
+    assert _explicit_date("9/18 날씨", today) == dt.date(2026, 9, 18)
+    # 월을 안 적으면 가까운 쪽 — 월말에 "2일" 은 다음 달이다
+    assert _explicit_date("2일 날씨", dt.date(2026, 9, 28)) == dt.date(2026, 10, 2)
+    # 해가 바뀌는 경계
+    assert _explicit_date("1월 5일", dt.date(2026, 12, 20)) == dt.date(2027, 1, 5)
+    # 기간 표현은 날짜가 아니다
+    assert _explicit_date("7일간 날씨", today) is None
+    assert _explicit_date("내일 날씨", today) is None
+    print("[ok] 명시 날짜 해석 — 월 생략·해 넘김·기간 표현 구분")
+
+
+def test_phrase_rotation() -> None:
+    """같은 조건이라도 날짜가 다르면 문구가 달라지고, 같은 날은 늘 같다."""
+    from src.advice import _pick, SPREAD_LINES
+
+    base = dt.date(2026, 9, 13)
+    got = {_pick(SPREAD_LINES, base + dt.timedelta(days=i))
+           for i in range(len(SPREAD_LINES))}
+    assert len(got) == len(SPREAD_LINES), got      # 연속 날짜면 모두 다른 문구
+    # 같은 날짜는 몇 번을 불러도 같은 문구 (봇이 오락가락하지 않게)
+    assert _pick(SPREAD_LINES, base) == _pick(SPREAD_LINES, base)
+    print("[ok] 문구 회전 — 날짜별로 다르고 같은 날은 고정")
+
+
 def test_advice() -> None:
     """수치에서 조언을 뽑되, 근거가 없으면 말하지 않는다."""
     from src.advice import build_advice
@@ -451,6 +482,8 @@ if __name__ == "__main__":
     test_greeting()
     test_long_range_routing()
     test_topic_advice()
+    test_explicit_date()
+    test_phrase_rotation()
     test_advice()
     test_resolve_date()
     test_forecast_validation()

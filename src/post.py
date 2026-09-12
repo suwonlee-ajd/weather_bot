@@ -14,6 +14,7 @@ import argparse
 import datetime as dt
 import logging
 import pathlib
+import re
 import sys
 import time
 
@@ -45,6 +46,14 @@ def wait_until(post_at: str, now: dt.datetime) -> None:
         return
     log.info("%s KST까지 %.0f초 대기합니다.", post_at, delta.total_seconds())
     time.sleep(delta.total_seconds())
+
+
+# 기상청 원문의 머릿기호를 마크다운 불릿로 바꾼다. □(종합)은 1단계, ○(개별)은 2단계.
+# 콘솔에 찍기 직전에만 쓴다 — 원문 문자열은 그대로 둬야 한다. writer.py 의
+# 서술 파싱(NARRATIVE_RE)이 □/○ 를 보고 갈라내기 때문이다.
+def _md_bullets(text: str) -> str:
+    text = re.sub(r"^□\s*", "- ", text, flags=re.M)
+    return re.sub(r"^○\s*", "  - ", text, flags=re.M)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -132,7 +141,7 @@ def main(argv: list[str] | None = None) -> int:
             path.write_bytes(item["file"])
             saved.append(path)
         print("=" * 72)
-        print(week.as_digest())
+        print(_md_bullets(week.as_digest()))
         print("=" * 72)
         print(text)
         print("=" * 72)

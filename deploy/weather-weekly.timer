@@ -1,0 +1,12 @@
+# 월 07:50 기동 → 스크립트가 POST_AT(08:00 KST)까지 대기 후 게시.
+# Persistent=true 라 서버가 꺼져 있었으면 켜진 직후 밀린 회차를 실행한다.
+[Unit]
+Description=Weekly Weather - Monday 07:50 KST
+
+[Timer]
+OnCalendar=Mon *-*-* 07:50:00
+Persistent=true
+Unit=weather-weekly.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,12 @@
+# 매일 새벽 04:00 KST. 게시(월 08:00)와 겹치지 않는 한산한 시각.
+# Persistent=true 라 서버가 꺼져 있었으면 켜진 직후 밀린 회차를 실행한다.
+[Unit]
+Description=Weather bot - daily cleanup
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+Persistent=true
+Unit=weather-cleanup.service
+
+[Install]
+WantedBy=timers.target

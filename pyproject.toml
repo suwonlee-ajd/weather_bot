@@ -1,0 +1,44 @@
+[project]
+name = "slack-weather-bot"
+version = "0.1.0"
+description = "기상청 공개 페이지를 긁어 주간 날씨를 슬랙에 올리고, 멘션에 답하는 봇"
+readme = "README.md"
+license = { text = "Proprietary — 사내 전용 (LicenseRef-Proprietary)" }
+classifiers = [
+    "License :: Other/Proprietary License",
+    # PyPI 가 거부하는 classifier — 실수로 `uv publish` 해도 업로드가 막힘(사내 전용 산출물)
+    "Private :: Do Not Upload",
+]
+requires-python = ">=3.12"
+dependencies = [
+    # 기상청 페이지 수집 — API 키도 결제도 필요 없다
+    "requests>=2.32",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
+    # 슬랙 (Socket Mode 라 인바운드 포트·TLS 가 필요 없다)
+    "slack_sdk>=3.33",
+    "slack_bolt>=1.30",
+    # 카드 이미지 렌더링 — src/render_card.py 가 헤드리스 크로뮴을 띄운다.
+    #   설치 후 `python -m playwright install chromium` 이 한 번 더 필요하다
+    "playwright>=1.49",
+    # 로깅
+    "loguru>=0.7",
+]
+
+[project.optional-dependencies]
+# WRITER=claude 일 때만 쓴다. 기본값(gemini)과 규칙 기반(none)은 이것 없이 돈다.
+claude = ["anthropic>=1.0"]
+
+[project.scripts]
+weather-post = "src.post:main"
+weather-mention = "src.mention:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[dependency-groups]
+dev = ["ruff>=0.15,<0.16"]

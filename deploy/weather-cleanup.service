@@ -1,0 +1,17 @@
+# 보존 기간이 지난 산출물·로그 정리 (타이머가 부르는 일회성 실행)
+#
+# 평소에는 봇이 알아서 치운다 — dry-run 이 data/ 를, loguru 가 logs/ 를.
+# 다만 실제 게시는 파일을 남기지 않으므로 dry-run 을 안 돌리는 서버에서는
+# data/ 를 치우는 주체가 없다. 그 자리를 이 유닛이 맡는다.
+[Unit]
+Description=Weather bot - prune aged artifacts and logs
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ajung/workspace/weather_bot
+EnvironmentFile=/home/ajung/workspace/weather_bot/.env
+Environment=TZ=Asia/Seoul
+ExecStart=/home/ajung/workspace/weather_bot/.venv/bin/python bin/cleanup.py
+StandardOutput=journal
+StandardError=journal

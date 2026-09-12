@@ -1,0 +1,72 @@
+name: weekly-weather
+
+on:
+  schedule:
+    # 일 22:35 UTC = 월 07:35 KST. GitHub 크론은 최대 수십 분 지연될 수 있어
+    # 일부러 이르게 잡고, 스크립트가 POST_AT(08:00 KST)까지 대기한다.
+    # (이 워크플로 이름의 'weekly' 는 디렉터리가 아니라 '매주 1회 게시' 라는 작업을 가리킨다)
+    - cron: "35 22 * * 0"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "슬랙 전송 없이 결과만 확인 (이미지는 아티팩트로 첨부)"
+        type: boolean
+        default: true
+
+concurrency:
+  group: weekly-weather
+  cancel-in-progress: false
+
+env:
+  # 러너는 UTC 다. 로그 파일명과 자정 회전이 KST 를 따르게 한다.
+  TZ: Asia/Seoul
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      # uv.lock 이 있으므로 러너도 로컬과 같은 버전으로 돈다.
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      # claude extra 를 함께 깐다 — WRITER=claude 인데 anthropic 이 없으면
+      # writer.py 가 규칙 기반으로 조용히 떨어져 매주 다른 글이 나간다.
+      - run: uv sync --frozen --extra claude
+
+      # 카드 이미지를 헤드리스 Chromium 으로 렌더링한다.
+      # 리눅스 러너에는 한글 글꼴이 없어 fonts-noto-cjk 를 반드시 깔아야 □□□ 로 나오지 않는다.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+      - name: Install Chromium + Korean fonts
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fonts-noto-cjk fonts-noto-color-emoji
+          uv run python -m playwright install --with-deps chromium
+
+      - name: Post weekly weather
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ vars.SLACK_CHANNEL_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # 광역 구역. 비워두면 config.py 기본값(전국)을 쓴다.
+          REGION: ${{ vars.REGION }}
+          AREA_LABEL: ${{ vars.AREA_LABEL }}
+          WRITER: ${{ vars.WRITER }}
+          CHART_PRODUCT: ${{ vars.CHART_PRODUCT }}
+          POST_AT: "08:00"
+        run: uv run python -m src.post ${{ inputs.dry_run && '--dry-run' || '' }}
+
+      - name: Upload rendered images (dry-run 확인용)
+        if: ${{ inputs.dry_run }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-weather-images
+          path: data/
+          if-no-files-found: warn

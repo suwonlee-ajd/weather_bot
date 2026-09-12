@@ -21,7 +21,7 @@ import os
 import re
 from dataclasses import dataclass, field
 
-from .advice import build_advice
+from .advice import BIG_SPREAD, build_advice
 from .forecast import Section, Source, WeekForecast
 
 log = logging.getLogger(__name__)
@@ -192,7 +192,7 @@ def fallback(week: WeekForecast) -> Written:
     )
     if headline:
         weather.append(f"기상청 예보는 *{headline}*이라 전하고 있사오니")
-    elif spreads and max(spreads) >= 10:
+    elif spreads and max(spreads) >= BIG_SPREAD:
         weather.append(f"일교차가 최대 {max(spreads):.0f}도까지 벌어지겠사오니")
     elif rainy:
         weather.append("중간중간 비가 지나가겠사오니")

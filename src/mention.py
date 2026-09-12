@@ -445,8 +445,12 @@ def build_reply(text: str, now: dt.datetime | None = None) -> str:
     narrative_lines = [line for n in scrape.narratives for line in n.lines]
     # 물어본 것에 먼저 답하고, 그 밖에 짚을 것이 있으면 덧붙인다.
     tips = topic_advice(topic, scoped) if topic else []
-    tips += [t for t in build_advice(scoped, narrative_lines) if t.text not in
-             {x.text for x in tips}][: 3 - len(tips)]
+    # 겹침은 이모지로 가린다 — 문구가 날짜마다 달라지므로(advice.py _pick)
+    # 문장을 비교하면 «우산 챙기세요» 와 «우산 없이 나서면» 이 서로 다른 말로
+    # 보여 우산 조언이 두 줄 나간다. 같은 이모지면 같은 종류의 조언이다.
+    seen = {x.emoji for x in tips}
+    tips += [t for t in build_advice(scoped, narrative_lines)
+             if t.emoji not in seen][: 3 - len(tips)]
     if tips:
         lines.append("")
         lines += [f"{t.emoji} {t.text}" for t in tips]

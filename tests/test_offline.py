@@ -286,8 +286,11 @@ def test_phrase_rotation() -> None:
     got = {_pick(SPREAD_LINES, base + dt.timedelta(days=i))
            for i in range(len(SPREAD_LINES))}
     assert len(got) == len(SPREAD_LINES), got      # 연속 날짜면 모두 다른 문구
-    # 같은 날짜는 몇 번을 불러도 같은 문구 (봇이 오락가락하지 않게)
-    assert _pick(SPREAD_LINES, base) == _pick(SPREAD_LINES, base)
+    # 한 바퀴 돌면 제자리 — 날짜에만 달린 값이어야 한다. 무작위로 바꾸면 깨진다.
+    later = base + dt.timedelta(days=len(SPREAD_LINES))
+    assert _pick(SPREAD_LINES, later) == _pick(SPREAD_LINES, base)
+    # 표를 비워도 응답 경로가 죽지 않는다
+    assert _pick((), base) == ""
     print("[ok] 문구 회전 — 날짜별로 다르고 같은 날은 고정")
 
 
@@ -311,7 +314,7 @@ def test_advice() -> None:
     emojis = {t.emoji for t in tips}
     assert ":thermometer:" in emojis, joined          # 일교차
     assert ":sun_with_face:" in emojis, joined        # 폭염
-    assert "우산" in joined, joined                    # 비 문구는 아직 하나뿐
+    assert ":umbrella_with_rain_drops:" in emojis, joined   # 비
 
     # 한파는 폭염보다 우선하고, 둘이 같이 나오지 않는다
     # 한파 조언이 나오고 폭염 조언과 섞이지 않으면 된다 (문구 자체에는 묶지 않는다)

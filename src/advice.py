@@ -9,12 +9,8 @@
 규칙 기반이라 비용이 0 이고, 근거가 되는 수치가 없으면 그냥 말하지 않는다 —
 지어낸 조언은 안 하느니만 못하다.
 
-임계값은 기상청·질병관리청이 쓰는 기준을 참고했다.
-  일교차 10도 이상    환절기 호흡기 질환 주의 (기상청 '일교차 큼' 기준)
-  최저 5도 이하       한파 대비
-  최고 33도 이상      폭염 주의 (폭염주의보 기준)
-  최고 28도 + 습함    온열질환 주의
-  강수확률 60% 이상   우산
+임계값은 아래 상수 정의에 한 벌만 둔다 — 숫자를 여기 다시 적으면 한쪽만
+고쳐져 어긋난다. 무엇을 왜 그 값으로 잡았는지는 그 자리 주석에 있다.
 """
 from __future__ import annotations
 
@@ -27,12 +23,20 @@ from dataclasses import dataclass
 #   * 날이 바뀌면 표현이 바뀐다.
 # 무작위로 고르면 같은 질문에 다른 답이 나와 봇이 미덥지 않아 보인다.
 def _pick(options: tuple[str, ...], date: dt.date) -> str:
+    if not options:               # 표를 손보다 문구를 다 지운 경우
+        return ""                 # 조용히 넘어간다 — 이 모듈은 말 없는 쪽이 기본이다
     return options[date.toordinal() % len(options)]
 
 
 def _days_text(ds) -> str:
-    """날짜 몇 개를 슬랙 볼드로 묶어 적는다. 셋까지만 — 그 이상은 읽히지 않는다."""
-    return ", ".join(f"*{d.date:%m/%d}*" for d in ds[:3])
+    """날짜 몇 개를 슬랙 볼드로 묶어 적는다.
+
+    셋까지만 적는다 — 그 이상은 읽히지 않는다. 다만 잘렸다는 사실은 밝힌다.
+    닷새 비가 오는데 사흘만 적으면 나머지 이틀을 맑은 날로 읽는다.
+    """
+    shown = ", ".join(f"*{d.date:%m/%d}*" for d in ds[:3])
+    rest = len(ds) - 3
+    return f"{shown} 외 {rest}일" if rest > 0 else shown
 
 
 SPREAD_LINES = (
@@ -64,7 +68,7 @@ CHILLY_LINES = (
 RAIN_LINES = (
     "{days}에 비 소식이 있어요. 나가시기 전에 우산 꼭 챙기세요.",
     "{days}에 비가 옵니다. 우산 없이 나서면 곤란하겠습니다.",
-    "{days}은 비로 시작합니다. 우산과 함께 신발도 한 번 보세요.",
+    "{days}에 비가 예보됐습니다. 우산과 함께 신발도 한 번 보세요.",
     "{days}에 비 예보가 있습니다. 접이식 우산 하나면 충분하겠습니다.",
 )
 FOG_LINES = (
@@ -86,6 +90,10 @@ FOG_LINES = (
 #
 # 특보 기준(HEAT_WAVE·COLD_MORNING)은 다르다. 기상청이 정한 정의라 절대값이
 # 맞고, 계절에 따라 움직여서도 안 된다.
+# 두 값 사이에는 «아무 말도 안 하는» 구간이 있다. 아침 11도에 일교차 11도 같은
+# 초가을의 평범한 날이 거기 든다 — 짚을 것이 없으면 침묵하는 것이 이 모듈의
+# 규칙이므로 메우지 않는다. 빈칸을 채우려고 문턱을 낮추면 매일 걸리던 옛날로
+# 돌아간다.
 BIG_SPREAD = 12.0      # 일교차 (도) — 평년 대비의 대용물
 COLD_MORNING = 5.0     # 아침 최저 (도) — 한파 대비, 기상청 기준이므로 고정
 HEAT_WAVE = 33.0       # 폭염주의보 기준 (도) — 기상청 기준이므로 고정
@@ -253,18 +261,25 @@ def build_advice(days, narratives=None) -> list[Advice]:
         ))
 
     # 4) 예보관이 짚은 특이사항 — 수치로는 안 잡히는 것 (풍랑·건조·태풍 등)
+    #
+    # 이것들이 앞선다. 태풍·한파는 «낮에 덥습니다» 보다 먼저 알아야 할 일인데,
+    # 뒤에 붙이면 out[:3] 에서 잘려 정작 위험한 쪽이 사라진다.
     ref = usable[0].date          # usable 은 위 가드로 비어 있지 않다
+    hits: list[tuple[int, Advice]] = []
     for line in narratives or []:
         for keyword, (emoji, lines) in SPECIAL.items():
-            if keyword in line:
-                out.append(Advice(emoji, _pick(lines, ref)))
-                break
-        else:
-            continue
-        break
+            if keyword in line and not any(k == keyword for k, _ in hits):
+                hits.append((keyword, Advice(emoji, _pick(lines, ref))))
+    # 같은 서술에 여러 특보가 섞여 오므로(«건조·황사·태풍») 급한 것부터 고른다.
+    hits.sort(key=lambda pair: SPECIAL_ORDER.index(pair[0]))
+    special = [advice for _, advice in hits]
 
-    return out[:3]      # 너무 많으면 잔소리가 된다
+    return (special + out)[:3]      # 너무 많으면 잔소리가 된다
 
+
+# 급한 순서. 사람 목숨·안전에 가까운 것이 앞이다. SPECIAL 에 키를 더하면
+# 여기에도 넣는다 — 빠지면 ValueError 로 바로 드러난다(조용히 뒤로 밀리지 않게).
+SPECIAL_ORDER = ("태풍", "한파", "폭염", "너울", "풍랑", "황사", "안개", "건조")
 
 # 값은 (이모지, 문구 후보) — 문구가 하나뿐이면 1-튜플로 둔다. 덕분에 변형을
 # 더할 때 이 표만 고치면 되고, _pick 은 길이 1 에서도 그대로 동작한다.

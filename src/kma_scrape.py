@@ -302,6 +302,29 @@ def _sky_from_line(text: str) -> str | None:
     return None
 
 
+def lines_for_dates(lines: list[str], ref: dt.date,
+                    window: set[dt.date]) -> list[str]:
+    """서술 줄 중 물어본 날짜에 해당하는 것만 고른다.
+
+    "○ (모레, 14일) ..." 처럼 날짜가 박힌 줄은 그 날짜가 window 에 있을 때만 남긴다.
+    날짜가 없는 줄(□ 종합, ○ (기온)/(하늘상태) 같은 기간 전체 서술)은 어느 날을
+    물어도 유효하므로 그대로 남긴다.
+
+    날짜가 박힌 줄이 하나도 안 맞으면 기간 전체 서술만 돌아간다 — 물은 날과
+    다른 날의 이야기를 붙이느니 덜 보여주는 쪽이 낫다.
+    """
+    out: list[str] = []
+    for line in lines:
+        m = DAILY_LINE_RE.match(line)
+        if not m:
+            out.append(line)          # 날짜가 없는 줄은 항상 유효
+            continue
+        date = _resolve_date(int(m.group(1)), ref)
+        if date is None or date in window:
+            out.append(line)
+    return out
+
+
 def daily_sky(lines: list[str], ref: dt.date) -> dict[dt.date, str]:
     """통보문 서술문에서 날짜별 하늘상태를 뽑는다.
 

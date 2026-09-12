@@ -1,9 +1,15 @@
 #!/bin/bash
-# 멘션 봇 진입점. run.sh 와 같은 모양으로, .env 를 올린 뒤 포그라운드로 실행한다.
+# 멘션 응답 진입점 — 24시간 상시 실행(Socket Mode).
+# 서버에서는 systemd(weather-mention.service)가 띄우고, 죽으면 되살린다.
 #
-# 프로세스 수명은 이 스크립트가 관리하지 않는다 — 서버는 systemd
-# (deploy/weather-mention.service). 로컬 확인은 이 스크립트를 직접 실행한다.
-# 가 맡는다. 로컬에서 잠깐 볼 때는 그냥 실행하고 Ctrl-C 로 끄면 된다.
+# 짝이 되는 run-weekly.sh 와는 마지막 줄(실행 모듈)만 다르다:
+#   run-weekly.sh   src.post     예약 게시 · 끝나면 종료
+#   run-mention.sh  src.mention  멘션 응답 · 24시간 상시
+#
+# python 에 -u 를 붙이는 이유 — 상시 프로세스라 출력이 journal 로 갈 때
+# 블록 버퍼링되면 로그가 한참 뒤에야 보인다. 실시간으로 봐야 하므로 끈다.
+#
+# 로컬에서 잠깐 볼 때는 그냥 실행하고 Ctrl-C 로 끄면 된다.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

@@ -27,7 +27,8 @@ from .logsetup import setup
 from .dong import DongError, fetch_dong, search_dong
 from .outlook import OutlookError, fetch_outlook
 from .kma_scrape import (
-    NATIONWIDE, REGION_HELP, ScrapeError, extract_region, resolve_region, scrape_range,
+    NATIONWIDE, REGION_HELP, ScrapeError, extract_region, lines_for_dates,
+    resolve_region, scrape_range,
 )
 
 log = logging.getLogger("weather-mention")
@@ -407,7 +408,10 @@ def build_reply(text: str, now: dt.datetime | None = None) -> str:
         lines += [f"{t.emoji} {t.text}" for t in tips]
 
     for narrative in sorted(scrape.narratives, key=lambda n: 0 if "통보문" in n.title else 1):
-        for line in narrative.lines[:2]:
+        # 물어본 날짜의 줄만 고른다. 앞에서 2줄을 그냥 자르면 «모레» 를 물어도
+        # «(오늘, 12일)» 이 붙어 질문과 어긋난 답이 된다.
+        picked = lines_for_dates(narrative.lines, now.date(), window)
+        for line in picked[:2]:
             lines.append(f"> {line}")
         stamp = f"{narrative.issued_at:%m/%d %H시}" if narrative.issued_at else "발표시각 미상"
         lines.append(f"_{narrative.title} · {stamp} 발표_")

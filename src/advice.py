@@ -1,5 +1,6 @@
 """예보 수치에서 생활 조언을 뽑아낸다.
 
+
 일반 예보와 다르게 "그래서 뭘 하면 되는지"를 한두 줄 덧붙이는 것이 목적이다.
 규칙 기반이라 비용이 0 이고, 근거가 되는 수치가 없으면 그냥 말하지 않는다 —
 지어낸 조언은 안 하느니만 못하다.
@@ -45,6 +46,17 @@ COLD_LINES = (
     "아침 최저 {t:.0f}도까지 내려갑니다. 따뜻하게 껴입으시고 실내 온도도 살펴 주세요.",
     "아침 기온이 {t:.0f}도입니다. 장갑과 목도리까지 챙기시는 편이 좋습니다.",
     "{t:.0f}도까지 떨어지는 아침입니다. 얇게 여러 겹 껴입으면 덜 춥습니다.",
+)
+RAIN_LINES = (
+    "{days}에 비 소식이 있어요. 나가시기 전에 우산 꼭 챙기세요.",
+    "{days}에 비가 옵니다. 우산 없이 나서면 곤란하겠습니다.",
+    "{days}은 비로 시작합니다. 우산과 함께 신발도 한 번 보세요.",
+    "{days}에 비 예보가 있습니다. 접이식 우산 하나면 충분하겠습니다.",
+)
+FOG_LINES = (
+    "안개가 끼겠습니다. 출근길 차간거리 넉넉히 두세요.",
+    "안개로 시야가 나쁘겠습니다. 평소보다 일찍 나서시는 편이 좋습니다.",
+    "안개가 짙겠습니다. 운전하신다면 속도를 줄여 주세요.",
 )
 CHILLY_LINES = (
     "아침 최저 {t:.0f}도로 쌀쌀합니다. 출근길 겉옷 하나 걸치시면 딱 좋겠습니다.",
@@ -222,14 +234,17 @@ def build_advice(days, narratives=None) -> list[Advice]:
         days_text = ", ".join(f"*{d.date:%m/%d}*" for d in rainy[:3])
         out.append(Advice(
             ":umbrella_with_rain_drops:",
-            f"{days_text}에 비 소식이 있어요. 나가시기 전에 우산 꼭 챙기세요.",
+            _pick(RAIN_LINES, rainy[0].date).format(days=days_text),
         ))
 
     # 4) 예보관이 짚은 특이사항 — 수치로는 안 잡히는 것 (풍랑·건조·태풍 등)
+    ref = usable[0].date if usable else dt.date.today()
     for line in narratives or []:
         for keyword, (emoji, tip) in SPECIAL.items():
             if keyword in line:
-                out.append(Advice(emoji, tip))
+                # 변형이 준비된 항목은 돌려 쓰고, 나머지는 고정 문구 그대로.
+                out.append(Advice(emoji, _pick(SPECIAL_LINES[keyword], ref)
+                                  if keyword in SPECIAL_LINES else tip))
                 break
         else:
             continue
@@ -237,6 +252,9 @@ def build_advice(days, narratives=None) -> list[Advice]:
 
     return out[:3]      # 너무 많으면 잔소리가 된다
 
+
+# 변형 문구가 있는 특이사항. 없는 키는 SPECIAL 의 문장을 그대로 쓴다.
+SPECIAL_LINES: dict[str, tuple[str, ...]] = {"안개": FOG_LINES}
 
 SPECIAL: dict[str, tuple[str, str]] = {
     "태풍": (":cyclone:", "태풍 영향이 예보돼 있어요. 이동 시간 넉넉히 잡으시고 창문 주변도 정리해 두세요."),

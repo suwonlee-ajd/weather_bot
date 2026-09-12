@@ -1,4 +1,4 @@
-# 주간 게시 (타이머가 부르는 일회성 실행)
+# 주간 날씨 (타이머가 부르는 일회성 반복 실행)
 [Unit]
 Description=Weekly Weather - Monday post
 After=network-online.target
@@ -9,6 +9,6 @@ Type=oneshot
 WorkingDirectory=/home/ajung/workspace/weather_bot
 EnvironmentFile=/home/ajung/workspace/weather_bot/.env
 Environment=TZ=Asia/Seoul
-ExecStart=/home/ajung/workspace/weather_bot/deploy/run.sh
+ExecStart=/home/ajung/workspace/weather_bot/deploy/run-weekly.sh
 StandardOutput=journal
 StandardError=journal

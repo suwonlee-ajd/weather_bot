@@ -1,8 +1,8 @@
 #!/bin/bash
-# .env 를 환경변수로 올리는 공용 로더. run.sh 와 mention-local.sh 가 함께 쓴다.
+# .env 를 환경변수로 올리는 공용 로더. run-weekly.sh 와 run-mention.sh 가 함께 쓴다.
 #
 # 이미 환경에 있는 값은 .env 로 덮어쓰지 않는다. 덕분에
-#   REGION=경남 ./deploy/run.sh --dry-run
+#   REGION=경남 ./deploy/run-weekly.sh --dry-run
 # 처럼 한 번만 다르게 돌려볼 수 있고, CI 에서는 Secrets 가 그대로 이긴다.
 #
 # 셸 파일이 아니라 단순 KEY=값 목록으로 다룬다 — 따옴표 제거나 변수 확장을 하지 않는다.

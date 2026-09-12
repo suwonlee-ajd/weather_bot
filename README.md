@@ -277,8 +277,8 @@ src/config.py               환경변수 → 설정 객체
 src/logsetup.py             로그 초기화 (loguru 단일 출구 + 표준 logging 브리지)
 src/retention.py            보존 기간 지난 산출물 정리
 bin/cleanup.py              data/ · logs/ 수동 정리 (--dry-run 먼저)
-deploy/_env.sh              .env 로더 (run.sh · run-mention.sh 공용)
-deploy/run.sh               주간 게시 진입점
+deploy/_env.sh              .env 로더 (run-weekly.sh · run-mention.sh 공용)
+deploy/run-weekly.sh        주간 게시 진입점 (월 1회, 끝나면 종료)
 deploy/run-mention.sh       멘션 봇 진입점
 deploy/DEPLOY.md            슬랙 콘솔 설정 + 서버(systemd) 배포 가이드
 deploy/weather-*.service    systemd 유닛 (멘션 상시 / 주간 게시 / 정리 + 각 타이머)

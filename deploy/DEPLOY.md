@@ -224,7 +224,7 @@ systemctl --user list-timers 'weather-*'         # 다음 실행 시각
 systemctl --user start weather-weekly.service    # 게시를 지금 한 번
 
 # 주 중간에 «다음 주» 결과만 미리 보기 (슬랙 전송 없음)
-./deploy/run.sh --dry-run --week-offset 1 --no-wait
+./deploy/run-weekly.sh --dry-run --week-offset 1 --no-wait
 ```
 
 > 주 중간에 `weather-weekly.service` 를 그냥 돌리면 «기온을 얻지 못해» 로 실패한다.

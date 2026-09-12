@@ -5,7 +5,6 @@
 거기 적혀 있다. 사람이 쓰는 답변과 이 파일이 내는 문구가 따로 놀면 봇이 둘로
 보인다. 스킬은 Claude Code 가 읽고, 이 파일은 런타임이 읽을 뿐 기준은 하나다.
 
-
 일반 예보와 다르게 "그래서 뭘 하면 되는지"를 한두 줄 덧붙이는 것이 목적이다.
 규칙 기반이라 비용이 0 이고, 근거가 되는 수치가 없으면 그냥 말하지 않는다 —
 지어낸 조언은 안 하느니만 못하다.
@@ -31,6 +30,11 @@ def _pick(options: tuple[str, ...], date: dt.date) -> str:
     return options[date.toordinal() % len(options)]
 
 
+def _days_text(ds) -> str:
+    """날짜 몇 개를 슬랙 볼드로 묶어 적는다. 셋까지만 — 그 이상은 읽히지 않는다."""
+    return ", ".join(f"*{d.date:%m/%d}*" for d in ds[:3])
+
+
 SPREAD_LINES = (
     "일교차가 {gap:.0f}도까지 벌어집니다. 겉옷 하나 걸치시고 환절기 감기 조심하세요.",
     "아침저녁으로 {gap:.0f}도 차이가 납니다. 낮 기준으로만 입으면 아침에 춥습니다.",
@@ -52,6 +56,11 @@ COLD_LINES = (
     "아침 기온이 {t:.0f}도입니다. 장갑과 목도리까지 챙기시는 편이 좋습니다.",
     "{t:.0f}도까지 떨어지는 아침입니다. 얇게 여러 겹 껴입으면 덜 춥습니다.",
 )
+CHILLY_LINES = (
+    "아침 최저 {t:.0f}도로 쌀쌀합니다. 출근길 겉옷 하나 걸치시면 딱 좋겠습니다.",
+    "아침 공기가 {t:.0f}도로 서늘합니다. 얇은 겉옷 하나면 충분하겠습니다.",
+    "{t:.0f}도 아침이라 초반에 손이 시립니다. 가벼운 겉옷을 권합니다.",
+)
 RAIN_LINES = (
     "{days}에 비 소식이 있어요. 나가시기 전에 우산 꼭 챙기세요.",
     "{days}에 비가 옵니다. 우산 없이 나서면 곤란하겠습니다.",
@@ -63,23 +72,26 @@ FOG_LINES = (
     "안개로 시야가 나쁘겠습니다. 평소보다 일찍 나서시는 편이 좋습니다.",
     "안개가 짙겠습니다. 운전하신다면 속도를 줄여 주세요.",
 )
-CHILLY_LINES = (
-    "아침 최저 {t:.0f}도로 쌀쌀합니다. 출근길 겉옷 하나 걸치시면 딱 좋겠습니다.",
-    "아침 공기가 {t:.0f}도로 서늘합니다. 얇은 겉옷 하나면 충분하겠습니다.",
-    "{t:.0f}도 아침이라 초반에 손이 시립니다. 가벼운 겉옷을 권합니다.",
-)
 
 # 임계값 — «매일 걸리는 조언은 조언이 아니다» 를 기준으로 잡는다.
 # 9월 전국 예보로 재어 보니 WARM_DAY=28 은 이레 내내, BIG_SPREAD=10 은 닷새가
 # 걸렸다. 부산은 7일 중 7일이 «일교차+더움» 이라 매일 같은 말이 나갔다.
-# 특보 기준(폭염 33, 한파 -12)은 기상청 값을 그대로 두고, 그 아래 «조금 덥다»
-# 류만 실제로 눈에 띄는 날에 걸리도록 올렸다.
-BIG_SPREAD = 12.0      # 일교차 (도). 10 은 환절기 내내 참이라 12 로.
-COLD_MORNING = 5.0     # 아침 최저 (도) — 한파 대비, 기상청 기준 유지
-HEAT_WAVE = 33.0       # 폭염주의보 기준 (도) — 유지
-WARM_DAY = 30.0        # 28 은 9월 내내 참이었다. 30 이면 '오늘 덥다' 가 맞다
+#
+# 아래 값들은 «평년보다 더운가» 를 절대 기온으로 흉내 낸 대용물이다. 진짜
+# 기준은 평년 대비여야 한다 — 9월의 30도는 짚을 만하지만 8월의 30도는 예사고,
+# 1월의 일교차 10도는 크지만 10월의 12도는 그렇지 않다. 그래서 이 숫자들은
+# «맞는 값» 이 아니라 «지금 계절에 그럭저럭 맞는 값» 이고, 철이 바뀌면 또 어긋난다.
+# 기상청 서술에 평년값(평년 최저/최고)이 들어 있으니 나중에 그걸 읽어
+# 편차로 바꾸는 것이 제대로 된 수정이다. 그때까지의 임시 기준이다.
+#
+# 특보 기준(HEAT_WAVE·COLD_MORNING)은 다르다. 기상청이 정한 정의라 절대값이
+# 맞고, 계절에 따라 움직여서도 안 된다.
+BIG_SPREAD = 12.0      # 일교차 (도) — 평년 대비의 대용물
+COLD_MORNING = 5.0     # 아침 최저 (도) — 한파 대비, 기상청 기준이므로 고정
+HEAT_WAVE = 33.0       # 폭염주의보 기준 (도) — 기상청 기준이므로 고정
+WARM_DAY = 30.0        # 낮 기온 (도) — 평년 대비의 대용물
 RAIN_LIKELY = 60       # 강수확률 (%)
-CHILLY_MORNING = 10.0  # 12 는 가을 아침 대부분이라 10 으로
+CHILLY_MORNING = 10.0  # 아침 최저 (도) — 평년 대비의 대용물
 
 
 # 사용자가 묻는 관심사. 같은 예보라도 무엇을 물었느냐에 따라 짚어줄 것이 다르다.
@@ -127,12 +139,11 @@ def topic_advice(topic: str, days) -> list[Advice]:
     clear = [d for d in usable if "맑" in (d.sky or "") and (d.pop or 0) < 30]
     coldest = min(usable, key=lambda d: d.tmin_lo)
     hottest = max(usable, key=lambda d: d.tmax_hi)
-    days_text = lambda ds: ", ".join(f"*{d.date:%m/%d}*" for d in ds[:3])  # noqa: E731
 
     if topic == "우산":
         if rainy:
             return [Advice(":umbrella_with_rain_drops:",
-                           f"{days_text(rainy)}에 비 소식이 있어요. 우산 챙기시는 게 좋겠습니다.")]
+                           f"{_days_text(rainy)}에 비 소식이 있어요. 우산 챙기시는 게 좋겠습니다.")]
         return [Advice(":sunny:", "당분간 비 소식은 없습니다. 우산은 두고 다니셔도 되겠어요.")]
 
     if topic == "옷차림":
@@ -154,15 +165,15 @@ def topic_advice(topic: str, days) -> list[Advice]:
                               "무난합니다. 가볍게 입으셔도 되겠어요."))
         if rainy:
             out.append(Advice(":umbrella_with_rain_drops:",
-                              f"{days_text(rainy)}에는 비가 있어 신발도 신경 쓰시면 좋겠습니다."))
+                              f"{_days_text(rainy)}에는 비가 있어 신발도 신경 쓰시면 좋겠습니다."))
         return out
 
     if topic == "야외":
         if rainy:
             fine = [d for d in usable if d not in rainy]
-            tip = f"{days_text(rainy)}에 비 소식이 있습니다."
+            tip = f"{_days_text(rainy)}에 비 소식이 있습니다."
             if fine:
-                tip += f" {days_text(fine)}이 나아 보여요."
+                tip += f" {_days_text(fine)}이 나아 보여요."
             return [Advice(":umbrella_with_rain_drops:", tip)]
         if hottest.tmax_hi >= HEAT_WAVE:
             return [Advice(":sun_with_face:",
@@ -170,19 +181,19 @@ def topic_advice(topic: str, days) -> list[Advice]:
                            "이른 아침이나 해질 무렵이 낫겠어요.")]
         best = clear or usable
         return [Advice(":sunny:",
-                       f"{days_text(best)}이 좋겠습니다. "
+                       f"{_days_text(best)}이 좋겠습니다. "
                        f"아침 {coldest.tmin_lo:.0f}도로 쌀쌀하니 겉옷 하나 챙기세요.")]
 
     if topic in ("빨래", "세차"):
         if rainy:
             fine = [d for d in usable if d not in rainy]
-            tip = f"{days_text(rainy)}에 비 소식이 있어 피하시는 게 좋겠습니다."
+            tip = f"{_days_text(rainy)}에 비 소식이 있어 피하시는 게 좋겠습니다."
             if fine:
-                tip += f" {days_text(fine)}을 노려보세요."
+                tip += f" {_days_text(fine)}을 노려보세요."
             return [Advice(":umbrella_with_rain_drops:", tip)]
         if clear:
             what = "잘 마르겠습니다" if topic == "빨래" else "괜찮겠습니다"
-            return [Advice(":sunny:", f"{days_text(clear)}이 맑아 {what}.")]
+            return [Advice(":sunny:", f"{_days_text(clear)}이 맑아 {what}.")]
         return [Advice(":cloud:", "당분간 흐리지만 비 소식은 없습니다.")]
 
     return []
@@ -236,20 +247,17 @@ def build_advice(days, narratives=None) -> list[Advice]:
 
     # 3) 비
     if rainy:
-        days_text = ", ".join(f"*{d.date:%m/%d}*" for d in rainy[:3])
         out.append(Advice(
             ":umbrella_with_rain_drops:",
-            _pick(RAIN_LINES, rainy[0].date).format(days=days_text),
+            _pick(RAIN_LINES, rainy[0].date).format(days=_days_text(rainy)),
         ))
 
     # 4) 예보관이 짚은 특이사항 — 수치로는 안 잡히는 것 (풍랑·건조·태풍 등)
-    ref = usable[0].date if usable else dt.date.today()
+    ref = usable[0].date          # usable 은 위 가드로 비어 있지 않다
     for line in narratives or []:
-        for keyword, (emoji, tip) in SPECIAL.items():
+        for keyword, (emoji, lines) in SPECIAL.items():
             if keyword in line:
-                # 변형이 준비된 항목은 돌려 쓰고, 나머지는 고정 문구 그대로.
-                out.append(Advice(emoji, _pick(SPECIAL_LINES[keyword], ref)
-                                  if keyword in SPECIAL_LINES else tip))
+                out.append(Advice(emoji, _pick(lines, ref)))
                 break
         else:
             continue
@@ -258,16 +266,15 @@ def build_advice(days, narratives=None) -> list[Advice]:
     return out[:3]      # 너무 많으면 잔소리가 된다
 
 
-# 변형 문구가 있는 특이사항. 없는 키는 SPECIAL 의 문장을 그대로 쓴다.
-SPECIAL_LINES: dict[str, tuple[str, ...]] = {"안개": FOG_LINES}
-
-SPECIAL: dict[str, tuple[str, str]] = {
-    "태풍": (":cyclone:", "태풍 영향이 예보돼 있어요. 이동 시간 넉넉히 잡으시고 창문 주변도 정리해 두세요."),
-    "풍랑": (":ocean:", "해상에 풍랑이 일겠습니다. 해안가는 오늘만큼은 피해 주세요."),
-    "너울": (":ocean:", "너울성 파도가 높겠습니다. 방파제·갯바위 근처는 정말 위험합니다."),
-    "건조": (":droplet:", "건조한 날이 이어집니다. 실내 가습하시고 화기 취급도 조심하세요."),
-    "안개": (":fog:", "안개가 끼겠습니다. 출근길 차간거리 넉넉히 두세요."),
-    "황사": (":mask:", "황사가 예보돼 있어요. 나가실 때 마스크 챙기시는 게 좋겠습니다."),
-    "한파": (":snowflake:", "한파가 예보돼 있습니다. 수도 동파 주의하시고 따뜻하게 입으세요."),
-    "폭염": (":sun_with_face:", "폭염이 예보돼 있어요. 한낮 야외 활동은 잠시 미루시는 게 좋겠습니다."),
+# 값은 (이모지, 문구 후보) — 문구가 하나뿐이면 1-튜플로 둔다. 덕분에 변형을
+# 더할 때 이 표만 고치면 되고, _pick 은 길이 1 에서도 그대로 동작한다.
+SPECIAL: dict[str, tuple[str, tuple[str, ...]]] = {
+    "태풍": (":cyclone:", ("태풍 영향이 예보돼 있어요. 이동 시간 넉넉히 잡으시고 창문 주변도 정리해 두세요.",)),
+    "풍랑": (":ocean:", ("해상에 풍랑이 일겠습니다. 해안가는 오늘만큼은 피해 주세요.",)),
+    "너울": (":ocean:", ("너울성 파도가 높겠습니다. 방파제·갯바위 근처는 정말 위험합니다.",)),
+    "건조": (":droplet:", ("건조한 날이 이어집니다. 실내 가습하시고 화기 취급도 조심하세요.",)),
+    "안개": (":fog:", FOG_LINES),
+    "황사": (":mask:", ("황사가 예보돼 있어요. 나가실 때 마스크 챙기시는 게 좋겠습니다.",)),
+    "한파": (":snowflake:", ("한파가 예보돼 있습니다. 수도 동파 주의하시고 따뜻하게 입으세요.",)),
+    "폭염": (":sun_with_face:", ("폭염이 예보돼 있어요. 한낮 야외 활동은 잠시 미루시는 게 좋겠습니다.",)),
 }

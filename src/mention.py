@@ -27,8 +27,8 @@ from .logsetup import setup
 from .dong import DongError, fetch_dong, search_dong
 from .outlook import OutlookError, fetch_outlook
 from .kma_scrape import (
-    NATIONWIDE, REGION_HELP, ScrapeError, extract_region, lines_for_dates,
-    resolve_region, scrape_range,
+    NATIONWIDE, REGION_HELP, ScrapeError, _resolve_date, extract_region,
+    lines_for_dates, resolve_region, scrape_range,
 )
 
 log = logging.getLogger("weather-mention")
@@ -140,6 +140,12 @@ PAST_RE = re.compile(
 TODAY_RE = re.compile(r"오늘|지금|현재|금일")
 TOMORROW_RE = re.compile(r"내일|명일|모레")
 WEEKEND_RE = re.compile(r"주말|토일|토요일|일요일")
+# "9월 18일", "18일", "9/18", "09-18" 처럼 날짜를 콕 집어 묻는 경우.
+# 월이 없으면 오늘 기준 가까운 쪽으로 해석한다(_resolve_date).
+EXPLICIT_DATE_RE = re.compile(
+    r"(?:(\d{1,2})\s*월\s*)?(\d{1,2})\s*일(?!\s*간)"      # 9월 18일 / 18일
+    r"|(?:(\d{1,2})\s*[/-]\s*(\d{1,2}))(?!\d)"            # 9/18 · 09-18
+)
 # 지역 해석 전에 걷어낼 말. 조언 표현("뭐 입지", "우산 필요해")이 남으면
 # 지역으로 오해해 "아는 지역이 아닙니다" 로 빠진다.
 NOISE_RE = re.compile(
@@ -255,6 +261,40 @@ def _outlook_reply(region, query: str) -> str:
     return "\n".join(lines)
 
 
+def _explicit_date(query: str, today: dt.date) -> dt.date | None:
+    """"9월 18일" / "18일" / "9/18" 을 실제 날짜로. 없으면 None.
+
+    월을 안 적었으면 오늘 기준 가장 가까운 같은 일(日)로 본다 — 월말에 "2일"을
+    물으면 다음 달이다. _resolve_date 가 그 계산을 이미 갖고 있다.
+
+    예보가 없는 과거·먼 미래는 여기서 걸러내지 않는다. 뒤에서 자료가 없으면
+    "예보 없음" 으로 답하므로, 날짜 해석만 하고 판단은 그쪽에 맡긴다.
+    """
+    m = EXPLICIT_DATE_RE.search(query)
+    if not m:
+        return None
+    month_s, day_s, slash_m, slash_d = m.groups()
+    if slash_m and slash_d:
+        month, day = int(slash_m), int(slash_d)
+    else:
+        month, day = (int(month_s) if month_s else None), int(day_s)
+    if not 1 <= day <= 31:
+        return None
+    if month is None:
+        return _resolve_date(day, today)          # 가까운 쪽으로
+    if not 1 <= month <= 12:
+        return None
+    # 월까지 적었으면 그 월로. 해가 바뀌는 경계(12월에 "1월 5일")를 살핀다.
+    for year in (today.year, today.year + 1):
+        try:
+            cand = dt.date(year, month, day)
+        except ValueError:
+            return None
+        if cand >= today - dt.timedelta(days=1):
+            return cand
+    return None
+
+
 def build_reply(text: str, now: dt.datetime | None = None) -> str:
     now = now or dt.datetime.now(tz=KST)
     query = MENTION_RE.sub(" ", text).strip()
@@ -303,7 +343,10 @@ def build_reply(text: str, now: dt.datetime | None = None) -> str:
     days = FORWARD_DAYS
     monday = now.date() - dt.timedelta(days=now.weekday())
     weekend = bool(WEEKEND_RE.search(query))
-    if NEXT_WEEK_RE.search(query):
+    explicit = _explicit_date(query, now.date())
+    if explicit is not None:
+        start, title, days = explicit, f"{explicit:%-m월 %-d일}", 1
+    elif NEXT_WEEK_RE.search(query):
         start, title = monday + dt.timedelta(weeks=1), "다음 주"
     elif THIS_WEEK_RE.search(query):
         start, title = monday, "이번 주"
@@ -317,7 +360,8 @@ def build_reply(text: str, now: dt.datetime | None = None) -> str:
         start, title = now.date(), f"앞으로 {FORWARD_DAYS}일"
 
     # 탐지에 쓴 바로 그 패턴으로 지운다 — 목록이 두 군데로 갈라지지 않게.
-    for pattern in (NEXT_WEEK_RE, THIS_WEEK_RE, TODAY_RE, TOMORROW_RE, NOISE_RE):
+    for pattern in (EXPLICIT_DATE_RE, NEXT_WEEK_RE, THIS_WEEK_RE,
+                    TODAY_RE, TOMORROW_RE, NOISE_RE):
         query = pattern.sub(" ", query)
     query = query.strip()
 

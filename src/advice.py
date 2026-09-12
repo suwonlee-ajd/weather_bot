@@ -13,7 +13,44 @@
 """
 from __future__ import annotations
 
+import datetime as dt
 from dataclasses import dataclass
+
+# 같은 조건이라도 문장을 돌려 쓴다. 날씨는 매일 비슷해서 문구가 하나뿐이면
+# 날짜와 숫자만 바뀐 같은 말이 매번 나간다. 고르는 기준은 날짜라서 —
+#   * 같은 날 두 번 물어도 같은 답이 나오고(일관성),
+#   * 날이 바뀌면 표현이 바뀐다.
+# 무작위로 고르면 같은 질문에 다른 답이 나와 봇이 미덥지 않아 보인다.
+def _pick(options: tuple[str, ...], date: dt.date) -> str:
+    return options[date.toordinal() % len(options)]
+
+
+SPREAD_LINES = (
+    "일교차가 {gap:.0f}도까지 벌어집니다. 겉옷 하나 걸치시고 환절기 감기 조심하세요.",
+    "아침저녁으로 {gap:.0f}도 차이가 납니다. 낮 기준으로만 입으면 아침에 춥습니다.",
+    "낮과 아침의 기온차가 {gap:.0f}도입니다. 얇은 겉옷을 챙기시면 하루가 편합니다.",
+    "{gap:.0f}도 일교차라 체감이 크게 달라집니다. 벗기 쉬운 옷으로 맞춰 입으세요.",
+)
+HEAT_LINES = (
+    "낮 최고 {t:.0f}도입니다. 한낮 바깥일은 피하시고 물 자주 드세요. 온열질환 주의 구간입니다.",
+    "낮에 {t:.0f}도까지 오릅니다. 가장 더운 한두 시는 실내에서 보내시는 편이 좋습니다.",
+    "{t:.0f}도 더위입니다. 그늘과 물을 가까이 두시고 무리한 일정은 미루세요.",
+)
+WARM_LINES = (
+    "낮에는 {t:.0f}도까지 올라 덥습니다. 얇게 입고 수분 챙기세요.",
+    "낮 기온이 {t:.0f}도로 제법 높습니다. 통풍 잘 되는 옷이 좋겠습니다.",
+    "한낮은 {t:.0f}도라 움직이면 덥습니다. 물 한 병 챙기시면 든든합니다.",
+)
+COLD_LINES = (
+    "아침 최저 {t:.0f}도까지 내려갑니다. 따뜻하게 껴입으시고 실내 온도도 살펴 주세요.",
+    "아침 기온이 {t:.0f}도입니다. 장갑과 목도리까지 챙기시는 편이 좋습니다.",
+    "{t:.0f}도까지 떨어지는 아침입니다. 얇게 여러 겹 껴입으면 덜 춥습니다.",
+)
+CHILLY_LINES = (
+    "아침 최저 {t:.0f}도로 쌀쌀합니다. 출근길 겉옷 하나 걸치시면 딱 좋겠습니다.",
+    "아침 공기가 {t:.0f}도로 서늘합니다. 얇은 겉옷 하나면 충분하겠습니다.",
+    "{t:.0f}도 아침이라 초반에 손이 시립니다. 가벼운 겉옷을 권합니다.",
+)
 
 BIG_SPREAD = 10.0      # 일교차 (도)
 COLD_MORNING = 5.0     # 아침 최저 (도)
@@ -148,33 +185,31 @@ def build_advice(days, narratives=None) -> list[Advice]:
         if gap >= BIG_SPREAD:
             out.append(Advice(
                 ":thermometer:",
-                f"*{worst.date:%m/%d}* 일교차가 {gap:.0f}도까지 벌어집니다. "
-                "겉옷 하나 걸치시고 환절기 감기 조심하세요.",
+                f"*{worst.date:%m/%d}* " + _pick(SPREAD_LINES, worst.date).format(gap=gap),
             ))
 
     # 2) 추위 / 더위 — 둘 다 해당하면 더 극단적인 쪽만
     if coldest.tmin_lo <= COLD_MORNING:
         out.append(Advice(
             ":cold_face:",
-            f"*{coldest.date:%m/%d}* 아침 최저 {coldest.tmin_lo:.0f}도까지 내려갑니다. "
-            "따뜻하게 껴입으시고 실내 온도도 살펴 주세요.",
+            f"*{coldest.date:%m/%d}* "
+            + _pick(COLD_LINES, coldest.date).format(t=coldest.tmin_lo),
         ))
     elif hottest.tmax_hi >= HEAT_WAVE:
         out.append(Advice(
             ":sun_with_face:",
-            f"*{hottest.date:%m/%d}* 낮 최고 {hottest.tmax_hi:.0f}도입니다. "
-            "한낮 바깥일은 피하시고 물 자주 드세요. 온열질환 주의 구간입니다.",
+            f"*{hottest.date:%m/%d}* "
+            + _pick(HEAT_LINES, hottest.date).format(t=hottest.tmax_hi),
         ))
     elif hottest.tmax_hi >= WARM_DAY:
         out.append(Advice(
             ":sunny:",
-            f"낮에는 {hottest.tmax_hi:.0f}도까지 올라 덥습니다. 얇게 입고 수분 챙기세요.",
+            _pick(WARM_LINES, hottest.date).format(t=hottest.tmax_hi),
         ))
     elif coldest.tmin_lo <= CHILLY_MORNING:
         out.append(Advice(
             ":fallen_leaf:",
-            f"아침 최저 {coldest.tmin_lo:.0f}도로 쌀쌀합니다. "
-            "출근길 겉옷 하나 걸치시면 딱 좋겠습니다.",
+            _pick(CHILLY_LINES, coldest.date).format(t=coldest.tmin_lo),
         ))
 
     # 3) 비

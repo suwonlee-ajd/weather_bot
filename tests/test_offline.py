@@ -275,9 +275,12 @@ def test_advice() -> None:
         day(base, 18, 33), day(base + dt.timedelta(days=1), 20, 26, "비", 80),
     ])
     joined = " ".join(t.text for t in tips)
-    assert "일교차" in joined and "감기" in joined, joined
-    assert "온열질환" in joined, joined
-    assert "우산" in joined, joined
+    # 문구는 날짜에 따라 돌려 쓰므로(advice.py _pick) 특정 문장에 묶지 않는다.
+    # 어떤 조언이 나왔는지는 이모지가 가리킨다.
+    emojis = {t.emoji for t in tips}
+    assert ":thermometer:" in emojis, joined          # 일교차
+    assert ":sun_with_face:" in emojis, joined        # 폭염
+    assert "우산" in joined, joined                    # 비 문구는 아직 하나뿐
 
     # 한파는 폭염보다 우선하고, 둘이 같이 나오지 않는다
     # 한파 조언이 나오고 폭염 조언과 섞이지 않으면 된다 (문구 자체에는 묶지 않는다)

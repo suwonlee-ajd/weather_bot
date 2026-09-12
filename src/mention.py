@@ -20,6 +20,8 @@ import threading
 import time
 
 from .advice import build_advice, detect_topic, topic_advice
+from dataclasses import replace
+
 from .cache import get_or_set
 from .config import KST
 from .forecast import day_label, range_text
@@ -156,6 +158,8 @@ NOISE_RE = re.compile(
     re.I,
 )
 FORWARD_DAYS = 7
+# 캐시에 담을 구간. 광역 예보의 상한(오늘~10일)이라 어떤 질문이든 이 안에 든다.
+MAX_FORECAST_DAYS = 10
 
 
 def _dong_advice(summary) -> list:
@@ -394,12 +398,18 @@ def build_reply(text: str, now: dt.datetime | None = None) -> str:
             )
         return f"'{query}' 는 제가 아는 지역이 아닙니다. {NO_EMOJI}\n\n{help_text()}"
 
-    # scrape_range 는 start/num_days 와 무관하게 두 페이지를 통째로 받아온다.
-    # 그래서 캐시 키는 지역만으로 충분하다 — 기본/이번주/다음주가 한 항목을 나눠 쓴다.
+    # 캐시는 지역 하나당 한 항목이다. 그러려면 담기는 값이 «물어본 기간» 과
+    # 무관해야 한다 — scrape_range 는 window 로 잘라 돌려주므로, 자르기 전의
+    # 넓은 구간(오늘부터 열흘)을 캐시하고 좁히는 일은 아래에서 한다.
+    # 잘린 값을 캐시하면 «다음 주» 를 먼저 물은 뒤 «앞으로 7일» 을 물었을 때
+    # 오늘·내일이 빠진 채로 나온다.
     try:
-        scrape = get_or_set(
-            region.key, CACHE_TTL_SEC, lambda: scrape_range(now, start, FORWARD_DAYS, region)
+        cached = get_or_set(
+            region.key, CACHE_TTL_SEC,
+            lambda: scrape_range(now, now.date(), MAX_FORECAST_DAYS, region),
         )
+        window = {start + dt.timedelta(days=i) for i in range(days)}
+        scrape = replace(cached, days={d: v for d, v in cached.days.items() if d in window})
     except ScrapeError as exc:
         log.warning("수집 실패: %s", exc)
         return "기상청 예보를 가져오지 못했습니다. 잠시 뒤 다시 불러 주세요."

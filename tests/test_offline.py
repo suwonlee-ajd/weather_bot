@@ -260,6 +260,41 @@ def test_topic_advice() -> None:
     print("[ok] 활동별 조언 — 의도 인식, 문장에서 지역 추출, 근거 없으면 침묵")
 
 
+def test_cache_shared_across_spans() -> None:
+    """지역 캐시 하나를 «이번 주»·«다음 주»·«기본» 이 나눠 써도 날이 빠지지 않는다."""
+    import src.mention as mention
+    from src.cache import clear
+    from src.kma_scrape import Narrative, Scrape, ScrapedDay
+
+    base = dt.date(2026, 9, 12)
+    full = {base + dt.timedelta(days=i): ScrapedDay(
+        date=base + dt.timedelta(days=i), tmin_lo=15.0, tmin_hi=20.0,
+        tmax_lo=25.0, tmax_hi=28.0) for i in range(10)}
+
+    def fake_scrape(now, start, span, region):
+        # 진짜 scrape_range 처럼 요청 구간만큼 잘라서 돌려준다
+        window = {start + dt.timedelta(days=i) for i in range(span)}
+        return Scrape(days={d: v for d, v in full.items() if d in window},
+                      narratives=[Narrative("통보문", "", None, [])])
+
+    orig = mention.scrape_range
+    mention.scrape_range = fake_scrape
+    try:
+        now = dt.datetime(2026, 9, 12, 9, 0, tzinfo=KST)   # 토요일
+        clear()
+        # «다음 주» 를 먼저 물어 캐시를 채운 뒤 «기본(오늘부터 7일)» 을 묻는다.
+        mention.build_reply("<@U123> 부산 다음주", now)
+        reply = mention.build_reply("<@U123> 부산 날씨", now)
+    finally:
+        mention.scrape_range = orig
+        clear()
+
+    # 캐시에 다음 주만 담겨 있으면 오늘·내일이 통째로 사라진다 (실제로 그랬다)
+    for day in ("09/12", "09/13", "09/18"):
+        assert day in reply, (day, reply)
+    print("[ok] 캐시 공유 — 기간을 바꿔 물어도 날이 빠지지 않는다")
+
+
 def test_explicit_date() -> None:
     """"9월 18일" 처럼 날짜를 콕 집으면 그 하루만 답한다."""
     from src.mention import _explicit_date
@@ -413,10 +448,10 @@ def test_mention_parsing() -> None:
             clear()
             build_reply(text, now)
 
-        # 기본은 '오늘부터 7일'. 주 중간에 '이번 주'로 잡으면 지난 요일 때문에 이틀치만 나온다.
-        assert calls[0] == ("경남", dt.date(2026, 9, 12), 7), calls[0]
-        assert calls[1] == ("제주", dt.date(2026, 9, 14), 7), calls[1]   # 다음 주 월요일
-        assert calls[2] == ("강원", dt.date(2026, 9, 7), 7), calls[2]    # 이번 주 월요일
+        # 수집은 늘 «오늘부터 열흘» 이다 — 지역당 캐시 한 항목을 나눠 쓰기 위해서다.
+        # 어느 기간을 물었는지는 아래 show 검사가 본다.
+        assert [c[0] for c in calls] == ["경남", "제주", "강원"], calls
+        assert all(c[1] == dt.date(2026, 9, 12) and c[2] == 10 for c in calls), calls
 
         # 광역에도 동에도 없는 말이면 긁지 않고 안내한다 (동 검색은 격리)
         import src.dong as dong_mod
@@ -485,6 +520,7 @@ if __name__ == "__main__":
     test_greeting()
     test_long_range_routing()
     test_topic_advice()
+    test_cache_shared_across_spans()
     test_explicit_date()
     test_phrase_rotation()
     test_advice()

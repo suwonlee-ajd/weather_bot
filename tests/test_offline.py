@@ -16,7 +16,7 @@ os.environ.setdefault("SLACK_BOT_TOKEN", "xoxb-test")
 os.environ.setdefault("SLACK_CHANNEL_ID", "C_TEST")
 
 from src.config import KST  # noqa: E402
-from src.forecast import DayForecast, Section, Source, WeekForecast  # noqa: E402
+from src.forecast import DayForecast, WeekForecast  # noqa: E402
 from src.kma_scrape import (  # noqa: E402
     Narrative, ScrapedDay, _resolve_date, find_region, resolve_region,
 )
@@ -203,7 +203,8 @@ def test_long_range_routing() -> None:
         assert outlook_calls, "전망을 조회하지 않았습니다"
 
         # 지역을 함께 주면 그 지역 전망
-        clear(); outlook_calls.clear()
+        clear()
+        outlook_calls.clear()
         build_reply("<@U1> 다음 달 부산", now)
         assert outlook_calls == ["경남"], outlook_calls
 
@@ -213,14 +214,16 @@ def test_long_range_routing() -> None:
             assert "예보하지 않습니다" in build_reply(f"<@U1> {q}", now)
 
         # 과거는 계절 표현과 겹쳐도 미래 전망으로 새지 않는다
-        clear(); outlook_calls.clear()
+        clear()
+        outlook_calls.clear()
         for q in ("지난 해 여름은 어땠어?", "작년 여름", "어제 서울", "지난주 부산"):
             reply = build_reply(f"<@U1> {q}", now)
             assert "지난 날씨는" in reply, f"{q}: {reply[:50]}"
         assert not outlook_calls, "과거 질문인데 전망을 조회했습니다"
 
         # '다음 주' 는 범위 안이라 평소대로
-        clear(); calls.clear()
+        clear()
+        calls.clear()
         build_reply("<@U1> 다음 주 부산", now)
         assert calls == ["경남"], calls
         print("[ok] 장기 요청 분기 — 1개월 전망 / 먼 미래 거절 / 주간 정상")

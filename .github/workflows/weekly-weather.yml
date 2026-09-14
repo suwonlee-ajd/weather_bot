@@ -1,11 +1,17 @@
 name: weekly-weather
 
+# 주간 게시는 서버(prod-server)의 systemd 타이머가 맡는다 —
+# deploy/weather-weekly.timer, 월 07:50 KST. 멘션 봇이 어차피 그 서버에
+# 상시로 떠 있고, 토큰도 한 곳에 모이기 때문이다.
+#
+# 그래서 schedule: 을 두지 않는다. 크론을 되살리면 타이머와 겹쳐 매주 두 번
+# 올라간다. 서버 대신 Actions 로 옮길 때에만 크론을 넣고, 그때는 서버에서
+#   systemctl --user disable --now weather-weekly.timer
+# 로 타이머를 먼저 끈다. 자세한 내용은 deploy/DEPLOY.md §4.
+#
+# workflow_dispatch 는 남겨 둔다 — 손으로 한 번 돌리거나 dry-run 으로
+# 결과만 확인할 때 쓴다(게시는 나가지 않는다).
 on:
-  schedule:
-    # 일 22:35 UTC = 월 07:35 KST. GitHub 크론은 최대 수십 분 지연될 수 있어
-    # 일부러 이르게 잡고, 스크립트가 POST_AT(08:00 KST)까지 대기한다.
-    # (이 워크플로 이름의 'weekly' 는 디렉터리가 아니라 '매주 1회 게시' 라는 작업을 가리킨다)
-    - cron: "35 22 * * 0"
   workflow_dispatch:
     inputs:
       dry_run:

@@ -141,14 +141,12 @@ sudo systemctl start weather-cleanup.service   # 정리도 같은 방식
 (`.github/workflows/weekly-weather.yml`, 일 22:35 UTC = 월 07:35 KST).
 **둘 다 살아 있으면 매주 두 번 올라간다.** 하나를 반드시 끈다.
 
-> **prod-server 현재 상태**: `weather-weekly.timer` 를 **일부러 켜지 않았다.**
-> 아직 리포에 커밋이 없어 워크플로가 깃허브에 올라가 있지 않고, 따라서 크론도
-> 돌지 않는다 — 즉 지금은 충돌이 없지만 **푸시하는 순간 생긴다.**
-> 아래에서 한쪽을 정한 뒤에 타이머를 켠다:
+> **prod-server 현재 상태**: **서버 타이머로 운영한다.** 2026-09-14 에
+> `weather-weekly.timer` 를 켰고(월 07:50), 같은 날 워크플로의 `schedule:`
+> 블록을 지웠다. 그래서 게시가 나가는 자리는 서버 한 곳뿐이다.
 >
-> ```bash
-> systemctl --user enable --now weather-weekly.timer   # 서버로 운영하기로 했다면
-> ```
+> 크론을 되살리면 그 순간부터 매주 두 번 올라간다. Actions 로 옮길 생각이면
+> 타이머를 먼저 끈다(`systemctl --user disable --now weather-weekly.timer`).
 
 서버로 운영한다면(권장 — 멘션 봇이 어차피 여기 있고, 토큰이 한 곳에 모인다):
 

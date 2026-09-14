@@ -145,7 +145,10 @@ def test_greeting() -> None:
     try:
         for greeting in ("안녕?", "하이", "너 누구야", "뭐해"):
             reply = build_reply(f"<@U1> {greeting}", now)
-            assert "날씨 알리미입니다" in reply, f"{greeting}: {reply[:40]}"
+            # 첫 인사말은 날짜에 따라 돌려 쓰므로(HELLO_LINES) 문장에 묶지 않는다.
+            # 자기소개인지는 뒤따르는 기능 안내로 가린다 — 그쪽은 고정이다.
+            assert "날씨 알리미" in reply, f"{greeting}: {reply[:40]}"
+            assert "동네예보" in reply, f"{greeting}: {reply[:80]}"
         assert not calls, "인사인데 예보를 수집했습니다"
 
         for thanks in ("고마워!", "감사합니다", "수고했어"):
@@ -318,12 +321,24 @@ def test_explicit_date() -> None:
 
 def test_phrase_rotation() -> None:
     """같은 조건이라도 날짜가 다르면 문구가 달라지고, 같은 날은 늘 같다."""
+    import src.advice as advice
     from src.advice import _pick, SPREAD_LINES
 
     base = dt.date(2026, 9, 13)
     got = {_pick(SPREAD_LINES, base + dt.timedelta(days=i))
            for i in range(len(SPREAD_LINES))}
     assert len(got) == len(SPREAD_LINES), got      # 연속 날짜면 모두 다른 문구
+
+    # 모든 문구 표가 같은 규칙을 따른다 — 하나만 손대고 나머지를 잊으면 여기서 걸린다.
+    # (topic_advice 쪽 표가 한동안 고정 문구로 남아 있었다)
+    tables = {n: v for n, v in vars(advice).items()
+              if n.endswith("_LINES") and isinstance(v, tuple)}
+    assert len(tables) >= 12, sorted(tables)
+    for name, lines in tables.items():
+        assert lines, name                          # 빈 표는 _pick 이 빈 문자열을 낸다
+        assert len(set(lines)) == len(lines), name  # 같은 문장이 두 번 들어가면 회전이 준다
+        rotated = {_pick(lines, base + dt.timedelta(days=i)) for i in range(len(lines))}
+        assert len(rotated) == len(lines), (name, rotated)
     # 한 바퀴 돌면 제자리 — 날짜에만 달린 값이어야 한다. 무작위로 바꾸면 깨진다.
     later = base + dt.timedelta(days=len(SPREAD_LINES))
     assert _pick(SPREAD_LINES, later) == _pick(SPREAD_LINES, base)

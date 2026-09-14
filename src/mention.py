@@ -19,7 +19,7 @@ import sys
 import threading
 import time
 
-from .advice import build_advice, detect_topic, topic_advice
+from .advice import _pick, build_advice, detect_topic, topic_advice
 from dataclasses import replace
 
 from .cache import get_or_set
@@ -85,10 +85,19 @@ def sky_emoji(sky: str | None) -> str:
             return emoji
     return sky
 
+# 첫 인사만 돌려 쓴다. 아래 기능 안내는 고정이다 — 무엇을 할 수 있는지가
+# 날마다 달리 읽히면 곤란하다.
+HELLO_LINES = (
+    "안녕하세요, 날씨 알리미입니다. :sunny:",
+    "반갑습니다, 날씨 알리미예요. :sunny:",
+    "안녕하세요. 날씨를 전해드리는 날씨 알리미입니다. :sunny:",
+)
+
+
 def about() -> str:
     me = self_mention()
     return (
-        "안녕하세요, 날씨 알리미입니다. :sunny:\n"
+        f"{_pick(HELLO_LINES, dt.datetime.now(tz=KST).date())}\n"
         "기상청 예보를 받아 매주 월요일 아침에 이번 주 날씨를 올리고,\n"
         "이렇게 불러 주시면 지역별 날씨도 바로 알려드려요.\n\n"
         "예를 들면 이렇게요 —\n"

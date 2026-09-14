@@ -90,6 +90,46 @@ FOG_LINES = (
 #
 # 특보 기준(HEAT_WAVE·COLD_MORNING)은 다르다. 기상청이 정한 정의라 절대값이
 # 맞고, 계절에 따라 움직여서도 안 된다.
+# --- 관심사별 문구 (topic_advice) ---
+# build_advice 와 같은 방식으로 날짜에 따라 돌려 쓴다. 여기만 문구가 하나씩
+# 박혀 있으면, «우산 가져갈까?» 를 매일 묻는 사람에게는 같은 문장이 영원히
+# 나가고 «날씨» 만 묻는 사람에게는 바뀌어 보인다 — 같은 봇이 둘로 보인다.
+UMBRELLA_YES_LINES = (
+    "{days}에 비 소식이 있어요. 우산 챙기시는 게 좋겠습니다.",
+    "{days}에 비가 오겠습니다. 우산 하나 챙겨 두세요.",
+    "{days}에 비 예보가 있어요. 우산 없이 나서면 곤란하겠습니다.",
+)
+UMBRELLA_NO_LINES = (
+    "당분간 비 소식은 없습니다. 우산은 두고 다니셔도 되겠어요.",
+    "비 예보가 없습니다. 우산은 챙기지 않으셔도 됩니다.",
+    "당분간 맑겠습니다. 우산 걱정은 안 하셔도 되겠어요.",
+)
+WEAR_SPREAD_LINES = (
+    "아침 {lo:.0f}도, 낮 {hi:.0f}도로 {gap:.0f}도 차이가 납니다. 껴입고 벗기 편한 옷이 낫겠어요.",
+    "아침 {lo:.0f}도에서 낮 {hi:.0f}도까지 오릅니다. 겉옷 하나 걸치고 낮에 벗는 편이 좋습니다.",
+    "{gap:.0f}도 차이라 하루 안에서 체감이 달라집니다. 얇게 여러 겹 입으세요.",
+)
+WEAR_COLD_LINES = (
+    "아침 최저 {t:.0f}도입니다. 두껍게 입으세요.",
+    "아침 {t:.0f}도까지 내려갑니다. 외투는 두꺼운 쪽으로 고르세요.",
+    "{t:.0f}도 아침입니다. 목도리까지 챙기시면 훨씬 낫습니다.",
+)
+WEAR_WARM_LINES = (
+    "낮 최고 {t:.0f}도까지 오릅니다. 얇게 입으세요.",
+    "낮에 {t:.0f}도입니다. 통풍 잘 되는 옷이 좋겠습니다.",
+    "{t:.0f}도까지 오르니 가볍게 입으시는 편이 낫습니다.",
+)
+WEAR_MILD_LINES = (
+    "아침 {lo:.0f}도, 낮 {hi:.0f}도로 무난합니다. 가볍게 입으셔도 되겠어요.",
+    "아침 {lo:.0f}도에 낮 {hi:.0f}도입니다. 특별히 신경 쓰실 것 없겠습니다.",
+    "{lo:.0f}~{hi:.0f}도로 무난한 날입니다. 편하신 대로 입으세요.",
+)
+WEAR_RAIN_LINES = (
+    "{days}에는 비가 있어 신발도 신경 쓰시면 좋겠습니다.",
+    "{days}에 비가 와서 젖지 않는 신발이 낫겠습니다.",
+    "{days}에 비가 와서 밑창 미끄럽지 않은 쪽을 고르세요.",
+)
+
 # 두 값 사이에는 «아무 말도 안 하는» 구간이 있다. 아침 11도에 일교차 11도 같은
 # 초가을의 평범한 날이 거기 든다 — 짚을 것이 없으면 침묵하는 것이 이 모듈의
 # 규칙이므로 메우지 않는다. 빈칸을 채우려고 문턱을 낮추면 매일 걸리던 옛날로
@@ -104,7 +144,10 @@ CHILLY_MORNING = 10.0  # 아침 최저 (도) — 평년 대비의 대용물
 
 # 사용자가 묻는 관심사. 같은 예보라도 무엇을 물었느냐에 따라 짚어줄 것이 다르다.
 TOPICS: dict[str, tuple[str, ...]] = {
-    "옷차림": ("뭐 입", "옷", "입을", "복장", "차림", "겉옷", "코트", "패딩", "반팔", "우비"),
+    # '입' 은 활용형이 많다 — 입고/입어/입나/입지/입을… 어미를 일일이 적는 대신
+    # 자주 오는 형태를 넣어 둔다. "어떻게 입고 가야 할까" 가 안 걸려서 늘렸다.
+    "옷차림": ("뭐 입", "옷", "입고", "입어", "입을", "입나", "입지", "입어야", "입야",
+             "복장", "차림", "겉옷", "코트", "패딩", "반팔", "우비"),
     "우산": ("우산", "비 와", "비와", "비 올", "비올", "장화", "방수"),
     "야외": ("등산", "산행", "캠핑", "나들이", "소풍", "피크닉", "運動", "운동", "러닝",
              "자전거", "골프", "낚시", "바다", "해변", "야외", "산책", "축제"),
@@ -147,33 +190,34 @@ def topic_advice(topic: str, days) -> list[Advice]:
     clear = [d for d in usable if "맑" in (d.sky or "") and (d.pop or 0) < 30]
     coldest = min(usable, key=lambda d: d.tmin_lo)
     hottest = max(usable, key=lambda d: d.tmax_hi)
+    # 문구를 고르는 기준. 목록 순서가 아니라 가장 이른 날이라, 같은 기간을
+    # 물으면 몇 번을 물어도 같은 문장이 돌아온다.
+    ref = min(d.date for d in usable)
 
     if topic == "우산":
         if rainy:
             return [Advice(":umbrella_with_rain_drops:",
-                           f"{_days_text(rainy)}에 비 소식이 있어요. 우산 챙기시는 게 좋겠습니다.")]
-        return [Advice(":sunny:", "당분간 비 소식은 없습니다. 우산은 두고 다니셔도 되겠어요.")]
+                           _pick(UMBRELLA_YES_LINES, ref).format(days=_days_text(rainy)))]
+        return [Advice(":sunny:", _pick(UMBRELLA_NO_LINES, ref))]
 
     if topic == "옷차림":
         out = []
         spread = max((v for d in usable if (v := _spread(d)) is not None), default=0)
         if spread >= BIG_SPREAD:
-            out.append(Advice(":thermometer:",
-                              f"아침 {coldest.tmin_lo:.0f}도, 낮 {hottest.tmax_hi:.0f}도로 "
-                              f"{spread:.0f}도 차이가 납니다. 껴입고 벗기 편한 옷이 낫겠어요."))
+            out.append(Advice(":thermometer:", _pick(WEAR_SPREAD_LINES, ref).format(
+                lo=coldest.tmin_lo, hi=hottest.tmax_hi, gap=spread)))
         elif coldest.tmin_lo <= COLD_MORNING:
             out.append(Advice(":cold_face:",
-                              f"아침 최저 {coldest.tmin_lo:.0f}도입니다. 두껍게 입으세요."))
+                              _pick(WEAR_COLD_LINES, ref).format(t=coldest.tmin_lo)))
         elif hottest.tmax_hi >= WARM_DAY:
             out.append(Advice(":sunny:",
-                              f"낮 최고 {hottest.tmax_hi:.0f}도까지 오릅니다. 얇게 입으세요."))
+                              _pick(WEAR_WARM_LINES, ref).format(t=hottest.tmax_hi)))
         else:
-            out.append(Advice(":relieved:",
-                              f"아침 {coldest.tmin_lo:.0f}도, 낮 {hottest.tmax_hi:.0f}도로 "
-                              "무난합니다. 가볍게 입으셔도 되겠어요."))
+            out.append(Advice(":relieved:", _pick(WEAR_MILD_LINES, ref).format(
+                lo=coldest.tmin_lo, hi=hottest.tmax_hi)))
         if rainy:
             out.append(Advice(":umbrella_with_rain_drops:",
-                              f"{_days_text(rainy)}에는 비가 있어 신발도 신경 쓰시면 좋겠습니다."))
+                              _pick(WEAR_RAIN_LINES, ref).format(days=_days_text(rainy))))
         return out
 
     if topic == "야외":

@@ -44,7 +44,7 @@ def check_kma_pages() -> bool:
     import datetime as dt
 
     from src.config import KST
-    from src.kma_scrape import ScrapeError, fetch_mid_term, fetch_notice
+    from src.kma_scrape import fetch_mid_term, fetch_notice
 
     ok = True
     for name, fn in (("예보 통보문", fetch_notice), ("중기예보", fetch_mid_term)):

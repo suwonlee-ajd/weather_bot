@@ -14,7 +14,7 @@ import logging
 from dataclasses import dataclass, field
 
 from .config import KST
-from .kma_scrape import NATIONWIDE, Narrative, Region, ScrapeError, find_region, scrape_week
+from .kma_scrape import Narrative, Region, ScrapeError, find_region, scrape_week
 
 log = logging.getLogger(__name__)
 

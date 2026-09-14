@@ -157,8 +157,9 @@ def test_greeting() -> None:
 
         assert "•" in build_reply("<@U1> 도움말", now), "도움말이 사용법을 안 보여줍니다"
 
-        # 지역이 함께 오면 인사말이 섞여 있어도 날씨를 보여준다
-        build_reply("<@U1> 부산 안녕", now)
+        # 지역이 함께 오면 인사말이 섞여 있어도 날씨를 보여준다.
+        # '부산' 은 시도 동네예보로 빠지므로(find_wide) 구역명으로 확인한다.
+        build_reply("<@U1> 경남 안녕", now)
         assert calls == ["경남"], calls
         print("[ok] 인사 응답 — 자기소개/감사/도움말 구분, 지역 우선")
     finally:

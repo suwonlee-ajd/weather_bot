@@ -93,13 +93,25 @@ def _dongs_in(wide: dict, city: dict) -> list[Dong]:
 # 아니라서 여기서 걸리지 않고 기존 동 검색으로 간다.
 _WIDE_ALIASES = {
     "서울": "서울특별시", "부산": "부산광역시", "대구": "대구광역시",
-    "인천": "인천광역시", "광주": "전남광주통합특별시", "대전": "대전광역시",
-    "울산": "울산광역시", "세종": "세종특별자치시", "제주": "제주특별자치도",
+    "인천": "인천광역시", "대전": "대전광역시", "울산": "울산광역시",
+    "세종": "세종특별자치시", "제주": "제주특별자치도",
+}
+
+# 광주는 시도 단위가 없다. 기상청은 전남과 묶어 '전남광주통합특별시' 로 두는데,
+# 그 아래에 곡성부터 여수까지 27개 시군구가 들어 있어 «광주 날씨» 로 쓰기에는
+# 너무 넓다(같은 날 통합값 20~30도, 목포 21~28도). 광주 5개 구는 값이 서로
+# 같으므로 그중 하나를 광주 대표로 쓴다.
+_CITY_ALIASES = {
+    "광주": ("전남광주통합특별시", "북구", "광주광역시"),
 }
 
 
 def find_wide(query: str) -> tuple[str, str] | None:
-    """'부산' 처럼 시도 하나를 가리키는 말이면 (동네예보 코드, 이름). 아니면 None."""
+    """'부산' 처럼 도시 하나를 가리키는 말이면 (동네예보 코드, 보여줄 이름).
+
+    광역시는 시도 코드가 곧 그 도시라 그대로 쓴다. 광주처럼 시도가 없는 곳은
+    아래 _CITY_ALIASES 로 시군구 하나를 대표로 삼는다.
+    """
     text = _normalize(query).lower()
     if not text:
         return None
@@ -108,6 +120,15 @@ def find_wide(query: str) -> tuple[str, str] | None:
             for w in _zone("WIDE"):
                 if w["name"] == full:
                     return w["code"], w["name"]
+    for alias, (wide_name, city_name, label) in _CITY_ALIASES.items():
+        if text in (alias, label, f"{alias}광역시"):
+            wide = next((w for w in _zone("WIDE") if w["name"] == wide_name), None)
+            if not wide:
+                return None
+            city = next((c for c in _zone("CITY", wide["code"])
+                         if c["name"] == city_name), None)
+            if city:
+                return city["code"], label
     return None
 
 
@@ -328,5 +349,7 @@ def fetch_dong(zone: str, name: str, timeout: float = 20.0) -> DongForecast:
 
     if not points:
         raise DongError("동네예보에 시간별 값이 없습니다.")
-    display = title.split(" - ")[-1].strip() if " - " in title else name
+    # 부르는 쪽이 이름을 정해 두었으면 그것을 쓴다 — '광주광역시' 를 기상청
+    # 응답의 '전남광주통합특별시 북구' 로 되돌리면 물은 것과 다른 말이 된다.
+    display = name or (title.split(" - ")[-1].strip() if " - " in title else name)
     return DongForecast(name=display, zone=zone, issued=issued, points=points)

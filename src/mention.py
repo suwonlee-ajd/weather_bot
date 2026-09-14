@@ -397,12 +397,20 @@ def build_reply(text: str, now: dt.datetime | None = None) -> str:
     #
     # 동네예보는 5일까지라, 그보다 먼 날을 물었으면 광역으로 넘긴다 —
     # 좁게 답하려다 아예 답을 못 하는 것보다 낫다.
-    if wide := find_wide(query):
+    # 문장으로 물어도 도시명을 집어낸다 ("내일 부산 출장가는데 뭐 입지").
+    # query 는 기간·잡음을 지운 뒤라 'X 날씨' 는 걸리지만 긴 문장은 안 걸린다.
+    wide = find_wide(query) or next(
+        (w for tok in re.split(r"[\s,]+", query) if (w := find_wide(tok))), None)
+    if wide:
         last = now.date() + dt.timedelta(days=DONG_MAX_DAYS - 1)
         if start > last:
             pass                      # 동네예보가 닿지 않는 날 — 아래 광역으로
         elif start + dt.timedelta(days=days - 1) <= last:
-            return _dong_reply(wide[0], wide[1], days, start)
+            reply = _dong_reply(wide[0], wide[1], days, start)
+            # 예보 끝자락은 값이 모자라 거절로 끝난다(조각난 날은 버린다).
+            # 광역이라면 답할 수 있으므로 여기서 막지 않고 넘긴다.
+            if NO_EMOJI not in reply:
+                return reply
         elif title.startswith("앞으로"):
             # 기간을 따로 말하지 않았다면 며칠인지보다 «부산 값» 인지가 중요하다.
             # 닿는 데까지 좁게 답하고, 더 필요하면 광역으로 안내한다.

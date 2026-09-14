@@ -19,14 +19,14 @@ import sys
 import threading
 import time
 
-from .advice import build_advice, detect_topic, topic_advice
+from .advice import _pick, build_advice, detect_topic, topic_advice
 from dataclasses import replace
 
 from .cache import get_or_set
 from .config import KST
 from .forecast import day_label, range_text
 from .logsetup import setup
-from .dong import DongError, fetch_dong, search_dong
+from .dong import DongError, fetch_dong, find_wide, search_dong
 from .outlook import OutlookError, fetch_outlook
 from .kma_scrape import (
     NATIONWIDE, REGION_HELP, ScrapeError, _resolve_date, extract_region,
@@ -85,10 +85,19 @@ def sky_emoji(sky: str | None) -> str:
             return emoji
     return sky
 
+# 첫 인사만 돌려 쓴다. 아래 기능 안내는 고정이다 — 무엇을 할 수 있는지가
+# 날마다 달리 읽히면 곤란하다.
+HELLO_LINES = (
+    "안녕하세요, 날씨 알리미입니다. :sunny:",
+    "반갑습니다, 날씨 알리미예요. :sunny:",
+    "안녕하세요. 날씨를 전해드리는 날씨 알리미입니다. :sunny:",
+)
+
+
 def about() -> str:
     me = self_mention()
     return (
-        "안녕하세요, 날씨 알리미입니다. :sunny:\n"
+        f"{_pick(HELLO_LINES, dt.datetime.now(tz=KST).date())}\n"
         "기상청 예보를 받아 매주 월요일 아침에 이번 주 날씨를 올리고,\n"
         "이렇게 불러 주시면 지역별 날씨도 바로 알려드려요.\n\n"
         "예를 들면 이렇게요 —\n"
@@ -104,7 +113,7 @@ def help_text() -> str:
         "지역을 함께 적어 주세요.\n"
         f"• *광역* (7일) — {REGION_HELP}\n"
         "   중부 · 남부 · 영남 · 호남 · 충청 · 영동 · 영서 같은 말도 알아듣습니다.\n"
-        "• *동 단위* (오늘~3일) — 역삼동 · 봉담 · 해운대 처럼 동/읍/면 이름\n"
+        "• *동네예보* (오늘~5일) — 부산 · 역삼동 · 봉담 처럼 시도/동 이름\n"
         f"   행정동코드 10자리를 직접 적어도 됩니다. 예: {me} 1168064000\n"
         "\n_광역은 최대 10일, 동 단위는 3일까지입니다. 그보다 먼 날은 기상청도 예보하지 않습니다._"
     )
@@ -160,6 +169,8 @@ NOISE_RE = re.compile(
 FORWARD_DAYS = 7
 # 캐시에 담을 구간. 광역 예보의 상한(오늘~10일)이라 어떤 질문이든 이 안에 든다.
 MAX_FORECAST_DAYS = 10
+# 동네예보(시도·동 단위)가 닿는 범위. 그 너머는 광역 구역만 답할 수 있다.
+DONG_MAX_DAYS = 5
 
 
 def _dong_advice(summary) -> list:
@@ -174,7 +185,7 @@ def _dong_advice(summary) -> list:
 
 
 def _dong_reply(zone: str, name: str, days: int = 4, start: dt.date | None = None) -> str:
-    """동 단위는 오늘~3일. 주간이 필요하면 광역으로 안내한다."""
+    """동·시도 단위 동네예보. 닿는 날까지만 보여주고, 더 필요하면 광역으로 안내한다."""
     try:
         fc = fetch_dong(zone, name)
     except DongError as exc:
@@ -189,12 +200,13 @@ def _dong_reply(zone: str, name: str, days: int = 4, start: dt.date | None = Non
         summary = [row for row in summary if row[0] >= start][:max(1, days)]
         if not summary:
             return (
-                f"*{name}* 동네예보는 오늘~3일까지만 제공됩니다. {NO_EMOJI}\n"
+                f"*{name}* 동네예보는 오늘부터 {DONG_MAX_DAYS}일까지만 제공됩니다. {NO_EMOJI}\n"
                 f"그 이후는 광역 구역으로 불러 주세요. 예: {self_mention()} 수도권"
             )
     else:
         summary = summary[:max(1, days)]
-    scope = day_label(summary[0][0]) if days == 1 else "오늘~3일"
+    scope = (day_label(summary[0][0]) if len(summary) == 1
+             else f"{day_label(summary[0][0])} ~ {day_label(summary[-1][0])}")
     lines = [f"*{fc.name}* 동네예보 ({scope})"]
     coldest = min(summary, key=lambda r: r[1])[0] if summary else None
     hottest = max(summary, key=lambda r: r[2])[0] if summary else None
@@ -211,7 +223,8 @@ def _dong_reply(zone: str, name: str, days: int = 4, start: dt.date | None = Non
         lines.append("")
         lines += [f"{t.emoji} {t.text}" for t in tips]
     lines.append(f"_기상청 동네예보 · {fc.issued} 발표_")
-    lines.append(f"_7일치가 필요하시면 광역 구역으로 불러 주세요. 예: {self_mention()} 수도권_")
+    lines.append(f"_더 먼 날이 필요하시면 광역 구역으로 불러 주세요 (최대 10일). "
+                 f"예: {self_mention()} 수도권_")
     return "\n".join(lines)
 
 
@@ -377,6 +390,26 @@ def build_reply(text: str, now: dt.datetime | None = None) -> str:
         start, days, title = saturday, 2, "주말"
 
     topic = detect_topic(text)
+
+    # '부산' 처럼 시도 하나를 물었으면 그 시도의 동네예보를 보여준다.
+    # 광역 구역(부산·울산·경남)으로 답하면 기온이 경남내륙까지 아우른 분포라
+    # 부산만 궁금한 사람에게는 남의 동네 숫자가 섞인다.
+    #
+    # 동네예보는 5일까지라, 그보다 먼 날을 물었으면 광역으로 넘긴다 —
+    # 좁게 답하려다 아예 답을 못 하는 것보다 낫다.
+    if wide := find_wide(query):
+        last = now.date() + dt.timedelta(days=DONG_MAX_DAYS - 1)
+        if start > last:
+            pass                      # 동네예보가 닿지 않는 날 — 아래 광역으로
+        elif start + dt.timedelta(days=days - 1) <= last:
+            return _dong_reply(wide[0], wide[1], days, start)
+        elif title.startswith("앞으로"):
+            # 기간을 따로 말하지 않았다면 며칠인지보다 «부산 값» 인지가 중요하다.
+            # 닿는 데까지 좁게 답하고, 더 필요하면 광역으로 안내한다.
+            return _dong_reply(wide[0], wide[1], (last - start).days + 1, start)
+        # '이번 주'·'다음 주' 처럼 기간을 콕 집어 물었으면 그 기간을 채울 수 있는
+        # 광역으로 간다. 이레를 물었는데 사흘만 주는 것이 더 불친절하다.
+
     region, note = resolve_region(query)
     if region is None and topic:
         # 조언을 물으면 문장이 길고 지역이 섞여 있다("주말 무등산 등산 괜찮아?").

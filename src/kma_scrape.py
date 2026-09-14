@@ -162,8 +162,17 @@ def resolve_region(query: str | None) -> tuple[Region | None, str]:
             return by_key(key), note
 
     for region in REGIONS:
+        canon = {region.key, region.label}
         for name in (region.key, region.label, *region.aliases):
             if text == name.lower().replace(" ", "").replace("·", ""):
+                # '부산' 처럼 도시 하나를 물었는데 구역 전체(부산·울산·경남)로
+                # 답하게 되면 그 사실을 밝힌다. 헤더에 구역 이름이 뜨긴 하지만
+                # 물은 대로 답했다고 읽기 쉽다 — 기온 범위가 남의 동네까지
+                # 아우른 값이라는 것을 모르면 «예보가 틀렸다» 로 읽힌다.
+                if name not in canon:
+                    return region, (f"'{query.strip()}' 은 기상청 구역 "
+                                    f"'{region.label}' 에 묶여 있어 그 기준으로 "
+                                    "보여드립니다")
                 return region, ""
 
     for name, (key, note) in WIDE_AREAS.items():

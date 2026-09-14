@@ -350,6 +350,41 @@ def test_city_uses_dong_forecast() -> None:
     print("[ok] 시도 조회 — 가까운 날은 시 단위, 주 단위는 광역")
 
 
+def test_partial_week_is_declared() -> None:
+    """예보가 기간을 못 채우면 머리글이 실제 범위를 말하고, 왜 짧은지 밝힌다."""
+    import src.mention as mention
+    from src.cache import clear
+    from src.kma_scrape import Narrative, Scrape, ScrapedDay
+
+    # 기상청 중기예보는 오늘부터 열흘. 월요일에 «다음 주» 를 물으면 사흘만 걸친다.
+    today = dt.date(2026, 9, 14)
+    horizon = {today + dt.timedelta(days=i) for i in range(10)}
+
+    def fake_scrape(now, start, span, region):
+        days = {d: ScrapedDay(d, 15.0, 20.0, 24.0, 29.0, "맑음", 20, "중기예보")
+                for i in range(span) if (d := start + dt.timedelta(days=i)) in horizon}
+        return Scrape(days=days, narratives=[Narrative("중기예보", "", None, [])])
+
+    orig = (mention.scrape_range, mention.find_wide)
+    mention.scrape_range = fake_scrape
+    mention.find_wide = lambda q: None
+    now = dt.datetime(2026, 9, 14, 9, 0, tzinfo=KST)
+    try:
+        clear()
+        reply = mention.build_reply("<@U1> 다음주 날씨", now)
+    finally:
+        mention.scrape_range, mention.find_wide = orig
+        clear()
+
+    # 머리글이 09/27 까지라고 말하면 안 된다 — 자료는 09/23 까지다
+    assert "09/23" in reply.split("\n")[0], reply.split("\n")[0]
+    assert "09/27" not in reply.split("\n")[0], reply.split("\n")[0]
+    assert "09/24(목) 이후는 아직 예보가 작성되지 않았습니다" in reply, reply
+    # 없는 날을 줄로 만들지 않는다
+    assert len([ln for ln in reply.split("\n") if ln.startswith("•")]) == 3, reply
+    print("[ok] 기간을 못 채우면 머리글과 안내로 밝힌다")
+
+
 def test_explicit_date() -> None:
     """"9월 18일" 처럼 날짜를 콕 집으면 그 하루만 답한다."""
     from src.mention import _explicit_date
@@ -591,6 +626,7 @@ if __name__ == "__main__":
     test_topic_advice()
     test_cache_shared_across_spans()
     test_city_uses_dong_forecast()
+    test_partial_week_is_declared()
     test_explicit_date()
     test_phrase_rotation()
     test_advice()

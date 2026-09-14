@@ -459,7 +459,13 @@ def build_reply(text: str, now: dt.datetime | None = None) -> str:
         return f"*{region.label}* {start:%m/%d} 부터의 예보를 찾지 못했습니다."
 
     end = start + dt.timedelta(days=days - 1)
-    span_text = day_label(start) if days == 1 else f"{day_label(start)} ~ {day_label(end)}"
+    # 기상청 중기예보는 오늘부터 열흘까지다. 주 초에 «다음 주» 를 물으면 그
+    # 한계에 사흘만 걸친다 — 머리글에 이레라고 적어 놓고 사흘만 보여주면
+    # 봇이 잘라먹은 것처럼 읽힌다. 실제로 있는 날까지만 적는다.
+    have = max(scrape.days) if scrape.days else end
+    shown_end = min(end, have)
+    span_text = (day_label(start) if start == shown_end
+                 else f"{day_label(start)} ~ {day_label(shown_end)}")
     lines = [f"*{region.label}* {title} ({span_text})"]
     if note:
         lines.append(f"_{note}_")
@@ -471,7 +477,7 @@ def build_reply(text: str, now: dt.datetime | None = None) -> str:
     coldest = min(complete, key=lambda d: d.tmin_lo).date if complete else None
     hottest = max(complete, key=lambda d: d.tmax_hi).date if complete else None
 
-    for offset in range(days):
+    for offset in range((shown_end - start).days + 1):
         date = start + dt.timedelta(days=offset)
         v = scrape.days.get(date)
         if v is None:
@@ -487,6 +493,12 @@ def build_reply(text: str, now: dt.datetime | None = None) -> str:
         if v.pop is not None:
             parts.append(f"`{v.pop}%`")
         lines.append(f"• `{day_label(date)}` " + " · ".join(parts))
+
+    # 물어본 기간을 다 채우지 못했으면 왜 짧은지 밝힌다. 말없이 빠뜨리면
+    # 봇이 잘라먹은 것으로 읽힌다.
+    if shown_end < end:
+        lines.append(f"_{day_label(shown_end + dt.timedelta(days=1))} 이후는 "
+                     f"아직 예보가 작성되지 않았습니다 {NO_EMOJI}_")
 
     shown = [scrape.days[d] for d in sorted(scrape.days)]
     # 조언은 화면에 보인 날만 근거로 삼는다. 캐시는 7일을 들고 있어서, 하루만 물었는데

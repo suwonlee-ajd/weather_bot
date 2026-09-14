@@ -289,8 +289,10 @@ def test_cache_shared_across_spans() -> None:
         now = dt.datetime(2026, 9, 12, 9, 0, tzinfo=KST)   # 토요일
         clear()
         # «다음 주» 를 먼저 물어 캐시를 채운 뒤 «기본(오늘부터 7일)» 을 묻는다.
-        mention.build_reply("<@U123> 부산 다음주", now)
-        reply = mention.build_reply("<@U123> 부산 날씨", now)
+        # '부산' 은 시도 동네예보로 빠지므로(find_wide) 구역명으로 부른다 —
+        # 여기서 보려는 것은 광역 캐시가 기간을 가로채지 않는지다.
+        mention.build_reply("<@U123> 경남 다음주", now)
+        reply = mention.build_reply("<@U123> 경남 날씨", now)
     finally:
         mention.scrape_range = orig
         clear()
@@ -299,6 +301,52 @@ def test_cache_shared_across_spans() -> None:
     for day in ("09/12", "09/13", "09/18"):
         assert day in reply, (day, reply)
     print("[ok] 캐시 공유 — 기간을 바꿔 물어도 날이 빠지지 않는다")
+
+
+def test_city_uses_dong_forecast() -> None:
+    """'부산' 은 구역이 아니라 부산광역시 값으로 답한다 — 기간이 닿는 한."""
+    import src.mention as mention
+    from src.cache import clear
+    from src.kma_scrape import Scrape
+
+    calls: list = []
+
+    def fake_scrape(now, start, span, region):
+        calls.append(region.key)
+        return Scrape(days={}, narratives=[])
+
+    dong_calls: list = []
+
+    def fake_dong_reply(zone, name, days=4, start=None):
+        dong_calls.append((name, days, start))
+        return f"*{name}* 동네예보"
+
+    orig = (mention.scrape_range, mention._dong_reply, mention.find_wide)
+    mention.scrape_range = fake_scrape
+    mention._dong_reply = fake_dong_reply
+    mention.find_wide = lambda q: ("2600000000", "부산광역시") if "부산" in q else None
+    now = dt.datetime(2026, 9, 14, 9, 0, tzinfo=KST)   # 월요일
+    try:
+        clear()
+        mention.build_reply("<@U1> 부산 날씨", now)
+        assert dong_calls and not calls, (dong_calls, calls)
+
+        # 주 단위는 동네예보가 못 채운다(5일) — 이레를 물었는데 사흘만 주지 않는다
+        dong_calls.clear()
+        clear()
+        mention.build_reply("<@U1> 부산 이번주", now)
+        assert calls and not dong_calls, (dong_calls, calls)
+
+        # 동네예보가 닿지 않는 먼 날도 광역으로
+        dong_calls.clear()
+        calls.clear()
+        clear()
+        mention.build_reply("<@U1> 부산 다음주", now)
+        assert calls and not dong_calls, (dong_calls, calls)
+    finally:
+        mention.scrape_range, mention._dong_reply, mention.find_wide = orig
+        clear()
+    print("[ok] 시도 조회 — 가까운 날은 시 단위, 주 단위는 광역")
 
 
 def test_explicit_date() -> None:
@@ -462,13 +510,15 @@ def test_mention_parsing() -> None:
     mention.scrape_range = fake_scrape
     try:
         now = dt.datetime(2026, 9, 12, 9, 0, tzinfo=KST)   # 토요일
-        for text in ("<@U123> 부산 날씨 알려줘", "<@U123> 제주 다음주", "<@U123> 강원 이번주"):
+        # 시도 이름('부산'·'제주')은 동네예보로 빠지므로(find_wide) 구역명으로 부른다.
+        # 여기서 보려는 것은 광역 조회의 수집 범위다.
+        for text in ("<@U123> 경남 날씨 알려줘", "<@U123> 전북 다음주", "<@U123> 강원 이번주"):
             clear()
             build_reply(text, now)
 
         # 수집은 늘 «오늘부터 열흘» 이다 — 지역당 캐시 한 항목을 나눠 쓰기 위해서다.
         # 어느 기간을 물었는지는 아래 show 검사가 본다.
-        assert [c[0] for c in calls] == ["경남", "제주", "강원"], calls
+        assert [c[0] for c in calls] == ["경남", "전북", "강원"], calls
         assert all(c[1] == dt.date(2026, 9, 12) and c[2] == 10 for c in calls), calls
 
         # 광역에도 동에도 없는 말이면 긁지 않고 안내한다 (동 검색은 격리)
@@ -539,6 +589,7 @@ if __name__ == "__main__":
     test_long_range_routing()
     test_topic_advice()
     test_cache_shared_across_spans()
+    test_city_uses_dong_forecast()
     test_explicit_date()
     test_phrase_rotation()
     test_advice()

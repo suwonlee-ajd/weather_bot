@@ -85,6 +85,32 @@ def _dongs_in(wide: dict, city: dict) -> list[Dong]:
     ]
 
 
+# 시도 이름 → 동네예보 코드. '부산' 을 물었을 때 부산·울산·경남 구역이 아니라
+# 부산광역시 값을 보여주기 위한 것이다. 구역 기온(14~20도)은 경남내륙까지
+# 아우른 분포라, 부산만 알고 싶은 사람에게는 남의 동네 숫자가 섞여 있다.
+#
+# 광역시·특별시처럼 «도시 = 시도» 인 곳만 다룬다. '수원' 같은 시군구는 시도가
+# 아니라서 여기서 걸리지 않고 기존 동 검색으로 간다.
+_WIDE_ALIASES = {
+    "서울": "서울특별시", "부산": "부산광역시", "대구": "대구광역시",
+    "인천": "인천광역시", "광주": "전남광주통합특별시", "대전": "대전광역시",
+    "울산": "울산광역시", "세종": "세종특별자치시", "제주": "제주특별자치도",
+}
+
+
+def find_wide(query: str) -> tuple[str, str] | None:
+    """'부산' 처럼 시도 하나를 가리키는 말이면 (동네예보 코드, 이름). 아니면 None."""
+    text = _normalize(query).lower()
+    if not text:
+        return None
+    for alias, full in _WIDE_ALIASES.items():
+        if text in (alias, full, full.replace("특별시", "").replace("광역시", "")):
+            for w in _zone("WIDE"):
+                if w["name"] == full:
+                    return w["code"], w["name"]
+    return None
+
+
 def _candidate_cities(text: str) -> list[tuple[dict, dict]]:
     """입력에서 시/도·시군구를 짚어 후보 (시도, 시군구) 목록을 만든다.
 
@@ -242,9 +268,17 @@ class DongForecast:
             pops = [p.pop for p in pts if p.pop is not None]
             if not temps:
                 continue
+            # 예보 끝자락에는 00시 한 점만 오는 날이 있다. 그대로 쓰면 최저와
+            # 최고가 같은 «22~22℃» 가 나와 하루 날씨처럼 읽히지 않는다.
+            if len(pts) < 4 and date != min(by_date):
+                continue
+            # 비·눈은 몇 시간만 있어도 그날의 날씨다. 최빈값으로 고르면
+            # 24시간 중 두 시간 오는 비가 «흐림» 에 묻혀 우산 조언까지 사라진다.
+            wet = next((w for w in ("비", "눈", "소나기") for x in skies if w in x), None)
             out.append((
                 date, min(temps), max(temps),
-                max(set(skies), key=skies.count) if skies else "-",
+                next((x for x in skies if wet and wet in x), None)
+                or (max(set(skies), key=skies.count) if skies else "-"),
                 max(pops) if pops else 0,
             ))
         return out

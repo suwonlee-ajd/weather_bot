@@ -173,7 +173,7 @@ MAX_FORECAST_DAYS = 10
 DONG_MAX_DAYS = 5
 
 
-def _dong_advice(summary) -> list:
+def _dong_advice(summary, region: str = "") -> list:
     """동네예보 일별 요약(날짜, 최저, 최고, 하늘, 강수)을 조언 입력 형태로 맞춘다."""
     from types import SimpleNamespace
 
@@ -181,7 +181,7 @@ def _dong_advice(summary) -> list:
         SimpleNamespace(date=d, tmin_lo=lo, tmin_hi=lo, tmax_lo=hi, tmax_hi=hi, sky=sky, pop=pop)
         for d, lo, hi, sky, pop in summary
     ]
-    return build_advice(days)
+    return build_advice(days, region=region)
 
 
 def _dong_reply(zone: str, name: str, days: int = 4, start: dt.date | None = None) -> str:
@@ -218,13 +218,17 @@ def _dong_reply(zone: str, name: str, days: int = 4, start: dt.date | None = Non
             f"• `{day_label(date)}` {temp} · {sky_emoji(sky)}"
             + (f" · `{pop}%`" if pop else "")
         )
-    tips = _dong_advice(summary)
+    tips = _dong_advice(summary, fc.name)
     if tips:
         lines.append("")
         lines += [f"{t.emoji} {t.text}" for t in tips]
     lines.append(f"_기상청 동네예보 · {fc.issued} 발표_")
-    lines.append(f"_더 먼 날이 필요하시면 광역 구역으로 불러 주세요 (최대 10일). "
-                 f"예: {self_mention()} 수도권_")
+    # 광역 안내는 «닿는 데까지 왔을 때» 만 한다. 하루치를 물은 사람에게는 쓸모가
+    # 없는데, 본문이 두 줄뿐이라 화면의 절반을 차지하며 매번 같은 말로 남는다.
+    # 실제로 서로 다른 지역을 물은 두 답이 이 꼬리말 때문에 같은 메시지로 읽혔다.
+    if len(summary) >= DONG_MAX_DAYS:
+        lines.append(f"_더 먼 날이 필요하시면 광역 구역으로 불러 주세요 (최대 10일). "
+                     f"예: {self_mention()} 수도권_")
     return "\n".join(lines)
 
 
@@ -507,12 +511,12 @@ def build_reply(text: str, now: dt.datetime | None = None) -> str:
     scoped = [d for d in shown if d.date in window]
     narrative_lines = [line for n in scrape.narratives for line in n.lines]
     # 물어본 것에 먼저 답하고, 그 밖에 짚을 것이 있으면 덧붙인다.
-    tips = topic_advice(topic, scoped) if topic else []
+    tips = topic_advice(topic, scoped, region.key) if topic else []
     # 겹침은 이모지로 가린다 — 문구가 날짜마다 달라지므로(advice.py _pick)
     # 문장을 비교하면 «우산 챙기세요» 와 «우산 없이 나서면» 이 서로 다른 말로
     # 보여 우산 조언이 두 줄 나간다. 같은 이모지면 같은 종류의 조언이다.
     seen = {x.emoji for x in tips}
-    tips += [t for t in build_advice(scoped, narrative_lines)
+    tips += [t for t in build_advice(scoped, narrative_lines, region.key)
              if t.emoji not in seen][: 3 - len(tips)]
     if tips:
         lines.append("")

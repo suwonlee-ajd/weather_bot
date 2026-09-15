@@ -15,17 +15,28 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 from dataclasses import dataclass
 
 # 같은 조건이라도 문장을 돌려 쓴다. 날씨는 매일 비슷해서 문구가 하나뿐이면
-# 날짜와 숫자만 바뀐 같은 말이 매번 나간다. 고르는 기준은 날짜라서 —
-#   * 같은 날 두 번 물어도 같은 답이 나오고(일관성),
-#   * 날이 바뀌면 표현이 바뀐다.
+# 날짜와 숫자만 바뀐 같은 말이 매번 나간다. 고르는 기준은 «날짜 + 지역» 이라 —
+#   * 같은 날 같은 곳을 두 번 물어도 같은 답이 나오고(일관성),
+#   * 날이 바뀌면 표현이 바뀌고,
+#   * 같은 날이라도 서울과 부산은 다른 문장을 받는다.
+# 마지막 조건이 없으면 한 채널에서 여러 사람이 각자 다른 지역을 물었을 때
+# 봇이 같은 말을 되풀이하는 것처럼 보인다 — 실제로 그렇게 읽혔다.
 # 무작위로 고르면 같은 질문에 다른 답이 나와 봇이 미덥지 않아 보인다.
-def _pick(options: tuple[str, ...], date: dt.date) -> str:
+def _pick(options: tuple[str, ...], date: dt.date, region: str = "") -> str:
     if not options:               # 표를 손보다 문구를 다 지운 경우
         return ""                 # 조용히 넘어간다 — 이 모듈은 말 없는 쪽이 기본이다
-    return options[date.toordinal() % len(options)]
+    # 지역은 이름 그대로가 아니라 해시로 섞는다. hash() 는 프로세스마다 값이
+    # 달라(PYTHONHASHSEED) 같은 날 재기동하면 문구가 바뀌므로 쓰지 않는다.
+    # 글자 코드의 합도 안 된다 — 한글 지명은 유니코드 한 블록에 몰려 있어
+    # 합이 비슷하게 나온다(서울·부산·대구가 표 길이 3에서 겹쳤다).
+    # 지역을 안 넘긴 호출부는 예전처럼 날짜만 본다 (소금 0).
+    salt = (int.from_bytes(hashlib.blake2b(region.encode(), digest_size=4).digest(), "big")
+            if region else 0)
+    return options[(date.toordinal() + salt) % len(options)]
 
 
 def _days_text(ds) -> str:
@@ -179,7 +190,7 @@ def _spread(day) -> float | None:
     return sum(highs) / len(highs) - sum(lows) / len(lows)
 
 
-def topic_advice(topic: str, days) -> list[Advice]:
+def topic_advice(topic: str, days, region: str = "") -> list[Advice]:
     """관심사에 맞춘 조언. 근거가 되는 수치가 없으면 빈 목록."""
     usable = [d for d in days if d.tmin_lo is not None and d.tmax_hi is not None]
     if not usable:
@@ -197,27 +208,27 @@ def topic_advice(topic: str, days) -> list[Advice]:
     if topic == "우산":
         if rainy:
             return [Advice(":umbrella_with_rain_drops:",
-                           _pick(UMBRELLA_YES_LINES, ref).format(days=_days_text(rainy)))]
-        return [Advice(":sunny:", _pick(UMBRELLA_NO_LINES, ref))]
+                           _pick(UMBRELLA_YES_LINES, ref, region).format(days=_days_text(rainy)))]
+        return [Advice(":sunny:", _pick(UMBRELLA_NO_LINES, ref, region))]
 
     if topic == "옷차림":
         out = []
         spread = max((v for d in usable if (v := _spread(d)) is not None), default=0)
         if spread >= BIG_SPREAD:
-            out.append(Advice(":thermometer:", _pick(WEAR_SPREAD_LINES, ref).format(
+            out.append(Advice(":thermometer:", _pick(WEAR_SPREAD_LINES, ref, region).format(
                 lo=coldest.tmin_lo, hi=hottest.tmax_hi, gap=spread)))
         elif coldest.tmin_lo <= COLD_MORNING:
             out.append(Advice(":cold_face:",
-                              _pick(WEAR_COLD_LINES, ref).format(t=coldest.tmin_lo)))
+                              _pick(WEAR_COLD_LINES, ref, region).format(t=coldest.tmin_lo)))
         elif hottest.tmax_hi >= WARM_DAY:
             out.append(Advice(":sunny:",
-                              _pick(WEAR_WARM_LINES, ref).format(t=hottest.tmax_hi)))
+                              _pick(WEAR_WARM_LINES, ref, region).format(t=hottest.tmax_hi)))
         else:
-            out.append(Advice(":relieved:", _pick(WEAR_MILD_LINES, ref).format(
+            out.append(Advice(":relieved:", _pick(WEAR_MILD_LINES, ref, region).format(
                 lo=coldest.tmin_lo, hi=hottest.tmax_hi)))
         if rainy:
             out.append(Advice(":umbrella_with_rain_drops:",
-                              _pick(WEAR_RAIN_LINES, ref).format(days=_days_text(rainy))))
+                              _pick(WEAR_RAIN_LINES, ref, region).format(days=_days_text(rainy))))
         return out
 
     if topic == "야외":
@@ -251,7 +262,7 @@ def topic_advice(topic: str, days) -> list[Advice]:
     return []
 
 
-def build_advice(days, narratives=None) -> list[Advice]:
+def build_advice(days, narratives=None, region: str = "") -> list[Advice]:
     """수치에서 짚이는 것만 고른다. 없으면 빈 목록."""
     usable = [d for d in days if d.tmin_lo is not None and d.tmax_hi is not None]
     if not usable:
@@ -270,7 +281,7 @@ def build_advice(days, narratives=None) -> list[Advice]:
         if gap >= BIG_SPREAD:
             out.append(Advice(
                 ":thermometer:",
-                f"*{worst.date:%m/%d}* " + _pick(SPREAD_LINES, worst.date).format(gap=gap),
+                f"*{worst.date:%m/%d}* " + _pick(SPREAD_LINES, worst.date, region).format(gap=gap),
             ))
 
     # 2) 추위 / 더위 — 둘 다 해당하면 더 극단적인 쪽만
@@ -278,30 +289,30 @@ def build_advice(days, narratives=None) -> list[Advice]:
         out.append(Advice(
             ":cold_face:",
             f"*{coldest.date:%m/%d}* "
-            + _pick(COLD_LINES, coldest.date).format(t=coldest.tmin_lo),
+            + _pick(COLD_LINES, coldest.date, region).format(t=coldest.tmin_lo),
         ))
     elif hottest.tmax_hi >= HEAT_WAVE:
         out.append(Advice(
             ":sun_with_face:",
             f"*{hottest.date:%m/%d}* "
-            + _pick(HEAT_LINES, hottest.date).format(t=hottest.tmax_hi),
+            + _pick(HEAT_LINES, hottest.date, region).format(t=hottest.tmax_hi),
         ))
     elif hottest.tmax_hi >= WARM_DAY:
         out.append(Advice(
             ":sunny:",
-            _pick(WARM_LINES, hottest.date).format(t=hottest.tmax_hi),
+            _pick(WARM_LINES, hottest.date, region).format(t=hottest.tmax_hi),
         ))
     elif coldest.tmin_lo <= CHILLY_MORNING:
         out.append(Advice(
             ":fallen_leaf:",
-            _pick(CHILLY_LINES, coldest.date).format(t=coldest.tmin_lo),
+            _pick(CHILLY_LINES, coldest.date, region).format(t=coldest.tmin_lo),
         ))
 
     # 3) 비
     if rainy:
         out.append(Advice(
             ":umbrella_with_rain_drops:",
-            _pick(RAIN_LINES, rainy[0].date).format(days=_days_text(rainy)),
+            _pick(RAIN_LINES, rainy[0].date, region).format(days=_days_text(rainy)),
         ))
 
     # 4) 예보관이 짚은 특이사항 — 수치로는 안 잡히는 것 (풍랑·건조·태풍 등)
@@ -313,7 +324,7 @@ def build_advice(days, narratives=None) -> list[Advice]:
     for line in narratives or []:
         for keyword, (emoji, lines) in SPECIAL.items():
             if keyword in line and not any(k == keyword for k, _ in hits):
-                hits.append((keyword, Advice(emoji, _pick(lines, ref))))
+                hits.append((keyword, Advice(emoji, _pick(lines, ref, region))))
     # 같은 서술에 여러 특보가 섞여 오므로(«건조·황사·태풍») 급한 것부터 고른다.
     hits.sort(key=lambda pair: SPECIAL_ORDER.index(pair[0]))
     special = [advice for _, advice in hits]

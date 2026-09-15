@@ -428,7 +428,16 @@ def test_phrase_rotation() -> None:
     assert _pick(SPREAD_LINES, later) == _pick(SPREAD_LINES, base)
     # 표를 비워도 응답 경로가 죽지 않는다
     assert _pick((), base) == ""
-    print("[ok] 문구 회전 — 날짜별로 다르고 같은 날은 고정")
+
+    # 같은 날이라도 지역이 다르면 문장이 갈린다 — 한 채널에서 서울과 부산을
+    # 잇달아 물었을 때 같은 말이 두 번 나가지 않게 한 장치다.
+    by_region = {_pick(SPREAD_LINES, base, r) for r in ("서울", "부산", "대구")}
+    assert len(by_region) > 1, by_region
+    # 그러면서 같은 곳·같은 날은 늘 같아야 한다 (무작위가 아니다)
+    assert _pick(SPREAD_LINES, base, "서울") == _pick(SPREAD_LINES, base, "서울")
+    # 소금이 없으면 예전 동작 그대로 — 기본값 호출부가 조용히 바뀌지 않는다
+    assert _pick(SPREAD_LINES, base) == SPREAD_LINES[base.toordinal() % len(SPREAD_LINES)]
+    print("[ok] 문구 회전 — 날짜·지역별로 다르고 같은 조건은 고정")
 
 
 def test_advice() -> None:
@@ -616,6 +625,51 @@ def test_chart_download() -> None:
     print("[ok] 없는 일기도는 200+HTML 로 응답 -> 매직바이트 검증 필요 확인")
 
 
+def test_footer_and_region_variation() -> None:
+    """서로 다른 지역을 물으면 답이 서로 달라 보인다 — 꼬리말·조언 양쪽에서.
+
+    실제로 서울과 부산을 잇달아 물었더니 두 답이 같은 메시지로 읽혔다. 본문은
+    달랐지만 고정 꼬리말 두 줄이 화면의 절반이었고, 조언 문구는 날짜만 보고
+    골라 지역과 무관했다.
+    """
+    import src.mention as mention
+    from types import SimpleNamespace
+
+    def fake_fetch(zone, name, days_n):
+        base = dt.date(2026, 9, 16)
+        rows = [(base + dt.timedelta(days=i), 16.0, 29.0, "맑음", 10)
+                for i in range(days_n)]
+        return SimpleNamespace(
+            name=name, issued="2026년 09월 15일 (화)요일 17:00",
+            daily_summary=lambda: rows,
+        )
+
+    orig = mention.fetch_dong
+    try:
+        # 하루만 물으면 광역 안내를 달지 않는다 — 쓸모가 없는데 자리만 차지한다
+        mention.fetch_dong = lambda z, n: fake_fetch(z, n, 1)
+        one = mention._dong_reply("1100000000", "서울특별시", days=1)
+        assert "더 먼 날이 필요" not in one, one
+        assert "발표" in one, one            # 출처는 남는다
+
+        # 동네예보가 닿는 끝까지 물었으면 그때는 안내가 쓸모 있다
+        mention.fetch_dong = lambda z, n: fake_fetch(z, n, mention.DONG_MAX_DAYS)
+        full = mention._dong_reply("1100000000", "서울특별시", days=mention.DONG_MAX_DAYS)
+        assert "더 먼 날이 필요" in full, full
+
+        # 같은 날·같은 수치라도 지역이 다르면 조언 문장이 갈린다
+        mention.fetch_dong = lambda z, n: fake_fetch(z, n, 3)
+        seoul = mention._dong_reply("1100000000", "서울특별시", days=3)
+        busan = mention._dong_reply("2600000000", "부산광역시", days=3)
+        def tip(r):
+            return [ln for ln in r.split("\n") if ln.startswith(":")]
+        assert tip(seoul) and tip(busan), (seoul, busan)
+        assert tip(seoul) != tip(busan), (tip(seoul), tip(busan))
+    finally:
+        mention.fetch_dong = orig
+    print("[ok] 꼬리말은 필요할 때만, 조언은 지역마다 다르게")
+
+
 if __name__ == "__main__":
     test_extract_json()
     test_find_region()
@@ -636,4 +690,5 @@ if __name__ == "__main__":
     test_card_render()
     test_message_template()
     test_chart_download()
+    test_footer_and_region_variation()
     print("\n전부 통과")

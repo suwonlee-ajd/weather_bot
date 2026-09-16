@@ -400,7 +400,19 @@ def test_explicit_date() -> None:
     # 기간 표현은 날짜가 아니다
     assert _explicit_date("7일간 날씨", today) is None
     assert _explicit_date("내일 날씨", today) is None
-    print("[ok] 명시 날짜 해석 — 월 생략·해 넘김·기간 표현 구분")
+    # 요일 표기가 붙어도 같은 날로 읽고, 찌꺼기를 남기지 않는다.
+    # 봇 출력이 «09/16(수)» 형식이라 그대로 복사해 다시 묻는 사람이 많다.
+    # 날짜만 맞고 «(금)» 이 남으면 그 뒤 지역 해석이 깨진다(역삼동이 안 잡혔다).
+    from src.mention import EXPLICIT_DATE_RE
+    for q in ("9/18(금)", "9월 18일(금)", "18일(금)", "9/18 (금)",
+              "9월18일(금요일)", "09/18（금）"):
+        assert _explicit_date(q, today) == _explicit_date("9/18", today), q
+        assert not EXPLICIT_DATE_RE.sub(" ", q).strip(), q   # 요일이 남으면 안 된다
+
+    # 날짜 없이 요일만 있으면 날짜가 아니다 — 괄호만 보고 삼키지 않는다
+    assert _explicit_date("금요일 날씨", today) is None
+    assert _explicit_date("(금) 날씨", today) is None
+    print("[ok] 명시 날짜 해석 — 월 생략·해 넘김·기간 표현·요일 표기 구분")
 
 
 def test_phrase_rotation() -> None:

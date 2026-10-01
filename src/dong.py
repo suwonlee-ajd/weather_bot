@@ -23,12 +23,11 @@ from dataclasses import dataclass
 import requests
 
 from .cache import get_or_set
-from .config import KST
+from .config import KST, UA
 
 log = logging.getLogger(__name__)
 
 RSS_URL = "https://www.weather.go.kr/w/rss/dfs/hr1-forecast.do"
-UA = "ajd-slack-weather-bot/1.0 (+internal Slack bot)"
 FORECAST_DAYS = 4  # 오늘 + 3일
 
 ZONE_URL = "https://www.weather.go.kr/w/rest/zone/dong.do"

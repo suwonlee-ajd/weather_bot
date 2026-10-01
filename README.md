@@ -8,6 +8,7 @@
 | 본문 | 복장·우산·태풍 등 **특이사항에 대한 권장 대응** | 기상청 원문 + 규칙 기반 (모델은 선택) |
 | 첨부 1 | 주간 전망 **카드 이미지** (원본 AI 검색 캡처와 동일 구성) | 기상청 원문 → Chromium 렌더링 |
 | 첨부 2 | 기상청 **지상일기도** PNG | 날씨누리 공개 저장소 |
+| 첨부 3 | **단풍 지도** — 9월 둘째 주 ~ 11월 둘째 주에만 | 기상청 현황 + 웨더아이 예상 → Chromium 렌더링 |
 
 **필수 자격증명은 슬랙 봇 토큰 하나뿐이다.** 기상청 API 키도, 검색 API도, 결제도 필요 없다.
 카드 문장은 기상청 예보관이 쓴 원문을 그대로 쓰므로 모델도 필요 없다.
@@ -17,8 +18,9 @@ GitHub Actions / systemd timer (월 07:50 KST 기동)
   ├─ 기상청 예보 통보문 ─── 전국 아침·낮 기온 범위 + 총괄예보관 서술  (D+0~D+4)
   ├─ 기상청 중기예보 ───── 기상전망 + 도시별 기온 + 하늘상태·강수확률 (D+4~D+10)
   ├─ 날씨누리 저장소 ───── 지상일기도 PNG
+  ├─ (단풍철) 기상청 단풍현황 + 웨더아이 예상 PDF ── 21개 명산 단풍 지도
   ├─ 모델 ────────────── 위 원문으로 카드 문구 + 본문 작성 (선택, 없으면 규칙 기반)
-  └─ 08:00 정각까지 대기 후 files.uploadV2 (본문 + 이미지 2장을 한 메시지로)
+  └─ 08:00 정각까지 대기 후 files.uploadV2 (본문 + 이미지 2~3장을 한 메시지로)
 ```
 
 ---
@@ -157,8 +159,14 @@ Socket Mode 를 고른 이유는 **인바운드 포트·도메인·TLS·리버�
 불필요**하기 때문이다. 나가는 WebSocket 연결 하나뿐이라 서버에 이미 떠 있는 다른 서비스의
 ingress 를 건드리지 않는다.
 
-응답은 텍스트로만 한다. 카드 이미지를 붙이면 Chromium 이 필요해져 무거워지고, 실용적으로도
-"부산 어때?" 에는 텍스트가 빠르고 낫다.
+응답은 텍스트로만 한다. 카드 이미지를 붙이면 무거워지고, 실용적으로도 "부산 어때?" 에는
+텍스트가 빠르고 낫다. **예외는 단풍 현황 하나다** — "단풍 어디까지 왔어" 에는 21곳을 한눈에
+보는 지도가 글보다 낫다. 주간 게시와 같은 지도를 1시간 캐시해 붙이고, Chromium 이 없거나
+그리다 실패하면 글로만 답한다. "설악산 단풍" 처럼 산 하나를 물으면 글로 답하고, "주말 내장산
+단풍" 처럼 날짜·날씨를 함께 물으면 산 아래 마을 동네예보를 붙인다.
+
+단풍은 **9월 둘째 주 ~ 11월 둘째 주** 에만 답하고, 그 밖에는 다음 기간을 알려 주며 거절한다.
+꽃 개화는 다루지 않는다. 자료 구조는 [`docs/forecast-format.md`](docs/forecast-format.md) 의 단풍 절.
 
 예보는 **1시간 캐시**한다(`MENTION_CACHE_TTL`). 기상청은 하루 네 번만 갱신하므로 멘션마다
 긁을 이유가 없고, 남의 서버에 대한 예의이기도 하다.
@@ -190,7 +198,7 @@ uv run python -m playwright install chromium  # 카드 렌더링용 헤드리스
 cp .env.example .env   # SLACK_BOT_TOKEN, SLACK_CHANNEL_ID 채우기
 set -a && . ./.env && set +a
 .venv/bin/python -m tests.check_credentials   # 슬랙·기상청·Chromium 점검 (값은 출력 안 함)
-.venv/bin/python -m src.post --dry-run        # data/img/ 에 이미지 2장 저장, 본문 출력
+.venv/bin/python -m src.post --dry-run        # data/img/ 에 이미지 2~3장 저장, 본문 출력
 ```
 
 실제 게시는 `--dry-run` 없이. `--no-wait` 를 붙이면 `POST_AT` 대기를 건너뛴다.
@@ -264,10 +272,14 @@ data/img/surf_2026091200.png
 src/kma_scrape.py           기상청 두 페이지 수집·파싱 (수집 로직의 단일 출처)
 src/forecast.py             월~일 7일 조립 + 검증 (실패 시 게시 포기)
 src/outlook.py              1개월 전망 (10일 너머는 값이 아니라 확률)
+src/foliage.py              단풍 현황(기상청) + 예상(웨더아이 PDF) + 다루는 기간
+src/mountains.py            기상청 단풍 관측 21개 명산 (좌표 · 별칭 · 산 아래 행정동)
+src/render_foliage.py       단풍 지도 HTML → Chromium 캡처
+src/assets/korea_provinces.json  지도 윤곽 (Natural Earth, 퍼블릭 도메인)
 src/writer.py               한 번 호출로 카드 문구 + 본문, 규칙 기반 폴백
 src/render_card.py          HTML → 헤드리스 Chromium 캡처 (카드 PNG)
 src/kma_chart.py            일기도 PNG 다운로드 (매직바이트 검증 + 시각 백트래킹)
-src/post.py                 게시 엔트리포인트 (대기 → 이미지 2장 업로드)
+src/post.py                 게시 엔트리포인트 (대기 → 이미지 2~3장 업로드)
 src/query.py                조회 CLI (게시 없이 결과만)
 src/mention.py              멘션 응답 봇 (Socket Mode)
 src/dong.py                 동 단위 동네예보 (오늘~3일, 행정동 검색)

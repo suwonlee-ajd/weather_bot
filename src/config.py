@@ -8,6 +8,9 @@ from zoneinfo import ZoneInfo
 KST = ZoneInfo("Asia/Seoul")
 UTC = ZoneInfo("UTC")
 
+# 기상청·웨더아이에 보내는 User-Agent. 누가 부르는지 밝혀 둔다.
+UA = "ajd-slack-weather-bot/1.0 (+internal Slack bot)"
+
 
 def _env(key: str, default: str | None = None, *, required: bool = False) -> str:
     val = os.environ.get(key, default)

@@ -1,6 +1,6 @@
 [project]
 name = "slack-weather-bot"
-version = "0.1.0"
+version = "0.2.0"
 description = "기상청 공개 페이지를 긁어 주간 날씨를 슬랙에 올리고, 멘션에 답하는 봇"
 readme = "README.md"
 license = { text = "Proprietary — 사내 전용 (LicenseRef-Proprietary)" }
@@ -23,6 +23,8 @@ dependencies = [
     "playwright>=1.49",
     # 로깅
     "loguru>=0.7",
+    # 단풍 예상일 — 웨더아이가 해마다 9월 첫 주에 올리는 PDF 의 표를 읽는다 (src/foliage.py)
+    "pypdf>=5.0",
 ]
 
 [project.optional-dependencies]

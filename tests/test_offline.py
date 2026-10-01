@@ -682,6 +682,359 @@ def test_footer_and_region_variation() -> None:
     print("[ok] 꼬리말은 필요할 때만, 조언은 지역마다 다르게")
 
 
+# --- 단풍 -------------------------------------------------------------------
+
+def fake_snapshot(stages=None, first=None, peak=None, *, in_service=True, outlook=True):
+    from src.foliage import Outlook, Snapshot, Status
+    from src.mountains import MOUNTAINS
+
+    d = dt.date
+    status = Status(
+        stages={m.name: 0 for m in MOUNTAINS} | (stages or {}),
+        first=first or {}, peak=peak or {}, in_service=in_service,
+    )
+    o = Outlook(
+        first={"설악산": d(2026, 10, 3), "오대산": d(2026, 10, 7), "치악산": d(2026, 10, 10),
+               "북한산": d(2026, 10, 23), "내장산": d(2026, 11, 5), "한라산": d(2026, 10, 31)},
+        peak={"설악산": d(2026, 10, 25), "오대산": d(2026, 10, 16), "치악산": d(2026, 10, 31),
+              "북한산": d(2026, 11, 4), "내장산": d(2026, 11, 11), "한라산": d(2026, 11, 13)},
+        published=d(2026, 9, 4), url="https://example.invalid",
+    ) if outlook else None
+    return Snapshot(status=status, outlook=o)
+
+
+def test_foliage_season() -> None:
+    """9월 둘째 월요일 ~ 11월 둘째 월요일이 든 주. 해마다 날짜가 다르다."""
+    from src.foliage import in_season, next_season, season_bounds
+
+    d = dt.date
+    assert season_bounds(2026) == (d(2026, 9, 14), d(2026, 11, 15))
+    assert season_bounds(2027) == (d(2027, 9, 13), d(2027, 11, 14))   # 11/1 이 월요일인 해
+    assert not in_season(d(2026, 9, 13)) and in_season(d(2026, 9, 14))
+    assert in_season(d(2026, 11, 15)) and not in_season(d(2026, 11, 16))
+    assert next_season(d(2026, 9, 1)) == season_bounds(2026)
+    assert next_season(d(2026, 12, 1)) == season_bounds(2027)
+    print("[ok] 단풍 기간 — 9월 둘째 주 ~ 11월 둘째 주")
+
+
+def test_foliage_parse() -> None:
+    """기상청 JSONP 와 웨더아이 표. 지난 시즌 값·잘못 읽은 표는 버린다."""
+    import json
+
+    from src.foliage import FoliageError, _date, parse_outlook_text, parse_status
+
+    def jsonp(service: bool, statuses: dict[str, str], flower: dict) -> str:
+        places = [{"obsPlace": n, "status": s, "sts": str(["단풍전", "첫단풍", "절정"].index(s) + 1)}
+                  for n, s in statuses.items()]
+        return "\r\n\r\napplyMapleData(" + json.dumps(
+            {"places": places, "isService": service, "flower": flower}, ensure_ascii=False) + ")"
+
+    stages, live, flower = parse_status(
+        jsonp(True, {"설악산": "첫단풍", "오대산": "단풍전", "한라산": "절정"},
+              {"obsPlace": "설악산", "cfShotDate": "2026-09-28"}), 2026)
+    assert live and stages == {"설악산": 1, "오대산": 0, "한라산": 2}, stages
+    assert _date(flower["cfShotDate"], 2026) == dt.date(2026, 9, 28)
+    # 서비스 기간 밖에는 지난 시즌 단계가 남아 있다 — 올해 현황으로 읽지 않는다
+    stages, live, _ = parse_status(jsonp(False, {"설악산": "절정"}, {}), 2026)
+    assert not live and stages == {"설악산": 0}, stages
+    assert _date("2025-10-20", 2026) is None, "지난해 촬영일을 올해 것으로 읽었습니다"
+    try:
+        parse_status("<html>점검 중</html>", 2026)
+        raise AssertionError("JSONP 가 아닌데 통과했습니다")
+    except FoliageError:
+        pass
+
+    # 2025~ 는 '10/3', 2024 까지는 '09.27'. 금강산은 기상청 목록에 없어 빠진다.
+    rows = [
+        "금강산    1,638   10/1      -              -      10/23     -        -",
+        "설악산    1,708   10/3      5              1      10/25     8        1",
+        "오대산    1,565   10.07     6              0      10.16     1        0",
+    ] + [f"{n}    1,000   10/2{i}     1   0    11/{i + 1}    1   0"
+         for i, n in enumerate(["북한산", "치악산", "월악산", "속리산", "계룡산", "팔공산",
+                                "가야산", "내장산", "지리산"])]
+    first, peak = parse_outlook_text("\n".join(rows), 2026)
+    assert "금강산" not in first and len(first) == 11
+    assert first["설악산"] == dt.date(2026, 10, 3) and peak["오대산"] == dt.date(2026, 10, 16)
+    for bad, why in (
+        (rows[:5], "산을 너무 적게 읽었는데 통과했습니다"),
+        ([rows[1].replace("10/25", "9/25")] + rows[2:], "절정이 첫단풍보다 이른데 통과했습니다"),
+    ):
+        try:
+            parse_outlook_text("\n".join(bad), 2026)
+            raise AssertionError(why)
+        except FoliageError:
+            pass
+    print("[ok] 단풍 자료 읽기 — 지난 시즌·형식 변경은 버림")
+
+
+def test_mountain_lookup() -> None:
+    from src.mountains import MOUNTAINS, find_mountain, unknown_mountain
+    from src.render_foliage import LAT0, LAT1, LON0, LON1
+
+    assert len(MOUNTAINS) == 21 and len({m.zone for m in MOUNTAINS}) == 21
+    assert all(LON0 < m.lon < LON1 and LAT0 < m.lat < LAT1 for m in MOUNTAINS), "지도 밖 좌표"
+    for q, want in (("설악산 단풍 어때", "설악산"), ("한라 단풍", "한라산"), ("노고단 단풍", "지리산"),
+                    ("주말 내장산 단풍", "내장산"), ("단풍 어디까지", None), ("부산 근처 단풍", None)):
+        m = find_mountain(q)
+        assert (m.name if m else None) == want, (q, m)
+    assert unknown_mountain("화악산 단풍은?") == "화악산"
+    assert unknown_mountain("명지산은 단풍 들었어") == "명지산"
+    for q in ("부산 근처 단풍", "등산 가는데 단풍", "설악산 단풍", "단풍 어느산이 좋아?",
+              "가까운산 단풍", "근교산 추천"):
+        assert unknown_mountain(q) is None, q
+    print("[ok] 산 이름 — 별칭 · 목록 밖 산 · 산이 아닌 'X산'")
+
+
+def test_foliage_routing() -> None:
+    """단풍·꽃 질문의 갈래. 과거·1개월 전망으로 새지 않는다."""
+    import src.mention as mention
+    from types import SimpleNamespace
+
+    snap = fake_snapshot({"설악산": 1}, first={"설악산": dt.date(2026, 9, 28)})
+    dong_calls: list = []
+
+    def fake_dong(zone, name):
+        dong_calls.append((zone, name))
+        rows = [(dt.date(2026, 10, 3) + dt.timedelta(days=i), 9.0, 23.0, "맑음", 10) for i in range(2)]
+        return SimpleNamespace(name=name, issued="2026년 10월 01일 (목)요일 14:00",
+                               daily_summary=lambda: rows)
+
+    from src.cache import clear
+    from src.kma_scrape import Scrape
+
+    scraped: list = []
+    renders: list = []
+
+    def fake_render(s, start, span_label=""):
+        renders.append(start)
+        return b"PNG"
+
+    def fake_scrape(now, start, span, region):
+        scraped.append(region.key)
+        return Scrape(days={}, narratives=[])
+
+    orig = (mention.fetch_snapshot, mention.fetch_dong, mention.render_foliage_png, mention.scrape_range)
+    mention.fetch_snapshot = lambda today: snap
+    mention.fetch_dong = fake_dong
+    mention.render_foliage_png = fake_render          # Chromium 없이
+    mention.scrape_range = fake_scrape
+    now = dt.datetime(2026, 10, 1, 15, 0, tzinfo=KST)
+    clear()
+    try:
+        def ask(q, when=now):
+            return mention.answer(f"<@U1> {q}", when).text
+
+        res = mention.answer("<@U1> 단풍 어디까지 왔어", now)
+        overview = res.text
+        assert "단풍 현황" in overview and "*설악산* 첫단풍 9/28" in overview, overview
+        assert "예상보다 5일 빠름" in overview, overview
+        assert res.image == b"PNG", "전체 현황인데 지도가 없습니다"
+        assert mention.answer("<@U1> 설악산 단풍", now).image is None, "산 하나에는 글로만 답한다"
+        mention.answer("<@U1> 단풍 어때", now)
+        assert len(renders) == 1, f"같은 현황인데 지도를 {len(renders)}번 그렸습니다"
+
+        # 예전에는 '었나' 로 과거, '가을' 로 1개월 전망에 빠졌다
+        seorak = ask("설악산 단풍 물들었나")
+        assert "*설악산* 단풍" in seorak and "9/28 관측" in seorak, seorak
+        assert "지난 날씨" not in seorak
+        assert "1개월 전망" not in ask("올가을 단풍 언제 절정이야")
+        assert "지난 날씨" not in ask("작년보다 단풍 늦어?")
+
+        # 날짜·날씨를 함께 물으면 산 아래 마을 예보를 붙인다
+        weekend = ask("주말 내장산 단풍 어때")
+        assert "11/5 예상" in weekend and "동네예보" in weekend, weekend
+        assert dong_calls and dong_calls[-1][0] == "5218053500", dong_calls
+        assert "산 아래 마을 예보" in weekend
+        dong_calls.clear()
+        assert "동네예보" not in ask("내장산 단풍 언제 절정이야") and not dong_calls
+
+        assert "21곳에 없습니다" in ask("화악산 단풍은?")
+        assert "21곳에 없습니다" not in ask("부산 근처 단풍")
+
+        # 꽃은 언제든 거절, 단풍은 기간 밖이면 거절
+        for when in (now, dt.datetime(2026, 4, 1, tzinfo=KST)):
+            assert "꽃 개화 소식은 다루지 않습니다" in ask("벚꽃 피었어?", when)
+        late = ask("단풍 어때", dt.datetime(2026, 12, 1, tzinfo=KST))
+        assert "9월 둘째 주 ~ 11월 둘째 주" in late and "2027년 9/13" in late, late
+        early = ask("설악산 단풍", dt.datetime(2026, 9, 1, tzinfo=KST))
+        assert "올해는 9/14(월)부터" in early, early
+
+        # 단풍 말이 없으면 평소 갈래 그대로
+        assert "지난 날씨는" in ask("작년 여름")
+
+        # 단풍·꽃 말이 섞인 날씨 질문은 날씨로 답한다
+        scraped.clear()
+        weather = ask("단풍 구경 가는데 강원도 날씨 어때")
+        assert scraped == ["강원"] and "단풍 현황" not in weather, (scraped, weather)
+        assert "꽃 개화 소식" not in ask("꽃구경 가는데 내일 강원 날씨")
+        # 지역만 있고 날씨를 묻지 않으면 단풍 질문이다
+        assert "단풍 현황" in ask("강원도 단풍 어때")
+
+        # 단풍 상태·날짜를 되묻는 말에는 날씨를 붙이지 않는다
+        dong_calls.clear()
+        for q in ("설악산 단풍 지금 어때", "오대산 단풍 현재 상태", "설악산 단풍 절정 10/25 맞아?"):
+            assert "동네예보" not in ask(q), q
+        assert not dong_calls, dong_calls
+        # 동네예보를 못 받으면 도움말 대신 한 줄로 알린다
+        mention.fetch_dong = lambda z, n: (_ for _ in ()).throw(mention.DongError("점검"))
+        failed = ask("주말 설악산 단풍")
+        assert "가져오지 못했습니다" in failed and "광역" not in failed, failed
+        mention.fetch_dong = fake_dong
+        # '다음 주 주말' 은 이번 주말이 아니다 — 10/10 은 동네예보(5일) 밖이라 안내만 나간다
+        next_weekend = ask("다음 주 주말 설악산 단풍")
+        assert "10/03" not in next_weekend and "5일까지" in next_weekend, next_weekend
+
+        # 물들었는데 촬영일이 아직 없으면 — 지난 단계의 예상일을 꺼내지 않는다
+        mention.fetch_snapshot = lambda today: fake_snapshot({"설악산": 1})
+        bare = ask("설악산 단풍")
+        assert "*관측* (촬영일은" in bare and "예상이었지만" not in bare, bare
+        assert ask("단풍 어디까지").count("*설악산* 첫단풍") == 1
+    finally:
+        (mention.fetch_snapshot, mention.fetch_dong, mention.render_foliage_png,
+         mention.scrape_range) = orig
+        clear()
+    print("[ok] 단풍 멘션 — 현황 · 산별 · 산 날씨 · 목록 밖 산 · 꽃/기간 밖 거절")
+
+
+def test_period_next_weekend() -> None:
+    from src.mention import _period
+
+    thu = dt.datetime(2026, 10, 1, 9, 0, tzinfo=KST)
+    assert _period("주말 설악산", thu)[:2] == (dt.date(2026, 10, 3), 2)
+    assert _period("다음 주 주말", thu)[:2] == (dt.date(2026, 10, 10), 2)
+    assert _period("다음주 토요일 부산", thu)[0] == dt.date(2026, 10, 10)
+    print("[ok] 기간 — '다음 주 주말' 은 다음 주의 토·일")
+
+
+def test_foliage_fetch() -> None:
+    """산별 날짜: 목록에 딸려 온 상세는 다시 부르지 않고, 촬영일이 빈 상세는 캐시하지 않는다."""
+    import json
+
+    import src.foliage as foliage
+    from src.cache import clear
+
+    def jsonp(places: dict[str, str], flower: dict) -> str:
+        return "applyMapleData(" + json.dumps({
+            "isService": True, "flower": flower,
+            "places": [{"obsPlace": n, "status": st, "sts": None} for n, st in places.items()],
+        }, ensure_ascii=False) + ")"
+
+    places = {"설악산": "첫단풍", "오대산": "첫단풍", "치악산": "", "한라산": "단풍전"}
+    details = {
+        "": {"obsPlace": "설악산", "cfShotDate": "2026-09-28"},
+        "오대산": {"obsPlace": "오대산", "cfShotDate": ""},       # 단계만 먼저 바뀌었다
+    }
+    calls: list = []
+
+    def fake_kma(place=""):
+        calls.append(place)
+        return jsonp(places, details[place])
+
+    orig = foliage._kma
+    foliage._kma = fake_kma
+    clear()
+    try:
+        status = foliage.fetch_status(dt.date(2026, 10, 1))
+        # "sts": null + 모르는 글자는 단풍전으로 — 예외로 새지 않는다
+        assert status.stage("치악산") == 0 and status.stage("오대산") == 1
+        assert status.first == {"설악산": dt.date(2026, 9, 28)}, status.first
+        assert calls == ["", "오대산"], f"설악산 상세를 다시 불렀습니다: {calls}"
+        # 빈 상세는 캐시하지 않는다 — 다음 조회에서 날짜가 올라왔으면 받는다
+        details["오대산"]["cfShotDate"] = "2026-10-06"
+        assert foliage._detail("오대산", 1, 2026) == (dt.date(2026, 10, 6), None)
+        details["오대산"]["cfShotDate"] = ""
+        assert foliage._detail("오대산", 1, 2026)[0] == dt.date(2026, 10, 6), "날짜가 생기면 캐시한다"
+    finally:
+        foliage._kma = orig
+        clear()
+
+    # 웨더아이 예상이 아직 없으면 None — 30분만 기억한다
+    gets: list = []
+    orig_get = foliage._get
+
+    def fake_get(url, **kw):
+        gets.append(url)
+        from types import SimpleNamespace
+        return SimpleNamespace(text="<html>공지 없음</html>", encoding="utf-8")
+
+    foliage._get = fake_get
+    try:
+        assert foliage.fetch_outlook(2026) is None and foliage.fetch_outlook(2026) is None
+        assert len(gets) == 1, f"아직 없는 예상을 {len(gets)}번 받으러 갔습니다"
+    finally:
+        foliage._get = orig_get
+        clear()
+    print("[ok] 단풍 수집 — 목록 상세 재사용 · 빈 상세 미캐시 · 미발표 짧게 기억")
+
+
+def test_cache_failures() -> None:
+    """실패를 잠시 기억하고, 지난 항목은 새 값을 넣을 때 걷어낸다."""
+    import time
+
+    import src.cache as cache
+
+    cache.clear()
+    calls = []
+
+    def boom():
+        calls.append(1)
+        raise ValueError("점검 중")
+
+    for _ in range(3):
+        try:
+            cache.get_or_set("k", 60, boom, errors=(ValueError,), error_ttl=60)
+        except ValueError as exc:
+            assert str(exc) == "점검 중"
+    assert len(calls) == 1, f"실패를 기억하지 못하고 {len(calls)}번 불렀습니다"
+    # errors 에 없는 예외는 기억하지 않는다
+    try:
+        cache.get_or_set("j", 60, boom)
+    except ValueError:
+        pass
+    assert "j" not in cache._STORE
+
+    cache.get_or_set("old", 0.01, lambda: "x")
+    time.sleep(0.02)
+    cache.get_or_set("new", 60, lambda: "y")
+    assert "old" not in cache._STORE and "new" in cache._STORE
+    cache.clear()
+    print("[ok] 캐시 — 실패 기억, 지난 항목 정리")
+
+
+def test_foliage_render() -> None:
+    from src.foliage import STAGES
+    from src.render_foliage import build_html, observed_line, render_png as render_map
+
+    d = dt.date
+    early = fake_snapshot({"설악산": 1}, first={"설악산": d(2026, 9, 28)})
+    html_text = build_html(early, d(2026, 10, 5))
+    assert "첫단풍 <b>오대산</b> 10/7 · <b>치악산</b> 10/10" in html_text, "이번 주 예상이 빠졌습니다"
+    assert "9/4 발표" in html_text
+
+    # 물든 곳이 많아지면 이름을 늘어놓지 않고 개수와 최근 변화로 줄인다
+    late = fake_snapshot(
+        {"설악산": 2, "오대산": 2, "치악산": 1, "북한산": 1, "한라산": 1},
+        first={"설악산": d(2026, 9, 28), "오대산": d(2026, 10, 6), "치악산": d(2026, 10, 12),
+               "북한산": d(2026, 10, 20), "한라산": d(2026, 10, 25)},
+        peak={"설악산": d(2026, 10, 18), "오대산": d(2026, 10, 15)},
+    )
+    line = observed_line(late)
+    assert line.startswith(f"{STAGES[2]} 2곳 · {STAGES[1]} 3곳 · {STAGES[0]} 16곳"), line
+    assert "한라산</b> 첫단풍 10/25" in line, line
+
+    # 물들었는데 촬영일이 없어도 문장이 깨지지 않는다
+    assert observed_line(fake_snapshot({"설악산": 1})) == "<b>설악산</b> 첫단풍, 나머지 20곳은 단풍 전"
+
+    # 예상이 없어도 현황만으로 그린다
+    assert "올해 예상이 아직 나오지 않았습니다" in build_html(fake_snapshot(outlook=False), d(2026, 9, 14))
+
+    IMG.mkdir(parents=True, exist_ok=True)
+    png = render_map(late, d(2026, 10, 26))
+    assert png.startswith(PNG_MAGIC)
+    (IMG / "foliage-test.png").write_bytes(png)
+    print(f"[ok] 단풍 지도 {len(png):,}B -> {IMG / 'foliage-test.png'}")
+
+
 if __name__ == "__main__":
     test_extract_json()
     test_find_region()
@@ -703,4 +1056,12 @@ if __name__ == "__main__":
     test_message_template()
     test_chart_download()
     test_footer_and_region_variation()
+    test_foliage_season()
+    test_foliage_parse()
+    test_mountain_lookup()
+    test_foliage_routing()
+    test_period_next_weekend()
+    test_foliage_fetch()
+    test_cache_failures()
+    test_foliage_render()
     print("\n전부 통과")

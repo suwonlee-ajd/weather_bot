@@ -4,6 +4,7 @@
   본문   : 복장·우산·태풍 등 특이사항에 대한 권장 대응 (Claude)
   첨부 1 : Gemini 검색 브리핑 카드 PNG
   첨부 2 : 기상청 지상일기도 PNG (인증 불필요한 공개 파일)
+  첨부 3 : 단풍 지도 PNG — 9월 둘째 주 ~ 11월 둘째 주에만 (src/render_foliage.py)
 
     python -m src.post              # 실제 게시
     python -m src.post --dry-run    # 슬랙 전송 없이 data/ 에 저장하고 본문만 출력
@@ -20,9 +21,12 @@ import time
 
 from .logsetup import setup
 from .config import KST, Config
+from .foliage import fetch_snapshot, in_season
 from .forecast import ForecastError, build_week
 from .kma_chart import fetch_latest_chart
 from .render_card import render_png
+from .render_foliage import render_png as render_foliage_png
+from .render_foliage import sources as foliage_sources
 from .retention import sweep
 from .writer import write
 
@@ -102,8 +106,23 @@ def main(argv: list[str] | None = None) -> int:
     chart = fetch_latest_chart(cfg.chart_product, back=5)
     log.info("카드 %s bytes / 일기도 %s (%s bytes)", f"{len(card_png):,}", chart.url, f"{len(chart.png):,}")
 
+    # 단풍철이면 단풍 지도도 붙인다. 못 그려도 날씨 게시는 그대로 나간다 —
+    # 단풍은 덤이고, 날씨가 빠지면 게시물의 이유가 없어진다.
+    foliage_png = foliage_credit = None
+    if in_season(week.week_start):
+        try:
+            snap = fetch_snapshot(now.date())
+            foliage_png = render_foliage_png(snap, week.week_start, scale=cfg.card_scale)
+            # 예상을 못 읽었으면 지도에도 예상이 없다 — 본문 출처도 그에 맞춘다
+            foliage_credit = foliage_sources(snap)
+            log.info("단풍 지도 %s bytes", f"{len(foliage_png):,}")
+        except Exception:
+            log.warning("단풍 지도를 만들지 못해 빼고 게시합니다", exc_info=True)
+
     # 3) 본문
     text = f"{written.body}\n\n_{chart.label} · 기상청_"
+    if foliage_png:
+        text += f"\n_단풍 지도 · {foliage_credit}_"
 
     uploads = [
         {
@@ -127,6 +146,15 @@ def main(argv: list[str] | None = None) -> int:
         (cfg.card_keep_days, "weekly-weather-*.png"),
         (cfg.chart_keep_days, f"{cfg.chart_product}_*.png"),
     ]
+    if foliage_png:
+        uploads.append({
+            "filename": f"foliage-{week.week_start:%Y%m%d}.png",
+            "file": foliage_png,
+            "title": "단풍 지도",
+            "alt_txt": "전국 21개 명산의 단풍 현황(기상청)과 예상 시기(웨더아이) 지도",
+        })
+        # 카드와 같이 언제든 다시 만들 수 있으므로 보존 기간도 카드를 따른다
+        save_specs.append((cfg.card_keep_days, "foliage-*.png"))
 
     if args.dry_run or cfg.dry_run:
         d = pathlib.Path(data_dir) / cfg.img_dir

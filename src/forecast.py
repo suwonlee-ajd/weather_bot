@@ -26,6 +26,11 @@ def day_label(date: dt.date) -> str:
     return f"{date:%m/%d}({WEEKDAY_KO[date.weekday()]})"
 
 
+def short_date(date: dt.date) -> str:
+    """요일 없이 짧게. 단풍처럼 날짜를 여러 개 늘어놓을 때 쓴다. 예: "9/28"."""
+    return f"{date.month}/{date.day}"
+
+
 def range_text(lo: float | None, hi: float | None) -> str | None:
     """기온 범위 표기. lo == hi 면 한 값으로 접는다. 둘 다 없으면 None."""
     if lo is None and hi is None:

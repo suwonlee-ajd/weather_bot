@@ -67,12 +67,14 @@ def main(argv: list[str] | None = None) -> int:
 
     # pattern 으로 좁히는 이유는 data/ 와 logs/ 가 사용자도 열어 보는 자리라서
     # 우리가 만들지 않은 파일까지 지우면 안 되기 때문이다. 같은 디렉터리를
-    # 패턴만 달리해 두 번 훑는다 — 카드와 일기도는 보존 기간이 다르다.
+    # 패턴만 달리해 여러 번 훑는다 — 카드와 일기도는 보존 기간이 다르다.
     chart_product = os.environ.get("CHART_PRODUCT") or "surf"
     img_root = data_root / (os.environ.get("IMG_DIR") or "img")
     data_targets = [
         (img_root, _int_env("CARD_KEEP_DAYS", 14), False, "weekly-weather-*.png"),
         (img_root, _int_env("CHART_KEEP_DAYS", 30), False, f"{chart_product}_*.png"),
+        # 단풍 지도는 카드처럼 언제든 다시 만들 수 있어 카드의 보존 기간을 따른다
+        (img_root, _int_env("CARD_KEEP_DAYS", 14), False, "foliage-*.png"),
     ]
     # 로그 보존 기본값은 logsetup 이 loguru 에 넘기는 값과 같은 숫자에서 온다.
     # loguru 가 회전시킨 파일은 .log 와 .log.gz 두 꼴이다.

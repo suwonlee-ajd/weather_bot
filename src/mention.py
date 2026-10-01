@@ -20,14 +20,22 @@ import threading
 import time
 
 from .advice import _pick, build_advice, detect_topic, topic_advice
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 from .cache import get_or_set
 from .config import KST
-from .forecast import day_label, range_text
+from .forecast import day_label, range_text, short_date
 from .logsetup import setup
 from .dong import DongError, fetch_dong, find_wide, search_dong
+from .foliage import KMA_PAGE as KMA_FOLIAGE_PAGE
+from .foliage import (
+    CRITERIA_TEXT, KINDS, NOT_STARTED_TEXT, OUTLOOK_SOURCE, SEASON_TEXT, STAGES,
+    FoliageError, Snapshot, fetch_snapshot, in_season, next_season,
+)
+from .mountains import MOUNTAINS, Mountain, find_mountain, unknown_mountain
 from .outlook import OutlookError, fetch_outlook
+from .render_foliage import gap_text, observed_line, sources, week_line
+from .render_foliage import render_png as render_foliage_png
 from .kma_scrape import (
     NATIONWIDE, REGION_HELP, ScrapeError, _resolve_date, extract_region,
     lines_for_dates, resolve_region, scrape_range,
@@ -115,6 +123,7 @@ def help_text() -> str:
         "   중부 · 남부 · 영남 · 호남 · 충청 · 영동 · 영서 같은 말도 알아듣습니다.\n"
         "• *동네예보* (오늘~5일) — 부산 · 역삼동 · 봉담 처럼 시도/동 이름\n"
         f"   행정동코드 10자리를 직접 적어도 됩니다. 예: {me} 1168064000\n"
+        "• *단풍* (9월 둘째 주 ~ 11월 둘째 주) — 단풍 · 설악산 단풍 · 주말 내장산 단풍\n"
         "\n_광역은 최대 10일, 동 단위는 3일까지입니다. 그보다 먼 날은 기상청도 예보하지 않습니다._"
     )
 
@@ -192,12 +201,19 @@ def _dong_advice(summary, region: str = "") -> list:
     return build_advice(days, region=region)
 
 
-def _dong_reply(zone: str, name: str, days: int = 4, start: dt.date | None = None) -> str:
-    """동·시도 단위 동네예보. 닿는 날까지만 보여주고, 더 필요하면 광역으로 안내한다."""
+def _dong_reply(zone: str, name: str, days: int = 4, start: dt.date | None = None,
+                *, quiet: bool = False) -> str:
+    """동·시도 단위 동네예보. 닿는 날까지만 보여주고, 더 필요하면 광역으로 안내한다.
+
+    quiet 이면 실패하거나 그날 예보가 없을 때 안내문 대신 빈 문자열 — 다른 답(산 단풍)
+    뒤에 덧붙일 때 도움말 전문이 끼어들지 않게.
+    """
     try:
         fc = fetch_dong(zone, name)
     except DongError as exc:
         log.warning("동네예보 실패: %s", exc)
+        if quiet:
+            return ""
         return (
             f"*{name}* 동네예보를 가져오지 못했습니다.\n"
             f"광역 구역으로는 7일치를 볼 수 있습니다 — 예: {self_mention()} 수도권\n\n{help_text()}"
@@ -207,6 +223,8 @@ def _dong_reply(zone: str, name: str, days: int = 4, start: dt.date | None = Non
     if start is not None:
         summary = [row for row in summary if row[0] >= start][:max(1, days)]
         if not summary:
+            if quiet:
+                return ""
             return (
                 f"*{name}* 동네예보는 오늘부터 {DONG_MAX_DAYS}일까지만 제공됩니다. {NO_EMOJI}\n"
                 f"그 이후는 광역 구역으로 불러 주세요. 예: {self_mention()} 수도권"
@@ -324,7 +342,185 @@ def _explicit_date(query: str, today: dt.date) -> dt.date | None:
     return None
 
 
+def _period(query: str, now: dt.datetime) -> tuple[dt.date, int, str]:
+    """질문에서 기간을 읽는다 → (시작일, 일수, 머리글)."""
+    today = now.date()
+    days = FORWARD_DAYS
+    monday = today - dt.timedelta(days=today.weekday())
+    explicit = _explicit_date(query, today)
+    if explicit is not None:
+        start, title, days = explicit, f"{explicit:%-m월 %-d일}", 1
+    elif NEXT_WEEK_RE.search(query):
+        start, title = monday + dt.timedelta(weeks=1), "다음 주"
+    elif THIS_WEEK_RE.search(query):
+        start, title = monday, "이번 주"
+    elif TODAY_RE.search(query):
+        start, title, days = today, "오늘", 1
+    elif TOMORROW_RE.search(query):
+        ahead = 2 if "모레" in query else 1
+        start, title, days = today + dt.timedelta(days=ahead), \
+            ("모레" if ahead == 2 else "내일"), 1
+    else:
+        start, title = today, f"앞으로 {FORWARD_DAYS}일"
+
+    # '주말 등산 괜찮아?' 는 토·일만 궁금한 것이다. 한 주 전체를 보여주면 답이 묻힌다.
+    if WEEKEND_RE.search(query):
+        saturday = monday + dt.timedelta(days=5)
+        # '다음 주 주말' · '다음주 토요일' 은 다음 주의 토·일, 이미 지난 주말이어도 다음 주말
+        if NEXT_WEEK_RE.search(query) or saturday < today:
+            saturday += dt.timedelta(days=7)
+        start, days, title = saturday, 2, "주말"
+    return start, days, title
+
+
+# --- 단풍 ---------------------------------------------------------------------
+# 단풍은 9월 둘째 주 ~ 11월 둘째 주에만 답한다(src/foliage.py). 꽃 개화는 다루지 않는다.
+FOLIAGE_RE = re.compile(r"단풍|물들|물드")
+FLOWER_RE = re.compile(
+    r"벚꽃|벚나무|봄꽃|꽃\s*구경|꽃\s*놀이|꽃\s*축제|꽃이?\s*피|개화|만개|철쭉|진달래|개나리"
+)
+FLOWER_URL = "https://www.weather.go.kr/w/forecast/life/seasonal-observation/spring-flower.do"
+# 날씨를 묻는 말. 단풍·꽃 말이 섞여 있어도 이게 있으면 날씨 질문으로 본다
+# ("꽃구경 가는데 내일 서울 날씨", "단풍 구경 가는데 강원도 날씨 어때").
+# 산 이름과 함께면 산 아래 마을 날씨를 붙인다. 활동·우산 같은 관심사(advice.TOPICS)는 따로 본다.
+WEATHER_ASK_RE = re.compile(r"날씨|기온|춥|추워|덥|더워|바람")
+# 산 단풍에 날씨를 붙이는 기간 표현. '지금'·'현재' 는 단풍 상태를 묻는 말이고, '10/25' 같은
+# 날짜는 대개 단풍 날짜를 되묻는 말이라 뺀다 ("설악산 단풍 절정 10/25 맞아?").
+TRIP_SPANS = ("주말", "내일", "모레", "이번 주", "다음 주")
+
+
+@dataclass
+class Reply:
+    """멘션 답. 단풍 현황을 물으면 지도가 함께 간다."""
+    text: str
+    image: bytes | None = None
+
+
+def _slack_bold(text: str) -> str:
+    return f"*{text}*"
+
+
+def _stage_line(snap: Snapshot, kind: str, name: str, today: dt.date) -> str:
+    label = STAGES[KINDS.index(kind) + 1]
+    day, observed = snap.when(kind, name)
+    if observed and day is None:
+        return f"• {label} — *관측* (촬영일은 아직 올라오지 않았습니다)"
+    if day is None:
+        return f"• {label} — 예상 없음 ({OUTLOOK_SOURCE} 예상에 없는 산입니다)"
+    if observed:
+        gap = gap_text(snap.predicted(kind, name), day, show_date=True)
+        return f"• {label} — *{short_date(day)} 관측*" + (f" · {gap}" if gap else "")
+    if day < today:
+        return f"• {label} — {short_date(day)} 예상이었지만 아직 관측되지 않았습니다"
+    return f"• {label} — {short_date(day)} 예상"
+
+
+def _mountain_text(snap: Snapshot, m: Mountain, today: dt.date) -> str:
+    if snap.status.in_service:
+        head = f"*{m.name}* 단풍 — 지금 *{STAGES[snap.stage(m.name)]}* (기상청 관측)"
+    else:
+        head = f"*{m.name}* 단풍 — {NOT_STARTED_TEXT}"
+    return "\n".join([
+        head,
+        *(_stage_line(snap, kind, m.name, today) for kind in KINDS),
+        f"_{sources(snap)} · {CRITERIA_TEXT}_",
+    ])
+
+
+def _overview_text(snap: Snapshot, today: dt.date, unknown: str | None) -> str:
+    end = today + dt.timedelta(days=FORWARD_DAYS - 1)
+    lines = []
+    if unknown:
+        lines += [
+            f"'{unknown}' 은 기상청이 단풍을 관측하는 {len(MOUNTAINS)}곳에 없습니다. {NO_EMOJI}",
+            "_관측하는 곳: " + " · ".join(m.name for m in MOUNTAINS) + "_",
+            "",
+        ]
+    lines += [
+        f"*단풍 현황* ({short_date(today)} 기준)",
+        f"• 관측 — {observed_line(snap, _slack_bold)}",
+        f"• 앞으로 7일 — {week_line(snap, today, end, _slack_bold, muted=lambda s: s)}",
+        f"_{sources(snap)} · 산 이름을 함께 불러 주시면 그 산만 자세히 알려드려요_",
+    ]
+    return "\n".join(lines)
+
+
+def _theme(query: str, now: dt.datetime) -> tuple[str, Snapshot | None] | None:
+    """단풍·꽃 질문이면 (답, 지도로 그릴 현황), 아니면 None. 지도가 필요 없으면 현황은 None."""
+    today = now.date()
+    asks_weather = bool(WEATHER_ASK_RE.search(query))
+    if FLOWER_RE.search(query) and not FOLIAGE_RE.search(query):
+        if asks_weather:
+            return None                   # 꽃구경 가는 날의 날씨 — 날씨로 답한다
+        return (f"꽃 개화 소식은 다루지 않습니다. {NO_EMOJI}\n"
+                f"기상청 봄꽃 개화 현황(3월 초~5월 하순)에서 보실 수 있어요 — {FLOWER_URL}"), None
+    if not FOLIAGE_RE.search(query):
+        return None
+
+    mountain = find_mountain(query)
+    # 산이 아니라 지역의 날씨를 물었으면 날씨 질문이다 ("단풍 구경 가는데 강원도 날씨 어때")
+    if mountain is None and asks_weather and extract_region(query)[0] is not None:
+        return None
+
+    if not in_season(today):
+        start, _ = next_season(today)
+        # 기간은 늘 월요일에 시작한다 (9월 둘째 월요일)
+        when = (f"올해는 {short_date(start)}(월)부터입니다" if start.year == today.year
+                else f"다음은 {start.year}년 {short_date(start)}(월)부터입니다")
+        return f"단풍 소식은 *{SEASON_TEXT}* 에만 전해드립니다. {NO_EMOJI}\n_{when}._", None
+
+    try:
+        snap = fetch_snapshot(today)
+    except FoliageError as exc:
+        log.warning("단풍 현황 실패: %s", exc)
+        return ("기상청 단풍 현황을 가져오지 못했습니다. 잠시 뒤 다시 불러 주세요.\n"
+                f"기상청에서 직접 보실 수 있어요 — {KMA_FOLIAGE_PAGE}"), None
+
+    if mountain is None:
+        return _overview_text(snap, today, unknown_mountain(query)), snap
+
+    text = _mountain_text(snap, mountain, today)
+    start, days, title = _period(query, now)
+    trip = title in TRIP_SPANS
+    if trip or asks_weather or detect_topic(query):
+        if not trip:
+            start, days = today, DONG_MAX_DAYS - 1
+        weather = _dong_reply(mountain.zone, f"{mountain.name} 아래 {mountain.zone_name}",
+                              days, start, quiet=True)
+        text += (f"\n\n{weather}\n_산 아래 마을 예보입니다. 산 위는 이보다 춥고 바람이 셉니다._" if weather
+                 else f"\n\n_산 아래 마을 날씨는 가져오지 못했습니다 (동네예보는 오늘부터 {DONG_MAX_DAYS}일까지)._")
+    return text, None
+
+
+def answer(text: str, now: dt.datetime | None = None) -> Reply:
+    """멘션 진입점. 단풍·꽃은 여기서 먼저 가르고, 나머지 날씨 질문은 build_reply 로 보낸다.
+
+    단풍은 인사·과거·전망보다 먼저 봐야 한다 — "설악산 단풍 물들었나" 의 '었나' 는 과거로,
+    "올가을 단풍" 의 '가을' 은 1개월 전망으로, "안녕 단풍 어때" 는 자기소개로 빠진다.
+    """
+    now = now or dt.datetime.now(tz=KST)
+    theme = _theme(MENTION_RE.sub(" ", text).strip(), now)
+    if theme is None:
+        return Reply(build_reply(text, now))
+    reply, snap = theme
+    if snap is None:
+        return Reply(reply)
+    try:
+        # 같은 현황이면 같은 그림 — 물을 때마다 Chromium 을 띄우지 않게. 키에 현황 내용을
+        # 넣어 두어 글(방금 받은 현황)과 그림(캐시)이 어긋나지 않는다.
+        image = get_or_set(
+            ("foliage-map", now.date(), snap.signature()), CACHE_TTL_SEC,
+            lambda: render_foliage_png(snap, now.date(), span_label="앞으로 7일"),
+        )
+        return Reply(reply, image)
+    except Exception:
+        # 지도가 안 그려져도 글로는 답한다
+        log.warning("단풍 지도 렌더링 실패 — 글로만 답합니다", exc_info=True)
+        return Reply(reply)
+
+
 def build_reply(text: str, now: dt.datetime | None = None) -> str:
+    """날씨 질문에 대한 답. 멘션 진입점은 answer() 다 — 단풍·꽃은 거기서 먼저 가른다."""
     now = now or dt.datetime.now(tz=KST)
     query = MENTION_RE.sub(" ", text).strip()
 
@@ -369,37 +565,13 @@ def build_reply(text: str, now: dt.datetime | None = None) -> str:
         region, _ = resolve_region(cleaned) if cleaned else (NATIONWIDE, "")
         return _outlook_reply(region or NATIONWIDE, query)
 
-    days = FORWARD_DAYS
-    monday = now.date() - dt.timedelta(days=now.weekday())
-    weekend = bool(WEEKEND_RE.search(query))
-    explicit = _explicit_date(query, now.date())
-    if explicit is not None:
-        start, title, days = explicit, f"{explicit:%-m월 %-d일}", 1
-    elif NEXT_WEEK_RE.search(query):
-        start, title = monday + dt.timedelta(weeks=1), "다음 주"
-    elif THIS_WEEK_RE.search(query):
-        start, title = monday, "이번 주"
-    elif TODAY_RE.search(query):
-        start, title, days = now.date(), "오늘", 1
-    elif TOMORROW_RE.search(query):
-        ahead = 2 if "모레" in query else 1
-        start, title, days = now.date() + dt.timedelta(days=ahead), \
-            ("모레" if ahead == 2 else "내일"), 1
-    else:
-        start, title = now.date(), f"앞으로 {FORWARD_DAYS}일"
+    start, days, title = _period(query, now)
 
     # 탐지에 쓴 바로 그 패턴으로 지운다 — 목록이 두 군데로 갈라지지 않게.
     for pattern in (EXPLICIT_DATE_RE, NEXT_WEEK_RE, THIS_WEEK_RE,
                     TODAY_RE, TOMORROW_RE, NOISE_RE):
         query = pattern.sub(" ", query)
     query = query.strip()
-
-    # '주말 등산 괜찮아?' 는 토·일만 궁금한 것이다. 한 주 전체를 보여주면 답이 묻힌다.
-    if weekend:
-        saturday = monday + dt.timedelta(days=5)
-        if saturday < now.date():          # 이미 지난 주말이면 다음 주말
-            saturday += dt.timedelta(days=7)
-        start, days, title = saturday, 2, "주말"
 
     topic = detect_topic(text)
 
@@ -598,14 +770,39 @@ def main() -> int:
         timer = threading.Timer(SLOW_REPLY_SEC, show_loading)
         timer.start()
         try:
-            reply = build_reply(text)
-            logger.info("응답 완료 %s %.1fs %d자", ctx, time.monotonic() - started, len(reply))
+            res = answer(text)
+            reply = res.text
+            logger.info("응답 완료 %s %.1fs %d자%s", ctx, time.monotonic() - started, len(reply),
+                        f" + 지도 {len(res.image):,}B" if res.image else "")
         except Exception:
             # 트레이스백만으로는 무엇을 물었는지 알 수 없다. 질문을 같은 줄에 붙인다.
             logger.exception("응답 생성 실패 %s query=%r", ctx, text[:200])
             reply = "예보를 정리하는 중에 문제가 생겼습니다. 잠시 뒤 다시 불러 주세요."
+            res = Reply(reply)
         finally:
+            # 로딩 메시지를 올리는 중이었다면 끝날 때까지 기다린다 — 아니면 그 메시지가
+            # 아래에서 holder 를 본 뒤에 올라와 지워지지도 바뀌지도 않고 남는다.
             timer.cancel()
+            timer.join()
+
+        # 지도가 있으면 글을 지도에 붙여 한 번에 올린다. 로딩 메시지는 지운다 —
+        # 파일 업로드는 기존 메시지를 고쳐서 붙일 수 없다.
+        if res.image:
+            try:
+                client.files_upload_v2(
+                    channel=channel, thread_ts=thread_ts, initial_comment=reply,
+                    file=res.image, filename=f"foliage-{dt.datetime.now(tz=KST):%Y%m%d}.png", title="단풍 지도",
+                )
+                if holder["ts"]:
+                    try:
+                        client.chat_delete(channel=channel, ts=holder["ts"])
+                    except Exception:
+                        logger.debug("로딩 메시지 삭제 실패", exc_info=True)
+                return
+            except Exception as exc:
+                # 슬랙 오류든 네트워크 시간 초과든, 지도를 못 올리면 글로라도 답한다
+                error = exc.response.get("error") if isinstance(exc, SlackApiError) else repr(exc)
+                logger.warning("지도 업로드 실패 — 글로만 답합니다 %s error=%s", ctx, error)
 
         # 로딩 메시지를 띄웠으면 그 자리를 결과로 바꾼다 — 채널에 흔적을 남기지 않는다
         if holder["ts"]:

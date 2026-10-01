@@ -22,12 +22,11 @@ from dataclasses import dataclass
 import requests
 
 from .cache import get_or_set
-from .config import KST
+from .config import KST, UA
 
 log = logging.getLogger(__name__)
 
 URL = "https://www.weather.go.kr/repositary/xml/fct/mon/img/fct_mon1rss_108_{:%Y%m%d}.xml"
-UA = "ajd-slack-weather-bot/1.0 (+internal Slack bot)"
 TTL_SEC = 6 * 3600
 LOOKBACK_DAYS = 21          # 매주 목요일 발표라 3주면 충분하다
 

@@ -103,16 +103,18 @@ def build_html(week: WeekForecast) -> str:
     )
 
 
-def render_png(week: WeekForecast, *, scale: int = 2) -> bytes:
-    """카드 HTML을 헤드리스 Chromium으로 캡처해 PNG 바이트로 돌려준다."""
+def capture(markup: str, *, width: int = CARD_WIDTH, scale: int = 2) -> bytes:
+    """HTML 의 #card 요소를 헤드리스 Chromium으로 캡처해 PNG 바이트로 돌려준다.
+
+    단풍 지도(src/render_foliage.py)도 같은 방식으로 찍는다.
+    """
     from playwright.sync_api import sync_playwright
 
-    markup = build_html(week)
     with sync_playwright() as p:
         browser = p.chromium.launch(args=["--force-color-profile=srgb", "--font-render-hinting=none"])
         try:
             page = browser.new_page(
-                viewport={"width": CARD_WIDTH, "height": 600},
+                viewport={"width": width, "height": 600},
                 device_scale_factor=scale,
             )
             page.set_content(markup, wait_until="load")
@@ -120,3 +122,8 @@ def render_png(week: WeekForecast, *, scale: int = 2) -> bytes:
             return page.locator("#card").screenshot(type="png")
         finally:
             browser.close()
+
+
+def render_png(week: WeekForecast, *, scale: int = 2) -> bytes:
+    """카드 HTML을 헤드리스 Chromium으로 캡처해 PNG 바이트로 돌려준다."""
+    return capture(build_html(week), scale=scale)

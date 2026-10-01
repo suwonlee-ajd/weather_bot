@@ -289,6 +289,7 @@ src/config.py               환경변수 → 설정 객체
 src/logsetup.py             로그 초기화 (loguru 단일 출구 + 표준 logging 브리지)
 src/retention.py            보존 기간 지난 산출물 정리
 bin/cleanup.py              data/ · logs/ 수동 정리 (--dry-run 먼저)
+bin/start.sh · stop.sh      멘션 봇·타이머 켜고 끄기 (systemd 유닛이 없으면 직접 띄운다)
 deploy/_env.sh              .env 로더 (run-weekly.sh · run-mention.sh 공용)
 deploy/run-weekly.sh        주간 게시 진입점 (월 1회, 끝나면 종료)
 deploy/run-mention.sh       멘션 봇 진입점

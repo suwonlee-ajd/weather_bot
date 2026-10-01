@@ -147,6 +147,10 @@ sudo systemctl start weather-cleanup.service   # 정리도 같은 방식
 >
 > 크론을 되살리면 그 순간부터 매주 두 번 올라간다. Actions 로 옮길 생각이면
 > 타이머를 먼저 끈다(`systemctl --user disable --now weather-weekly.timer`).
+>
+> **2026-10-01 에 멘션 봇·주간 게시·정리 유닛을 모두 내리고 지웠다**
+> (`~/.config/systemd/user/weather-*`). 지금은 주간 게시가 어디서도 나가지 않는다.
+> 다시 올리려면 §3-A 를 그대로 따른다 — 유닛 파일은 이 디렉터리의 것과 같았다.
 
 서버로 운영한다면(권장 — 멘션 봇이 어차피 여기 있고, 토큰이 한 곳에 모인다):
 
@@ -192,13 +196,28 @@ journalctl --user -u weather-weekly --since "1 week ago"
 
 ## 운영
 
+### 켜고 끄기
+
+```bash
+bin/start.sh             # 멘션 봇 + 타이머 (disable 해 둔 타이머는 건너뛴다)
+bin/start.sh -r          # 코드를 갱신한 뒤 — 떠 있는 멘션 봇을 다시 띄운다
+bin/start.sh mention     # 멘션 봇만 (timers 도 된다)
+bin/stop.sh              # 전부 끈다. disable 은 하지 않아 재부팅하면 다시 켜진다
+bin/stop.sh timers       # 이번 주 게시만 건너뛸 때
+```
+
+systemd 유닛이 등록돼 있으면(§3 · §3-A) 그 유닛을 켜고 끈다. **유닛이 없으면 멘션 봇을
+백그라운드 프로세스로 직접 띄운다** — 이때는 죽어도 되살아나지 않고, 재부팅하면 꺼지며,
+주간 게시·정리 예약도 없다. 콘솔 출력은 `logs/weather-mention.console.log`, PID 는
+`data/mention.pid`. 스크립트 밖에서 띄운 멘션 봇이 있으면 경고한다(한 멘션에 두 번 답한다).
+
 ### 코드 갱신
 
 ```bash
 cd /home/ajung/workspace/weather_bot
 git pull
 uv sync --frozen                              # uv.lock 이 바뀌었을 때만 실제로 설치한다
-systemctl --user restart weather-mention      # 멘션 봇은 상시라 재시작이 필요하다
+bin/start.sh -r mention                       # 멘션 봇은 상시라 다시 띄워야 반영된다
 ```
 
 > root 가 있는 서버라면 `sudo -u weather git pull` · `sudo systemctl restart` 로 읽는다.

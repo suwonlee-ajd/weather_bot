@@ -1168,6 +1168,163 @@ def test_paragraph() -> None:
     print("[ok] 문단 조립 — 줄 · 빈 줄/빈 문단 제외 · 본문 → 문단 → 출처 · 첨부")
 
 
+# --- 벚꽃 -------------------------------------------------------------------
+
+def test_blossom_season() -> None:
+    """2월 마지막 월요일 ~ 3월 마지막 월요일이 든 주. 윤년·월말 요일에 따라 달라진다."""
+    from src.blossom import in_season, season_bounds
+
+    d = dt.date
+    assert season_bounds(2026) == (d(2026, 2, 23), d(2026, 4, 5))
+    assert season_bounds(2027) == (d(2027, 2, 22), d(2027, 4, 4))
+    assert season_bounds(2028) == (d(2028, 2, 28), d(2028, 4, 2))      # 2/29 가 화요일인 윤년
+    assert not in_season(d(2026, 2, 22)) and in_season(d(2026, 2, 23))
+    assert in_season(d(2026, 4, 5)) and not in_season(d(2026, 4, 6))
+    print("[ok] 벚꽃 기간 — 2월 마지막 주 ~ 3월 마지막 주")
+
+
+def test_blossom_parse() -> None:
+    """기상청 JSONP 와 웨더아이 표. 해마다 바뀐 날짜 표기, 군락지·평균 줄, 깨진 표."""
+    import json
+
+    from src.blossom import BlossomError, parse_outlook_text, parse_status, posted_on
+
+    def jsonp(service: bool) -> str:
+        places = [{"obsPlace": n, "status": s, "sts": str(["개화 전", "개화", "만발"].index(s) + 1)}
+                  for n, s in (("진해 여좌천", "만발"), ("여의도 윤중로", "개화"), ("춘천 소양강댐", "개화 전"))]
+        return "\r\n\r\napplyFlowerData(" + json.dumps(
+            {"places": places, "isService": service, "flower": {}}, ensure_ascii=False) + ")"
+
+    stages, live = parse_status(jsonp(True))
+    assert live and stages == {"진해 여좌천": 2, "여의도 윤중로": 1, "춘천 소양강댐": 0}, stages
+    # 서비스 기간 밖에는 지난 봄의 만발이 남아 있다 — 올해 것으로 읽지 않는다
+    stages, live = parse_status(jsonp(False))
+    assert not live and set(stages.values()) == {0}, stages
+
+    cities = ["서귀포", "부산", "창원", "울산", "여수", "광주", "목포", "전주", "대구", "포항",
+              "안동", "대전", "청주", "서산", "수원", "서울", "인천", "강릉", "춘천"]
+    rows = [f"   {c}      3/{10 + i}      3/{11 + i} (-1)      3/{12 + i} (-2)" for i, c in enumerate(cities)]
+    rows[0] = "           서귀포                      3/25                 3/24 (+1)                 3/27 (-2)"
+    rows[1] = "            부산                         3.22                   3.28 (-6)                   3.19 (+3)"
+    rows[2] = "            창원                         4. 1                   4.06 (-5)                   3 23 (+8)"
+    extra = ["           평균                                             (-3.7)                    (-0.7)",
+             "                  진해   여좌천                                3/27                    3/29 (-2)",
+             "             서울 여의도 여의서로                                  4/03                    4/03 (±0)"]
+    expected, normal = parse_outlook_text("\n".join(rows + extra), 2026)
+    assert len(expected) == 19 and "평균" not in expected and "진해" not in expected
+    assert expected["서귀포"] == dt.date(2026, 3, 25) and normal["서귀포"] == dt.date(2026, 3, 24)
+    assert expected["부산"] == dt.date(2026, 3, 22) and expected["창원"] == dt.date(2026, 4, 1)
+    for bad, why in ((rows[:10], "도시를 너무 적게 읽었는데 통과했습니다"),
+                     ([rows[0].replace("3/25", "5/25")] + rows[1:], "범위 밖 날짜가 통과했습니다")):
+        try:
+            parse_outlook_text("\n".join(bad), 2026)
+            raise AssertionError(why)
+        except BlossomError:
+            pass
+
+    # 게시일 — 특보 띠의 오늘 날짜가 아니라 머리 표의 날짜 칸. 작성자 칸이 빈 해도 있다.
+    page = ('<marquee>2026-10-02 강풍주의보</marquee><font color="#124c78"></font>'
+            '<font color="#124c78">2026-02-26 </font>')
+    assert posted_on(page, 2026) == dt.date(2026, 2, 26)
+    assert posted_on(page.replace("2026-02-26", "관리자"), 2026) is None
+    print("[ok] 벚꽃 자료 읽기 — 날짜 표기 세 가지 · 군락지/평균 줄 제외 · 깨진 표 버림 · 게시일")
+
+
+def test_blossom_text() -> None:
+    """벚꽃 줄 문구. 예상 전엔 평년, 이번 주가 비면 다음 개화, 출처는 받은 쪽만."""
+    from src.blossom import Outlook, Status, observed_line, sources, week_line, year_line
+
+    d = dt.date
+    normal = {"서귀포": d(2026, 3, 24), "부산": d(2026, 3, 28), "서울": d(2026, 4, 8)}
+    outlook = Outlook(expected={"서귀포": d(2026, 3, 25), "부산": d(2026, 3, 25), "울산": d(2026, 3, 26),
+                                "서울": d(2026, 4, 3)},
+                      normal=normal | {"울산": d(2026, 3, 30)}, published=d(2026, 2, 26))
+    unpublished = Outlook(expected={}, normal=normal)
+    idle = Status(stages={"진해 여좌천": 0, "여의도 윤중로": 0}, in_service=False)
+
+    assert "아직 시작되지 않았습니다" in observed_line(idle)
+    assert "아직 나오지 않았습니다" in week_line(unpublished, d(2026, 2, 23), d(2026, 3, 1))
+    assert year_line(unpublished) == "*서귀포* 3/24 무렵 시작해 *서울* 4/8 무렵 핍니다"
+
+    assert week_line(outlook, d(2026, 3, 2), d(2026, 3, 8)) == "개화 예상 없음 · 다음은 *서귀포*·*부산* 3/25 (예상)"
+    # 평년차 +1 · -3 · -4 · -5 → 평균 -2.75 → 3일
+    assert year_line(outlook) == "평년보다 3일가량 이르겠습니다 (서울 4/3, 평년 4/8)"
+
+    bloom = Status(stages={"진해 여좌천": 1, "여의도 윤중로": 0}, bloom={"진해 여좌천": d(2026, 3, 24)})
+    assert observed_line(bloom) == "*진해 여좌천* 개화 3/24, 나머지 1곳은 개화 전"
+    assert week_line(outlook, d(2026, 3, 23), d(2026, 3, 29)) == \
+        "개화 *서귀포*·*부산* 3/25 · *울산* 3/26 (예상)"
+
+    assert sources(bloom, outlook) == "관측 기상청 날씨누리 · 예상 웨더아이(2/26 발표)"
+    assert sources(None, unpublished) == "평년 웨더아이"
+    print("[ok] 벚꽃 문구 — 평년 · 다음 개화 · 이번 주 묶음 · 출처")
+
+
+def test_weekly_themes() -> None:
+    """주간 게시의 철 소식. 단풍은 글과 지도, 벚꽃은 글. 못 만들어도 날씨 게시는 나간다."""
+    import src.blossom as blossom
+    import src.foliage as foliage
+    import src.render_foliage as render_foliage
+    from src import themes
+    from src.blossom import BlossomError, Outlook, Status
+    from src.foliage import FoliageError
+
+    d = dt.date
+    renders: list = []
+    fail_render = [False]
+
+    def fake_render(snap, start, scale=2):
+        renders.append(start)
+        if fail_render[0]:
+            raise RuntimeError("Chromium 없음")
+        return b"PNG"
+
+    def labels(block):
+        return [r.label for r in block.paragraph.rows]
+
+    orig = (foliage.fetch_snapshot, render_foliage.render_png, blossom.fetch_status, blossom.fetch_outlook)
+    foliage.fetch_snapshot = lambda today: fake_snapshot({"설악산": 1}, first={"설악산": d(2026, 9, 28)})
+    render_foliage.render_png = fake_render
+    blossom.fetch_status = lambda today: Status(stages={"진해 여좌천": 0}, in_service=False)
+    blossom.fetch_outlook = lambda year: Outlook(expected={"서귀포": d(2026, 3, 25)},
+                                                normal={"서귀포": d(2026, 3, 24)}, published=d(2026, 2, 26))
+    try:
+        (autumn,) = themes.blocks_for(d(2026, 10, 5), d(2026, 10, 2), 2)
+        assert autumn.paragraph.title == "이번 주 단풍" and labels(autumn) == ["관측", "이번 주"]
+        text = autumn.paragraph.to_slack()
+        assert "*설악산* 첫단풍 9/28" in text and "첫단풍 *오대산* 10/7 · *치악산* 10/10 (예상)" in text, text
+        assert autumn.attachment.slug == "foliage" and autumn.attachment.png == b"PNG"
+        assert autumn.credit.startswith("단풍 지도 · "), autumn.credit
+        # 지도를 못 그려도 글은 남고, 출처에서 '지도' 가 빠진다
+        fail_render[0] = True
+        (autumn,) = themes.blocks_for(d(2026, 10, 5), d(2026, 10, 2), 2)
+        assert autumn.attachment is None and autumn.credit.startswith("단풍 · ") and autumn.paragraph.rows
+
+        (spring,) = themes.blocks_for(d(2026, 3, 23), d(2026, 3, 23), 2)
+        assert spring.paragraph.title == "이번 주 벚꽃" and spring.attachment is None
+        assert labels(spring) == ["관측", "이번 주", "올해"], labels(spring)
+        assert "*서귀포* 3/25" in spring.paragraph.to_slack() and spring.credit.startswith("벚꽃 · ")
+        # 예상이 아직이면 '올해' 대신 '평년'
+        blossom.fetch_outlook = lambda year: Outlook(expected={}, normal={"서귀포": d(2026, 3, 24)})
+        (spring,) = themes.blocks_for(d(2026, 2, 23), d(2026, 2, 23), 2)
+        assert labels(spring) == ["관측", "이번 주", "평년"], labels(spring)
+        # 관측만 실패하면 예상 줄만, 둘 다 실패하면 벚꽃 소식 없이
+        blossom.fetch_status = lambda today: (_ for _ in ()).throw(BlossomError("점검"))
+        (spring,) = themes.blocks_for(d(2026, 3, 23), d(2026, 3, 23), 2)
+        assert labels(spring) == ["이번 주", "평년"], labels(spring)
+        blossom.fetch_outlook = lambda year: (_ for _ in ()).throw(BlossomError("점검"))
+        assert themes.blocks_for(d(2026, 3, 23), d(2026, 3, 23), 2) == []
+        foliage.fetch_snapshot = lambda today: (_ for _ in ()).throw(FoliageError("점검"))
+        assert themes.blocks_for(d(2026, 10, 5), d(2026, 10, 2), 2) == []
+
+        # 어느 철도 아니면 아무것도 붙이지 않고, 자료도 부르지 않는다
+        renders.clear()
+        assert themes.blocks_for(d(2026, 6, 1), d(2026, 6, 1), 2) == [] and not renders
+    finally:
+        foliage.fetch_snapshot, render_foliage.render_png, blossom.fetch_status, blossom.fetch_outlook = orig
+    print("[ok] 철 소식 — 단풍 글·지도, 벚꽃 글, 실패해도 날씨는 나간다")
+
+
 if __name__ == "__main__":
     test_extract_json()
     test_find_region()
@@ -1199,4 +1356,8 @@ if __name__ == "__main__":
     test_cache_failures()
     test_foliage_render()
     test_paragraph()
+    test_blossom_season()
+    test_blossom_parse()
+    test_blossom_text()
+    test_weekly_themes()
     print("\n전부 통과")

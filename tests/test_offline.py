@@ -365,15 +365,16 @@ def test_partial_week_is_declared() -> None:
                 for i in range(span) if (d := start + dt.timedelta(days=i)) in horizon}
         return Scrape(days=days, narratives=[Narrative("중기예보", "", None, [])])
 
-    orig = (mention.scrape_range, mention.find_wide)
+    orig = (mention.scrape_range, mention.find_wide, mention.fetch_snapshot)
     mention.scrape_range = fake_scrape
     mention.find_wide = lambda q: None
+    mention.fetch_snapshot = lambda today: fake_snapshot(outlook=False)   # 단풍철이라 — 기상청을 부르지 않게
     now = dt.datetime(2026, 9, 14, 9, 0, tzinfo=KST)
     try:
         clear()
         reply = mention.build_reply("<@U1> 다음주 날씨", now)
     finally:
-        mention.scrape_range, mention.find_wide = orig
+        mention.scrape_range, mention.find_wide, mention.fetch_snapshot = orig
         clear()
 
     # 머리글이 09/27 까지라고 말하면 안 된다 — 자료는 09/23 까지다
@@ -782,7 +783,23 @@ def test_mountain_lookup() -> None:
     for q in ("부산 근처 단풍", "등산 가는데 단풍", "설악산 단풍", "단풍 어느산이 좋아?",
               "가까운산 단풍", "근교산 추천"):
         assert unknown_mountain(q) is None, q
-    print("[ok] 산 이름 — 별칭 · 목록 밖 산 · 산이 아닌 'X산'")
+    # 산 이름이 든 행정구역은 산이 아니다 — 가평 설악면 날씨가 속초로 나가면 안 된다
+    for q in ("가평 설악면 날씨", "보은 속리산면은", "청송 주왕산면에서"):
+        assert find_mountain(q) is None, q
+    assert find_mountain("설악산에서 하룻밤").name == "설악산"
+
+    from src.mountains import REGION_MOUNTAINS, in_region, in_zone
+    from src.kma_scrape import REGIONS
+
+    names = {m.name for m in MOUNTAINS}
+    assert set(REGION_MOUNTAINS) <= {r.key for r in REGIONS}, "없는 구역 이름"
+    assert all(set(v) <= names for v in REGION_MOUNTAINS.values()), "없는 산 이름"
+    assert names == {n for v in REGION_MOUNTAINS.values() for n in v}, "어느 구역에도 없는 산"
+    assert [m.name for m in in_region("강원")] == ["설악산", "오대산", "치악산"]
+    for code, want in (("1100000000", ["북한산"]), ("2700000000", ["팔공산"]), ("1230000000", ["무등산"]),
+                       ("5000000000", ["한라산"]), ("2600000000", [])):
+        assert [m.name for m in in_zone(code)] == want, (code, in_zone(code))
+    print("[ok] 산 이름 — 별칭 · 목록 밖 산 · 산이 아닌 'X산' · 행정구역 · 구역별 산")
 
 
 def test_foliage_routing() -> None:
@@ -894,6 +911,95 @@ def test_foliage_routing() -> None:
          mention.scrape_range) = orig
         clear()
     print("[ok] 단풍 멘션 — 현황 · 산별 · 산 날씨 · 목록 밖 산 · 꽃/기간 밖 거절")
+
+
+def test_foliage_in_weather() -> None:
+    """단풍 말 없이 물어도 — 산 이름이면 산 날씨와 그 산의 단풍, 지역 날씨면 그 지역 산의 한 줄."""
+    import src.mention as mention
+    from types import SimpleNamespace
+
+    from src.cache import clear
+    from src.foliage import FoliageError
+    from src.kma_scrape import Scrape, ScrapedDay
+
+    now = dt.datetime(2026, 10, 1, 15, 0, tzinfo=KST)        # 단풍철, 목요일
+    snaps = [fake_snapshot({"설악산": 1}, first={"설악산": dt.date(2026, 9, 28)})]
+    dong_calls: list = []
+
+    def fake_dong(zone, name):
+        dong_calls.append(zone)
+        base = snaps_base[0]
+        rows = [(base + dt.timedelta(days=i), 9.0, 23.0, "맑음", 10) for i in range(5)]
+        return SimpleNamespace(name=name, issued="2026년 10월 01일 (목)요일 14:00",
+                               daily_summary=lambda: rows)
+
+    def fake_scrape(now_, start, span, region):
+        days = {d: ScrapedDay(d, 10.0, 15.0, 20.0, 25.0, "맑음", 10, "중기예보")
+                for d in (start + dt.timedelta(days=i) for i in range(span))}
+        return Scrape(days=days, narratives=[])
+
+    def fake_snap(today):
+        if isinstance(snaps[0], Exception):
+            raise snaps[0]
+        return snaps[0]
+
+    wide = {"제주": ("5000000000", "제주특별자치도"), "서울": ("1100000000", "서울특별시")}
+    snaps_base = [now.date()]
+    orig = (mention.fetch_snapshot, mention.fetch_dong, mention.scrape_range, mention.find_wide)
+    mention.fetch_snapshot = fake_snap
+    mention.fetch_dong = fake_dong
+    mention.scrape_range = fake_scrape
+    mention.find_wide = lambda q: wide.get(q.strip())
+    try:
+        def ask(q, when=now):
+            clear()
+            return mention.answer(f"<@U1> {q}", when).text
+
+        # 산 이름만 — 예전에는 "아는 지역이 아닙니다" 였다
+        for q in ("설악산", "설악산 날씨"):
+            dong_calls.clear()
+            reply = ask(q)
+            assert dong_calls == ["5121060000"], (q, dong_calls)
+            assert "설악산 아래 속초시 대포동" in reply and "*설악산* 단풍 — 지금 *첫단풍*" in reply, reply
+            assert reply.index("동네예보") < reply.index("*설악산* 단풍"), "날씨를 물었으니 날씨가 먼저다"
+        # 조언 갈래에서 전국으로 빠지던 질문
+        dong_calls.clear()
+        hike = ask("주말 설악산 등산")
+        assert dong_calls == ["5121060000"] and "*전국*" not in hike, (dong_calls, hike)
+        dong_calls.clear()
+        assert "내장산 아래" in ask("내장산 가는데 다음 주 날씨") and dong_calls == ["5218053500"]
+        # 단풍철 밖이면 산 날씨만, 단풍 기간 안내도 없이
+        snaps_base[0] = dt.date(2026, 12, 1)
+        winter = ask("설악산 날씨", dt.datetime(2026, 12, 1, 9, 0, tzinfo=KST))
+        assert "설악산 아래" in winter and "단풍" not in winter, winter
+        snaps_base[0] = now.date()
+
+        # 지역 날씨 — 물든 산과 그 기간의 예상만
+        gangwon = ask("강원 날씨")
+        assert ":maple_leaf: *단풍* — *설악산* 첫단풍 9/28 · *오대산* 첫단풍 10/7 (예상)" in gangwon, gangwon
+        assert "치악산" not in gangwon, "기간(10/1~10/7) 밖의 예상이 붙었습니다"
+        assert "*치악산* 첫단풍 10/10 (예상)" in ask("강원 다음주")
+        # 물든 산에 다음 단계가 다가오면 이어서 적는다 (10/20 부터 7일에 설악산 절정 10/25)
+        assert "*설악산* 첫단풍 9/28 → 절정 10/25 (예상)" in ask(
+            "영동 날씨", dt.datetime(2026, 10, 20, 9, 0, tzinfo=KST))
+        nationwide = ask("전국 날씨")
+        assert "나머지 20곳은 단풍 전" in nationwide and "*오대산* 10/7" in nationwide, nationwide
+        # 그 지역에 말할 것이 없으면 붙이지 않는다
+        assert ":maple_leaf:" not in ask("경남 날씨")
+        assert ":maple_leaf:" not in ask("제주")                 # 한라산 첫단풍 예상 10/31 은 기간 밖
+        # 시도 동네예보에도 — 서울이면 북한산
+        snaps[0] = fake_snapshot({"북한산": 1}, first={"북한산": dt.date(2026, 9, 30)})
+        assert "*북한산* 첫단풍 9/30" in ask("서울")
+        # 단풍철 밖이거나 단풍을 못 받아 와도 날씨는 그대로
+        snaps[0] = FoliageError("점검 중")
+        failed = ask("강원 날씨")
+        assert "*강원*" in failed and ":maple_leaf:" not in failed, failed
+        assert "설악산 아래" in ask("설악산") and "단풍 —" not in ask("설악산")
+        assert ":maple_leaf:" not in ask("강원 날씨", dt.datetime(2026, 12, 1, 9, 0, tzinfo=KST))
+    finally:
+        mention.fetch_snapshot, mention.fetch_dong, mention.scrape_range, mention.find_wide = orig
+        clear()
+    print("[ok] 날씨 속 단풍 — 산 이름은 산 날씨와 단풍, 지역 날씨는 그 지역 산 한 줄")
 
 
 def test_period_next_weekend() -> None:
@@ -1060,6 +1166,7 @@ if __name__ == "__main__":
     test_foliage_parse()
     test_mountain_lookup()
     test_foliage_routing()
+    test_foliage_in_weather()
     test_period_next_weekend()
     test_foliage_fetch()
     test_cache_failures()

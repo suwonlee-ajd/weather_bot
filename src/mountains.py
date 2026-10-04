@@ -57,8 +57,26 @@ MOUNTAINS: tuple[Mountain, ...] = (
 
 BY_NAME = {m.name: m for m in MOUNTAINS}
 
+# 광역 구역(kma_scrape.REGIONS 의 key)마다 그 안에 걸친 산. 지역 날씨에 단풍 한 줄을 붙일 때 쓴다.
+# 정상부가 여러 도에 걸친 산(지리산·소백산 …)은 걸친 구역마다 둔다. 전국은 21곳 전부라 적지 않는다.
+REGION_MOUNTAINS: dict[str, tuple[str, ...]] = {
+    "수도권": ("북한산",),
+    "강원": ("설악산", "오대산", "치악산"),
+    "영서": ("설악산", "오대산", "치악산"),       # 설악산은 인제, 오대산은 평창·홍천
+    "영동": ("설악산", "오대산"),                 # 설악산은 속초·양양, 오대산은 강릉
+    "충남": ("계룡산",),
+    "충북": ("소백산", "월악산", "속리산"),
+    "전북": ("덕유산", "내장산", "지리산"),
+    "전남": ("지리산", "무등산", "조계산", "월출산", "두륜산"),
+    "경남": ("덕유산", "가야산", "가지산", "지리산"),
+    "경북": ("소백산", "속리산", "주왕산", "금오산", "팔공산", "가야산", "가지산"),
+    "제주": ("한라산",),
+}
+
 # 낱말 끝에 붙는 조사. '화악산은' 에서 '화악산' 을 얻으려고 뗀다.
 _PARTICLE = re.compile(r"(은|는|이|가|을|를|도|의|에서|에|쪽|근처)$")
+# 행정구역 이름. 산 이름이 들어 있어도 산이 아니다 — '설악면' 은 가평, '속리산면' 은 보은이다.
+_PLACE = re.compile(r"[가-힣]{2,}[동면읍리]")
 # '산' 앞에 붙어도 산 이름이 아닌 말 — "단풍 어느산이 좋아?" 에 "'어느산' 은 모릅니다" 라고 하면 엉뚱하다
 _NOT_NAME = re.compile(
     r"(어느|무슨|어떤|아무|다른|우리|동네|근교|근처|주변|인근|가까운|좋은|예쁜|이쁜|높은|낮은|"
@@ -70,8 +88,10 @@ def find_mountain(text: str) -> Mountain | None:
     """문장에서 21개 산 가운데 하나를 집어낸다. 둘 이상이면 먼저 나온 것.
 
     별칭은 그 산에만 있는 것만 둔다. '천왕봉'·'비로봉' 은 여러 산에 있어 뺐다.
+    '설악면' 처럼 행정구역 이름에 든 산 이름은 건너뛴다 — 산 날씨가 엉뚱한 동네로 나간다.
     """
-    flat = re.sub(r"\s+", "", text)
+    words = (_PARTICLE.sub("", w) for w in re.split(r"[\s,.?!~]+", text))
+    flat = "".join(w for w in words if not _PLACE.fullmatch(w))
     best: tuple[int, Mountain] | None = None
     for m in MOUNTAINS:
         for key in (m.name, *m.aliases):
@@ -79,6 +99,22 @@ def find_mountain(text: str) -> Mountain | None:
             if pos >= 0 and (best is None or pos < best[0]):
                 best = (pos, m)
     return best[1] if best else None
+
+
+def in_region(key: str) -> tuple[Mountain, ...]:
+    """광역 구역 안의 산. 목록 순서(북에서 남)를 지킨다."""
+    names = REGION_MOUNTAINS.get(key, ())
+    return tuple(m for m in MOUNTAINS if m.name in names)
+
+
+def in_zone(code: str) -> tuple[Mountain, ...]:
+    """동네예보 코드(시도 또는 시군구) 안에 탐방 거점이 있는 산. '서울' 이면 북한산.
+
+    행정동코드는 시도 2 · 시군구 3 · 읍면동 3 · 리 2 자리다. 시도 코드면 앞 2자리로,
+    광주처럼 시군구 코드면 앞 5자리로 견준다.
+    """
+    n = 2 if not code[2:].strip("0") else 5
+    return tuple(m for m in MOUNTAINS if m.zone[:n] == code[:n])
 
 
 def unknown_mountain(text: str) -> str | None:

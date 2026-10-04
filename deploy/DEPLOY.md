@@ -4,9 +4,9 @@
 >
 > | | 값 |
 > |---|---|
-> | 경로 | `/home/ajung/workspace/weather_bot` |
-> | 실행 계정 | `ajung` (전용 `weather` 계정 없음) |
-> | systemd | **`systemd --user`** — root 권한이 없어 시스템 유닛을 못 쓴다 |
+> | 경로 | `/home/suwonlee/workspace/weather_bot` |
+> | 실행 계정 | `suwonlee` (전용 `weather` 계정 없음 · 2026-10-01 에 `ajung` 에서 옮김) |
+> | systemd | **`systemd --user`** — 켜고 끄는 데 sudo 가 필요 없다 |
 > | 파이썬 | 3.14 (`.python-version`, uv 가 받아서 씀) |
 >
 > 아래 2·3 장은 root 가 있는 서버용 원본 절차다. 이 서버는
@@ -58,7 +58,7 @@ sudo 가 없으므로 전용 계정도 `/opt` 도 만들지 않는다. 로그인
 그 계정으로 돌린다.
 
 ```bash
-cd /home/ajung/workspace/weather_bot
+cd /home/suwonlee/workspace/weather_bot
 
 uv sync --frozen                                  # .python-version(3.14) 대로 받는다
 .venv/bin/python -m playwright install chromium   # --with-deps 는 sudo 가 필요해 뺀다
@@ -101,8 +101,8 @@ journalctl --user -u weather-mention -f
 **상시 실행인 멘션 봇에는 치명적이다.** 관리자에게 한 번만 요청한다:
 
 ```bash
-sudo loginctl enable-linger ajung
-loginctl show-user ajung -p Linger      # Linger=yes 여야 한다
+sudo loginctl enable-linger suwonlee
+loginctl show-user suwonlee -p Linger   # Linger=yes 여야 한다 (2026-10-01 확인: yes)
 ```
 
 이게 켜지기 전까지는 SSH 를 끊으면 봇이 멈춘다. 재부팅 후 자동 기동도 이 설정에 달려 있다.
@@ -148,9 +148,9 @@ sudo systemctl start weather-cleanup.service   # 정리도 같은 방식
 > 크론을 되살리면 그 순간부터 매주 두 번 올라간다. Actions 로 옮길 생각이면
 > 타이머를 먼저 끈다(`systemctl --user disable --now weather-weekly.timer`).
 >
-> **2026-10-01 에 멘션 봇·주간 게시·정리 유닛을 모두 내리고 지웠다**
-> (`~/.config/systemd/user/weather-*`). 지금은 주간 게시가 어디서도 나가지 않는다.
-> 다시 올리려면 §3-A 를 그대로 따른다 — 유닛 파일은 이 디렉터리의 것과 같았다.
+> **2026-10-01 에 `ajung` 계정의 멘션 봇·주간 게시·정리 유닛을 모두 내리고 지웠다**
+> (`/home/ajung/.config/systemd/user/weather-*`). 같은 날 운영 계정을 `suwonlee` 로 옮겨
+> §3-A 대로 멘션 봇·주간 게시·정리 유닛을 모두 다시 올렸다. 게시는 여전히 서버 한 곳에서만 나간다.
 
 서버로 운영한다면(권장 — 멘션 봇이 어차피 여기 있고, 토큰이 한 곳에 모인다):
 
@@ -176,7 +176,7 @@ systemctl --user disable --now weather-weekly.timer   # prod-server
 `logs/{연}/{연.월}/{앱}.{날짜}.log` — brifo · cs-auto-qa 와 같은 배치다.
 
 ```bash
-cd /home/ajung/workspace/weather_bot      # prod-server 기준
+cd /home/suwonlee/workspace/weather_bot      # prod-server 기준
 D=logs/$(date +%Y)/$(date +%Y.%m)
 tail -50 "$D"/weather-mention.error.$(date +%F).log   # 오류만 — 여기부터 본다
 tail -f  "$D"/weather-mention.$(date +%F).log         # 전체 흐름
@@ -214,7 +214,7 @@ systemd 유닛이 등록돼 있으면(§3 · §3-A) 그 유닛을 켜고 끈다.
 ### 코드 갱신
 
 ```bash
-cd /home/ajung/workspace/weather_bot
+cd /home/suwonlee/workspace/weather_bot
 git pull
 uv sync --frozen                              # uv.lock 이 바뀌었을 때만 실제로 설치한다
 bin/start.sh -r mention                       # 멘션 봇은 상시라 다시 띄워야 반영된다

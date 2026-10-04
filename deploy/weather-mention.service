@@ -2,8 +2,9 @@
 # 인바운드 포트도 리버스 프록시도 쓰지 않는다. 나가는 WebSocket 연결 하나뿐이라
 # 서버에 이미 떠 있는 다른 서비스를 전혀 건드리지 않는다.
 #
-# 이 서버(prod-server)는 root 권한이 없어 systemd --user 로 돌린다.
-# 따라서 User= 를 두지 않는다 — 유닛을 등록한 계정(ajung)으로 실행된다.
+# 이 서버(prod-server)는 운영 계정(suwonlee)의 systemd --user 로 돌린다.
+# 따라서 User= 를 두지 않는다 — 유닛을 등록한 계정으로 실행되고,
+# 경로의 %h 도 그 계정의 홈으로 풀린다. 계정을 옮겨도 유닛은 고칠 필요가 없다.
 [Unit]
 Description=Weekly Weather - Slack mention bot (Socket Mode)
 After=network-online.target
@@ -11,10 +12,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/ajung/workspace/weather_bot
-EnvironmentFile=/home/ajung/workspace/weather_bot/.env
+WorkingDirectory=%h/workspace/weather_bot
+EnvironmentFile=%h/workspace/weather_bot/.env
 Environment=TZ=Asia/Seoul
-ExecStart=/home/ajung/workspace/weather_bot/deploy/run-mention.sh
+ExecStart=%h/workspace/weather_bot/deploy/run-mention.sh
 Restart=always
 RestartSec=10
 # 슬랙 연결이 끊겨도 Bolt 가 재연결하지만, 프로세스가 죽으면 systemd 가 되살린다

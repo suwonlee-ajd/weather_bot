@@ -9,9 +9,9 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=/home/ajung/workspace/weather_bot
-EnvironmentFile=/home/ajung/workspace/weather_bot/.env
+WorkingDirectory=%h/workspace/weather_bot
+EnvironmentFile=%h/workspace/weather_bot/.env
 Environment=TZ=Asia/Seoul
-ExecStart=/home/ajung/workspace/weather_bot/.venv/bin/python bin/cleanup.py
+ExecStart=%h/workspace/weather_bot/.venv/bin/python bin/cleanup.py
 StandardOutput=journal
 StandardError=journal

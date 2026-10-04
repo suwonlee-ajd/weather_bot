@@ -279,6 +279,7 @@ src/kma_scrape.py           기상청 두 페이지 수집·파싱 (수집 로�
 src/forecast.py             월~일 7일 조립 + 검증 (실패 시 게시 포기)
 src/outlook.py              1개월 전망 (10일 너머는 값이 아니라 확률)
 src/foliage.py              단풍 현황(기상청) + 예상(웨더아이 PDF) + 다루는 기간
+src/paragraph.py            게시물 문단 부품 — 문단 · 줄 · 출처 · 첨부를 조립해 슬랙 글로
 src/mountains.py            기상청 단풍 관측 21개 명산 (좌표 · 별칭 · 산 아래 행정동)
 src/render_foliage.py       단풍 지도 HTML → Chromium 캡처
 src/assets/korea_provinces.json  지도 윤곽 (Natural Earth, 퍼블릭 도메인)

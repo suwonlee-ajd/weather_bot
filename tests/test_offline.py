@@ -1141,6 +1141,33 @@ def test_foliage_render() -> None:
     print(f"[ok] 단풍 지도 {len(png):,}B -> {IMG / 'foliage-test.png'}")
 
 
+# --- 게시물 문단 --------------------------------------------------------------
+
+def test_paragraph() -> None:
+    """문단 부품. 줄을 조립하고, 빈 줄·빈 문단은 빠지고, 게시물은 본문 → 문단 → 출처 순이다."""
+    from src.paragraph import Attachment, Block, Message, Paragraph
+
+    p = Paragraph("이번 주 벚꽃", emoji=":cherry_blossom:").add("관측", "*진해* 개화 3/24").add("올해", "")
+    assert [r.label for r in p.rows] == ["관측"], "빈 내용 줄이 들어갔습니다"
+    assert p.to_slack() == ":cherry_blossom: *이번 주 벚꽃*\n• 관측 — *진해* 개화 3/24"
+    assert Paragraph("제목").add("줄", "내용").to_slack() == "*제목*\n• 줄 — 내용"
+
+    att = Attachment("foliage", b"PNG", "단풍 지도", "지도")
+    msg = (Message("날씨 본문", credits=["지상일기도 · 기상청"])
+           .add(Block(Paragraph("이번 주 단풍", ":maple_leaf:").add("관측", "설악산"), "단풍 지도 · 기상청", att))
+           .add(Block(Paragraph("빈 문단"), "쓰이지 않는 출처"))
+           .add(Block(p, "벚꽃 · 기상청")))
+    assert msg.attachments == [att]
+    assert msg.to_slack() == (
+        "날씨 본문\n\n"
+        ":maple_leaf: *이번 주 단풍*\n• 관측 — 설악산\n\n"
+        ":cherry_blossom: *이번 주 벚꽃*\n• 관측 — *진해* 개화 3/24\n\n"
+        "_지상일기도 · 기상청_\n_단풍 지도 · 기상청_\n_벚꽃 · 기상청_"
+    ), msg.to_slack()
+    assert Message("본문만").to_slack() == "본문만"
+    print("[ok] 문단 조립 — 줄 · 빈 줄/빈 문단 제외 · 본문 → 문단 → 출처 · 첨부")
+
+
 if __name__ == "__main__":
     test_extract_json()
     test_find_region()
@@ -1171,4 +1198,5 @@ if __name__ == "__main__":
     test_foliage_fetch()
     test_cache_failures()
     test_foliage_render()
+    test_paragraph()
     print("\n전부 통과")

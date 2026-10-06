@@ -23,7 +23,7 @@ dependencies = [
     "playwright>=1.49",
     # 로깅
     "loguru>=0.7",
-    # 단풍 예상일 — 웨더아이가 해마다 9월 첫 주에 올리는 PDF 의 표를 읽음 (src/foliage.py)
+    # 단풍·벚꽃 예상일 — 웨더아이가 해마다 올리는 PDF 의 표를 읽음 (src/foliage.py · src/blossom.py)
     "pypdf>=5.0",
 ]
 

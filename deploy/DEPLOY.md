@@ -4,24 +4,32 @@
 >
 > | | root 가 있는 서버 | sudo 가 없는 서버 |
 > |---|---|---|
-> | 경로 | `/opt/weather_bot` | 로그인 계정의 홈 (예: `~/workspace/weather_bot`) |
+> | 경로 | `/opt/weather_bot` | `~/workspace/weather_bot` (유닛이 이 경로로 적혀 있음 — 다른 곳이면 유닛을 고침) |
 > | 실행 계정 | 전용 `weather` 계정 | 로그인 계정 |
 > | systemd | 시스템 유닛 (§2 · §3) | **`systemd --user`** (§2-A · §3-A) — 켜고 끄는 데 sudo 가 필요 없음 |
 > | 파이썬 | `.python-version`, uv 가 받아서 씀 | 같음 |
 >
-> 유닛 파일은 경로를 `%h`(유닛을 등록한 계정의 홈)로 적어 두었음. root 서버에서 `/opt` 에
-> 둔다면 `WorkingDirectory` · `EnvironmentFile` · `ExecStart` 의 경로와 `User=` 를 맞춤.
+> 유닛 파일은 경로를 `%h/workspace/weather_bot` 으로 적어 두었음. `systemd --user` 에서 `%h` 는
+> 등록한 계정의 홈이지만, 시스템 유닛에서는 `User=` 와 무관하게 `/root` 로 풀림 — root 서버는
+> §3 의 `sed` 로 `WorkingDirectory` · `EnvironmentFile` · `ExecStart` 의 경로와 `User=` 를 맞춤.
 
 멘션 봇은 **Socket Mode** 라서 인바운드 포트·도메인·TLS·리버스 프록시가 전혀 필요 없음.
 나가는 WebSocket 연결 하나뿐이라, 서버에 이미 떠 있는 다른 서비스와 겹치지 않음.
 
 ## 1. 슬랙 콘솔 (먼저)
 
+README 의 매니페스트로 앱을 만들었다면 Socket Mode·`app_mention` 이벤트·봇 스코프
+(`chat:write` · `files:write` · `app_mentions:read` · `emoji:read`)가 이미 들어 있음.
+남은 일은 App-Level Token 하나 — **Basic Information → App-Level Tokens** 에서
+`connections:write` 스코프로 만듦(`xapp-...`).
+
+매니페스트 없이 만든 기존 앱에 붙일 때만 아래 표대로 함.
+
 | 위치 | 할 일 |
 |---|---|
 | Basic Information → App-Level Tokens | `connections:write` 스코프로 토큰 생성 → `xapp-...` |
 | Settings → Socket Mode | **Enable Socket Mode** ON |
-| OAuth & Permissions → Bot Token Scopes | `app_mentions:read` 추가 (`chat:write`, `files:write` 는 기존) |
+| OAuth & Permissions → Bot Token Scopes | `chat:write` · `files:write` · `app_mentions:read` · `emoji:read` |
 | Features → Event Subscriptions | **Enable Events** ON → Subscribe to bot events 에 `app_mention` |
 | Install App | **Reinstall to Workspace** (스코프를 바꿨으므로) |
 
@@ -33,18 +41,23 @@ Socket Mode 가 켜져 있으면 Event Subscriptions 에 **Request URL 입력란
 # uv 가 파이썬까지 관리하므로 시스템 파이썬 버전을 맞출 필요가 없음
 curl -LsSf https://astral.sh/uv/install.sh | sudo env UV_INSTALL_DIR=/usr/local/bin sh
 
-sudo useradd -r -m -d /opt/weather_bot weather
-sudo -u weather git clone <repo> /opt/weather_bot
+# -M: 홈을 미리 만들지 않음 — 만들면 /etc/skel 파일이 들어가 clone 이 "not an empty directory" 로 실패함
+sudo useradd -r -M -d /opt/weather_bot weather
+sudo git clone <repo> /opt/weather_bot && sudo chown -R weather: /opt/weather_bot
 cd /opt/weather_bot
 
-sudo -u weather uv sync --frozen               # uv.lock 그대로 — 로컬과 같은 버전
-sudo -u weather uv run python -m playwright install --with-deps chromium
+sudo -u weather uv sync --frozen               # uv.lock 그대로 — 로컬과 같은 버전 (모델 extra 는 아래 참고)
+sudo -u weather .venv/bin/python -m playwright install chromium
+sudo .venv/bin/python -m playwright install-deps chromium   # 시스템 라이브러리 — weather 계정엔 sudo 가 없어 root 로
 sudo apt-get install -y fonts-noto-cjk          # 없으면 카드가 □□□ 로 렌더링됨
 
 sudo -u weather cp .env.example .env
 sudo -u weather chmod 600 .env
 sudo -u weather vi .env                          # SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SLACK_CHANNEL_ID
 ```
+
+> `WRITER=gemini`·`claude` 면 `uv sync` 마다 `--extra gemini`(또는 `claude`)를 함께 줌.
+> `uv sync` 는 요청하지 않은 패키지를 지우므로, 빼면 그 패키지가 사라져 규칙 기반 문구로 떨어짐.
 
 점검:
 
@@ -61,7 +74,7 @@ sudo 가 없으므로 전용 계정도 `/opt` 도 만들지 않음. 로그인 �
 git clone <repo> ~/workspace/weather_bot
 cd ~/workspace/weather_bot
 
-uv sync --frozen                                  # .python-version 대로 받음
+uv sync --frozen                                  # .python-version 대로 받음 (모델 extra 는 §2 참고)
 cp .env.example .env                              # SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SLACK_CHANNEL_ID
 .venv/bin/python -m playwright install chromium   # --with-deps 는 sudo 가 필요해 뺌
 chmod 600 .env                                    # 토큰이 들어 있음
@@ -90,7 +103,8 @@ systemctl --user daemon-reload
 
 systemctl --user enable --now weather-mention.service   # 멘션 봇 (상시)
 systemctl --user enable --now weather-cleanup.timer     # 정리 (매일 04:00)
-# weather-weekly.timer 는 §4 를 읽고 켬 (GitHub Actions 와 겹침)
+systemctl --user enable --now weather-weekly.timer      # 주간 게시 (월 07:50)
+# Actions 에 크론을 넣어 그쪽에서 게시한다면 weather-weekly.timer 는 켜지 않음 (§4)
 
 systemctl --user status weather-mention
 systemctl --user list-timers 'weather-*'
@@ -115,10 +129,13 @@ loginctl show-user <계정> -p Linger   # Linger=yes 여야 함
 
 ```bash
 sudo cp deploy/weather-*.service deploy/weather-*.timer /etc/systemd/system/
+# 시스템 유닛의 %h 는 User= 와 무관하게 /root 로 풀림 — 경로를 /opt 로 바꾸고 실행 계정을 지정함
+sudo sed -i -e 's#%h/workspace/weather_bot#/opt/weather_bot#g' \
+            -e '/^\[Service\]/a User=weather' /etc/systemd/system/weather-*.service
 sudo systemctl daemon-reload
 
 sudo systemctl enable --now weather-mention.service   # 멘션 봇 (상시)
-sudo systemctl enable --now weather-weekly.timer      # 주간 게시 (월 07:50)
+sudo systemctl enable --now weather-weekly.timer      # 주간 게시 (월 07:50) — Actions 로 게시하면 켜지 않음 (§4)
 sudo systemctl enable --now weather-cleanup.timer     # 정리 (매일 04:00)
 
 systemctl status weather-mention
@@ -126,9 +143,10 @@ systemctl list-timers 'weather-*'
 journalctl -u weather-mention -f
 ```
 
-정리 타이머를 켜는 이유 — 실제 게시는 슬랙에만 올리고 파일을 남기지 않음.
-그래서 dry-run 을 돌리지 않는 서버에서는 `data/` 를 치울 주체가 없음.
-`logs/` 는 loguru 가 알아서 회전시키므로 이 타이머가 없어도 무방함.
+정리 타이머는 꼭 켬 — 주간 게시·정리 같은 일회성 실행의 로그를 지우는 주체가 이 타이머뿐임.
+loguru 의 회전(gz 압축 + 90일 폐기)은 자정을 넘겨 도는 멘션 봇에만 일어나고,
+`weekly-weather.*` · `cleanup.*` 로그는 평범한 `.log` 로 남아 `bin/cleanup.py` 가
+`LOG_KEEP_DAYS`(기본 90일)대로 지움. dry-run 산출물(`data/img/`)도 이 타이머가 치움.
 
 주간 게시를 수동으로 한 번 돌려보려면:
 
@@ -174,12 +192,15 @@ on:
 
 ```bash
 cd ~/workspace/weather_bot                   # 저장소 위치
-D=logs/$(date +%Y)/$(date +%Y.%m)
-tail -50 "$D"/weather-mention.error.$(date +%F).log   # 오류만 — 여기부터 봄
-tail -f  "$D"/weather-mention.$(date +%F).log         # 전체 흐름
+# 로그 파일명은 KST 기준 — UTC 서버에서 그냥 date 를 쓰면 09시 전엔 날짜가 어긋남
+D=logs/$(TZ=Asia/Seoul date +%Y)/$(TZ=Asia/Seoul date +%Y.%m)
+T=$(TZ=Asia/Seoul date +%F)
+tail -50 "$D"/weather-mention.error.$T.log      # 오류만 — 여기부터 봄
+tail -f  "$D"/weather-mention.$T.log            # 전체 흐름
 ```
 
-자정에 회전하고 90일 뒤 지워지며 지난 파일은 gz 로 압축됨(loguru).
+멘션 봇 로그는 자정에 회전해 gz 로 압축되고 90일 뒤 지워짐(loguru). 주간 게시·정리 로그는
+회전 없이 `.log` 로 남고, 정리 타이머(`bin/cleanup.py`)가 `LOG_KEEP_DAYS` 일 뒤 지움.
 
 **파이썬이 뜨기도 전에 죽은 경우**(venv 경로, `.env` 누락, 권한)는 앱 로거가
 잡지 못하므로 journald 를 봄.
@@ -213,7 +234,7 @@ systemd 유닛이 등록돼 있으면(§3 · §3-A) 그 유닛을 켜고 끔. **
 ```bash
 cd ~/workspace/weather_bot
 git pull
-uv sync --frozen                              # uv.lock 이 바뀌었을 때만 실제로 설치함
+uv sync --frozen                              # uv.lock 이 바뀌었을 때만 실제로 설치함. 모델 extra 를 쓰면 --extra 도 매번 (§2)
 bin/start.sh -r mention                       # 멘션 봇은 상시라 다시 띄워야 반영됨
 ```
 
@@ -226,7 +247,7 @@ bin/start.sh -r mention                       # 멘션 봇은 상시라 다시 �
 ```bash
 git log --oneline -5
 git checkout <직전 커밋>
-uv sync --frozen
+uv sync --frozen                                 # 모델 extra 를 쓰면 --extra 도 함께 (§2)
 systemctl --user restart weather-mention
 ```
 
@@ -235,14 +256,15 @@ systemctl --user restart weather-mention
 ```bash
 systemctl --user status weather-mention          # 상시 봇이 살아 있나
 systemctl --user list-timers 'weather-*'         # 다음 실행 시각
-systemctl --user start weather-weekly.service    # 게시를 지금 한 번
+systemctl --user start weather-weekly.service    # 게시를 지금 한 번 (월요일이 아니면 아래 경고)
 
 # 주 중간에 «다음 주» 결과만 미리 보기 (슬랙 전송 없음)
 ./deploy/run-weekly.sh --dry-run --week-offset 1 --no-wait
 ```
 
-> 주 중간에 `weather-weekly.service` 를 그냥 돌리면 «기온을 얻지 못해» 로 실패함.
-> 지난 날짜에는 예보가 없기 때문이며, 고장이 아님 — 위 `--week-offset 1` 로 확인함.
+> 주 중간에 `weather-weekly.service` 를 그냥 돌리면 지난 요일을 비운 채 **실제로 게시됨**(빈 날 3일 이하).
+> 4일 이상 비면(대개 금요일 이후) «기온을 얻지 못해» 로 게시를 건너뜀 — 지난 날짜에는 예보가 없기
+> 때문이며 고장이 아님. 결과만 보려면 위 `--dry-run --week-offset 1` 을 씀.
 
 ### 게시가 안 나갔을 때
 
@@ -254,6 +276,7 @@ systemctl --user start weather-weekly.service    # 게시를 지금 한 번
 
 ## 참고
 
-- `EnvironmentFile` 은 셸이 아니라서 따옴표·변수 확장이 없음. `.env` 는 `KEY=값` 한 줄씩만 둠.
-- 멘션 봇은 예보를 1시간 캐시함(`MENTION_CACHE_TTL`). 기상청은 하루 네 번만 갱신하므로
-  멘션마다 긁을 이유가 없고, 남의 서버에 대한 예의이기도 함.
+- `.env` 는 `KEY=값` 한 줄씩, 따옴표·변수 확장 없이 둠 — systemd(`EnvironmentFile`)와
+  `deploy/_env.sh` 가 함께 읽는데 따옴표 처리가 서로 다름(_env.sh 는 따옴표를 값에 남김).
+- 멘션 봇은 광역 예보를 1시간 캐시함(`MENTION_CACHE_TTL`). 기상청은 하루 네 번만 갱신하므로
+  멘션마다 긁을 이유가 없고, 남의 서버에 대한 예의이기도 함. 시도·동 동네예보는 멘션마다 받음.

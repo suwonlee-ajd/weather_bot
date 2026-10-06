@@ -3,7 +3,7 @@
 Socket Mode 를 씀 — 나가는 WebSocket 연결 하나뿐이라 인바운드 포트·리버스 프록시·TLS 인증서·
 Signing Secret 이 필요 없고, 서버에 이미 떠 있는 다른 서비스의 ingress 를 건드리지 않음.
 
-    SLACK_BOT_TOKEN=xoxb-...   (chat:write, files:write, app_mentions:read)
+    SLACK_BOT_TOKEN=xoxb-...   (chat:write, files:write, app_mentions:read, emoji:read)
     SLACK_APP_TOKEN=xapp-...   (connections:write)
 
     python -m src.mention

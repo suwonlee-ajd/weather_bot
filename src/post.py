@@ -1,8 +1,8 @@
 """주간 날씨 브리핑을 슬랙 채널에 게시함. (엔트리포인트)
 
-메시지 구성 — 원본 게시물과 동일한 형태:
-  본문   : 복장·우산·태풍 등 특이사항에 대한 권장 대응 (Claude)
-  첨부 1 : Gemini 검색 브리핑 카드 PNG
+메시지 구성:
+  본문   : 날씨 두 문단 — 체감·예보관 서술 + 복장·우산·태풍 등 권장 대응 (src/writer.py, 기본 규칙 기반)
+  첨부 1 : 주간 전망 카드 PNG (src/render_card.py)
   첨부 2 : 기상청 지상일기도 PNG (인증 불필요한 공개 파일)
   첨부 3 : 단풍 지도 PNG — 9월 둘째 주 ~ 11월 둘째 주에만 (src/render_foliage.py)
 
@@ -67,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="슬랙에 보내지 않고 출력/저장만")
     parser.add_argument("--no-wait", action="store_true", help="POST_AT 대기 생략")
     parser.add_argument("--data-dir", default=None,
-                        help="dry-run 산출물 위치 (아래에 out/·img/ 로 나뉜다). "
+                        help="dry-run 산출물 위치 (이미지는 그 아래 IMG_DIR, 기본 img/ 에 쌓인다). "
                              "실제 게시는 슬랙에만 올리므로 --dry-run 과 함께 써야 한다")
     parser.add_argument(
         "--week-offset", type=int, default=0,

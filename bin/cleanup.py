@@ -1,12 +1,12 @@
 """보존 기간이 지난 산출물·로그를 지움.
 
-    bin/cleanup.py                설정대로 정리
-    bin/cleanup.py --dry-run      지우지 않고 대상만 보여줌
-    bin/cleanup.py --days 30      data/ 의 보존 기간을 덮어씀 (로그는 그대로)
-    bin/cleanup.py --days 30 --include-logs   로그까지 함께 덮어씀
+    .venv/bin/python bin/cleanup.py                설정대로 정리
+    .venv/bin/python bin/cleanup.py --dry-run      지우지 않고 대상만 보여줌
+    .venv/bin/python bin/cleanup.py --days 30      data/ 의 보존 기간을 덮어씀 (로그는 그대로)
+    .venv/bin/python bin/cleanup.py --days 30 --include-logs   로그까지 함께 덮어씀
 
-평소에는 부를 일이 없음 — 주간 게시가 dry-run 으로 돌 때 data/ 를 스스로
-치우고, logs/ 는 loguru 가 회전하며 치움. 이 스크립트가 필요한 때는 —
+평소에는 정리 타이머(weather-cleanup.timer, 매일 04:00)가 부름 — 한 번 돌고 끝나는 주간 게시·정리의
+로그는 loguru 가 회전하지 않으므로 여기서 지움(멘션 봇 로그는 loguru 도 치움). 손으로 부르는 때는 —
 
   * 봇을 한참 안 돌려 정리가 밀렸을 때
   * 보존 기간을 줄인 직후, 다음 실행을 기다리지 않고 바로 반영하고 싶을 때

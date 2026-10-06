@@ -9,7 +9,7 @@
       • 주말 전망 (…): … [출처 칩]
 
 제목·표·특이사항 박스를 더하면 캡처처럼 보이지 않음. 태풍 같은 특이사항은 카드가
-아니라 슬랙 본문(src/summarize.py)에서 다룸.
+아니라 슬랙 본문(src/writer.py)에서 다룸.
 
 HTML/CSS 로 만들고 헤드리스 Chromium(Playwright)으로 요소 스크린샷을 찍음.
 한글 폰트: macOS 는 Apple SD Gothic Neo 기본 탑재. 리눅스(CI)에서는

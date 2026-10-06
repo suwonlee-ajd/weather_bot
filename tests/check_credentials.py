@@ -12,7 +12,8 @@ OK, FAIL, SKIP = "  ✅", "  ❌", "  ⏭️"
 
 
 def _mask(token: str) -> str:
-    return f"{token[:8]}…{token[-4:]}" if len(token) > 14 else "…"
+    """토큰 값은 한 글자도 내보내지 않음 — 종류(xoxb-)와 길이만."""
+    return f"{token[:5]}…({len(token)}자)" if token.startswith(("xoxb-", "xapp-")) else f"…({len(token)}자)"
 
 
 def check_slack() -> bool:
@@ -35,7 +36,7 @@ def check_slack() -> bool:
     # auth_test 의 user 로 "이름이 안 바뀌었다" 고 판단하면 안 됨. 앱 생성 당시의
     # 내부 식별자라 콘솔에서 바꾼 표시 이름이 반영되지 않음.
     print(f"{OK} Slack: {res['team']} / 봇 {res['user_id']} (내부 식별자 {res['user']})")
-    print(f"     채널 {channel or '(미설정)'} — 초대 여부는 아래 게시 확인으로 판정합니다")
+    print(f"     채널 {channel or '(미설정)'} — 초대 여부는 실제 게시에서 드러납니다(초대 전이면 channel_not_found)")
     return bool(channel)
 
 
@@ -112,7 +113,7 @@ def check_chromium() -> bool:
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        print(f"{FAIL} playwright 미설치 — pip install -r requirements.txt")
+        print(f"{FAIL} playwright 미설치 — uv sync 후 .venv/bin/python -m playwright install chromium")
         return False
     try:
         with sync_playwright() as p:

@@ -26,7 +26,7 @@ class Config:
     slack_channel_id: str = field(default_factory=lambda: _env("SLACK_CHANNEL_ID", required=True))
 
     # --- 예보: 기상청 공개 페이지 스크래핑 (API 키·결제 불필요) ---
-    # 전국 · 수도권 · 강원 · 충남 · 충북 · 전남 · 전북 · 경남 · 경북 · 제주
+    # 전국 · 수도권 · 강원 · 영서 · 영동 · 충남 · 충북 · 전남 · 전북 · 경남 · 경북 · 제주
     region: str = field(default_factory=lambda: _env("REGION", "전국"))
     # 비워두면 지역의 정식 이름을 그대로 씀 (예: "부산·울산·경남")
     area_label: str = field(default_factory=lambda: _env("AREA_LABEL", ""))

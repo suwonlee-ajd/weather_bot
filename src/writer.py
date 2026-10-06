@@ -14,14 +14,15 @@
 """
 from __future__ import annotations
 
+import datetime as dt
 import json
 import logging
 import os
 import re
 from dataclasses import dataclass, field
 
-from .advice import BIG_SPREAD, build_advice
-from .forecast import Section, Source, WeekForecast
+from .advice import BIG_SPREAD, RAIN, TEMP_STEMS, Advice, build_advice, first_three
+from .forecast import Section, Source, WeekForecast, short_day_label
 
 log = logging.getLogger(__name__)
 
@@ -170,6 +171,9 @@ def fallback(week: WeekForecast) -> Written:
             )
 
     # --- 본문: 1문단 날씨 / 2문단 테마 ---
+    # 모델은 원본처럼 1문단을 «~사오니» 로 열어 두고 2문단에서 이어받는다(SYSTEM). 규칙 기반
+    # 2문단은 «사실. 권하는 말.» 로 시작하는 조언이라 그 말을 이어받지 못한다 — 열어 두면
+    # 글이 끊겨 읽힌다. 그래서 여기서는 1문단을 문장으로 맺는다.
     spreads = [
         d.tmax_mid - d.tmin_mid for d in week.days if d.tmin_mid is not None and d.tmax_mid is not None
     ]
@@ -179,7 +183,7 @@ def fallback(week: WeekForecast) -> Written:
     if morning and noon:
         weather.append(
             f"이번 주 {week.area} 출/퇴근 날씨는 아침 *{morning[0]:.0f}~{morning[1]:.0f}℃*, "
-            f"낮 *{noon[0]:.0f}~{noon[1]:.0f}℃* 분포가 예상되며"
+            f"낮 *{noon[0]:.0f}~{noon[1]:.0f}℃* 분포가 예상됩니다."
         )
     headline = next(
         (
@@ -190,24 +194,85 @@ def fallback(week: WeekForecast) -> Written:
         "",
     )
     if headline:
-        weather.append(f"기상청 예보는 *{headline}*이라 전하고 있사오니")
+        # 통보문 (종합)은 «…쌀쌀, 해상 높은 물결 유의» 같은 개조식이라 인용으로 싣는다.
+        weather.append(f'기상청은 "*{headline}*"{quote_josa(headline)} 전하고 있습니다.')
     elif spreads and max(spreads) >= BIG_SPREAD:
-        weather.append(f"일교차가 최대 {max(spreads):.0f}도까지 벌어지겠사오니")
+        weather.append("낮과 아침의 기온차가 큰 한 주가 되겠습니다.")
     elif rainy:
-        weather.append("중간중간 비가 지나가겠사오니")
+        weather.append("중간중간 비가 지나가겠습니다.")
     else:
-        weather.append("큰 변화 없이 이어지겠사오니")
+        weather.append("날씨는 큰 변화 없이 이어지겠습니다.")
 
     tips = build_advice(week.days, [line for n in week.narratives for line in n.lines])
-    if tips:
-        theme = [t.text for t in tips[:2]]
-        # 문단 끝에 하나만. 문장마다 붙이면 산만해진다.
-        theme[-1] = f"{theme[-1]} {tips[0].emoji}"
-    else:
-        theme = ["오늘도 무탈한 한 주 되시길 바랍니다. :sunny:"]
-
-    body = " ".join(weather) + "\n\n" + " ".join(theme)
+    body = " ".join(weather) + "\n\n" + theme_paragraph(tips)
     return Written(lead=lead, sections=sections, alerts=[], body=body)
+
+
+def quote_josa(text: str) -> str:
+    """인용 조사. 끝 글자에 받침이 있으면 «이라고», 없으면 «라고» — «기온차 큼"이라고», «유의"라고».
+
+    괄호·숫자 같은 꼬리는 건너뛰고 마지막 한글로 고른다.
+    """
+    last = next((c for c in reversed(text) if "가" <= c <= "힣"), "")
+    return "이라고" if last and (ord(last) - ord("가")) % 28 else "라고"
+
+
+_TEMP_ORDER = tuple(TEMP_STEMS)   # 앞선 조언의 권하는 말과 이모지를 쓴다
+THEME_SENTENCES = 2               # 2문단에 담는 조언 묶음 수. 많으면 잔소리가 된다.
+
+
+def theme_paragraph(tips: list[Advice]) -> str:
+    """조언을 한 문단으로 엮는다.
+
+    멘션은 조언을 한 줄에 하나씩 보여서 «*10/07* 일교차가 …» 의 날짜가 머리표로 읽힌다.
+    문단으로 그냥 이어 붙이면 같은 날짜가 거듭 나오고 권하는 말(겉옷·껴입기)도 겹친다. 그래서 —
+      * 기온 조언(advice.TEMP_STEMS)은 날이 달라도 한 문장으로 합치고, 날짜 순으로 적는다.
+        같은 날은 날짜를 한 번만 쓴다. 권하는 말은 앞선 조언의 것 하나만 남긴다.
+        «*10/7(수)에는* 아침 최저 4도까지 내려가고 일교차가 14도 안팎으로 벌어지겠습니다.»
+      * 비는 권하는 말이 달라(우산) 따로 두되, 바로 앞과 같은 날이면 «같은 날은» 으로 받는다.
+      * 날짜 없는 조언(특이사항)은 원래 문장 그대로, 맨 앞에 둔다. 이모지가 같으면(풍랑·너울)
+        같은 종류라 앞선 하나만 — 두 자리를 다 차지하면 기온·비 조언이 밀려난다.
+      * 담을 묶음은 build_advice 의 우선순위로 고르고, 보이는 순서는 날짜 순이다.
+      * 이모지는 문단 끝에 하나만 — 가장 앞선 묶음의 것. 문장마다 붙이면 산만해진다.
+    굵게 표시는 조사까지 감싼다(*10/7(수)에는*) — 닫는 별표 바로 뒤에 글자가 붙으면
+    슬랙이 굵게로 읽지 않을 수 있다.
+    """
+    groups: dict[object, list[Advice]] = {}
+    for i, tip in enumerate(tips):
+        key = "기온" if tip.kind in TEMP_STEMS else i if tip.dates else tip.emoji
+        groups.setdefault(key, []).append(tip)
+    if not groups:
+        return "이번 주도 무탈하게 보내시길 바랍니다. :sunny:"
+
+    picked = [sorted(g, key=lambda t: _TEMP_ORDER.index(t.kind)) if g[0].kind in TEMP_STEMS else g
+              for g in list(groups.values())[:THEME_SENTENCES]]
+    emoji = picked[0][0].emoji
+    picked.sort(key=lambda g: min((t.dates[0] for t in g if t.dates), default=dt.date.min))
+
+    sentences: list[str] = []
+    prev: tuple = ()
+    for group in picked:
+        lead = group[0]
+        if lead.kind == RAIN:
+            label = first_three([short_day_label(d) for d in lead.dates], "·")
+            when = "같은 날은" if lead.dates == prev else f"*{label}에는*"
+            sentences.append(f"{when} 비가 오겠습니다. {lead.act}")
+            prev = lead.dates
+        elif lead.kind in TEMP_STEMS:
+            by_day: dict[dt.date, list[Advice]] = {}
+            for t in sorted(group, key=lambda t: (t.dates[0], _TEMP_ORDER.index(t.kind))):
+                by_day.setdefault(t.dates[0], []).append(t)
+            clause = "고, ".join(
+                f"*{short_day_label(day)}에는* "
+                + "고 ".join(TEMP_STEMS[t.kind].format(v=t.value) for t in same_day)
+                for day, same_day in by_day.items()
+            )
+            sentences.append(f"{clause}겠습니다. {lead.act}")
+            prev = tuple(by_day) if len(by_day) == 1 else ()
+        else:
+            sentences.append(lead.text)
+            prev = ()
+    return f"{' '.join(sentences)} {emoji}"
 
 
 # --------------------------------------------------------------------------- #

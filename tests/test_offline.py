@@ -480,6 +480,14 @@ def test_advice() -> None:
     cold_tips = build_advice([day(base, 2, 10)])
     assert any(t.emoji == ":cold_face:" for t in cold_tips), cold_tips
     assert "온열질환" not in " ".join(t.text for t in cold_tips)
+    # (사실, 권하는 말) 짝 표를 비워도 죽지 않고 그 조언만 빠진다
+    import src.advice as advice_mod
+    orig_cold = advice_mod.COLD_LINES
+    advice_mod.COLD_LINES = ()
+    try:
+        assert not any(t.emoji == ":cold_face:" for t in build_advice([day(base, 2, 10)]))
+    finally:
+        advice_mod.COLD_LINES = orig_cold
 
     # 예보관 서술의 특이사항을 집어온다
     typhoon = " ".join(t.text for t in build_advice(
@@ -620,6 +628,68 @@ def test_message_template() -> None:
     print("-" * 60)
     print(text)
     print("-" * 60)
+
+
+def test_weekly_body() -> None:
+    """규칙 기반 본문 — 1문단은 문장으로 맺고, 2문단은 같은 날 조언을 한 문장으로 엮는다.
+
+    10/5 게시물이 «…유의*이라 전하고 있사오니 / *10/07* 일교차가 … *10/07* 아침 최저 …» 로
+    끊겨 읽혔다. 연결어미를 2문단이 이어받지 못했고, 한 줄짜리 조언을 문단에 그대로 붙였다.
+    """
+    import re
+    from types import SimpleNamespace
+    from src.advice import SPREAD_LINES, build_advice
+    from src.writer import quote_josa, theme_paragraph
+
+    first, second = fallback(fake_week()).body.split("\n\n")
+    assert first.endswith("습니다."), first                   # 열어 두지 않는다
+    assert '유의*"라고 전하고' in first, first                # «유의이라» 가 아니다
+
+    # 닫는 별표 바로 뒤에 한글이 붙으면 슬랙이 굵게로 읽지 않을 수 있다
+    for part in (first, second):
+        for m in re.finditer(r"\*[^*\n]+\*", part):
+            assert not re.match(r"[가-힣]", part[m.end():m.end() + 1]), part
+
+    assert quote_josa("기온차 큼") == "이라고"
+    assert quote_josa("높은 물결 유의") == "라고"
+    assert quote_josa("기온차 큼(동해안 제외)") == "라고"     # 괄호 꼬리는 건너뛴다
+
+    def day(d, lo, hi, sky=None, pop=None):
+        return SimpleNamespace(date=d, tmin_lo=lo, tmin_hi=lo,
+                               tmax_lo=hi, tmax_hi=hi, sky=sky, pop=pop)
+
+    wed = dt.date(2026, 10, 7)
+    # 10/5 과 같은 꼴 — 같은 날 일교차 14도 + 아침 4도
+    text = theme_paragraph(build_advice([day(wed - dt.timedelta(days=1), 12, 22), day(wed, 4, 18)]))
+    assert text.count("10/7") == 1, text                         # 날짜는 한 번
+    assert text.startswith("*10/7(수)에는* 아침 최저 4도까지 내려가고 "
+                           "일교차가 14도 안팎으로 벌어지겠습니다. "), text
+    assert text.endswith(":cold_face:") and text.count(":") == 2, text     # 이모지 하나
+
+    # 날이 달라도 기온 조언은 한 문장 — 날짜 순으로, 권하는 말은 하나
+    text = theme_paragraph(build_advice([day(wed + dt.timedelta(days=1), 6, 22), day(wed, 2, 12)]))
+    assert text.startswith("*10/7(수)에는* 아침 최저 2도까지 내려가고, "
+                           "*10/8(목)에는* 일교차가 16도 안팎으로 벌어지겠습니다. "), text
+    assert not any(act in text for _, act in SPREAD_LINES), text   # 추위 쪽 권하는 말 하나만
+    assert text.endswith(":cold_face:"), text
+
+    # 어간에 «고»·«겠습니다» 를 붙인다 — «올라겠습니다» 가 아니다
+    text = theme_paragraph(build_advice([day(wed, 20, 34)]))
+    assert "34도까지 오르고 일교차가" in text, text
+    assert theme_paragraph(build_advice([day(wed, 24, 34)])).startswith(
+        "*10/7(수)에는* 낮 최고 34도까지 오르겠습니다. ")
+
+    # 같은 날 비는 따로 권하되 날짜를 되풀이하지 않는다
+    text = theme_paragraph(build_advice([day(wed, 4, 18, "비", 80)]))
+    assert text.count("10/7") == 1 and "같은 날은 비가 오겠습니다." in text, text
+
+    # 같은 종류의 특이사항(풍랑·너울)은 하나만 — 두 자리를 다 차지하지 않는다
+    text = theme_paragraph(build_advice([day(wed, 4, 18)], ["○ 너울 유의", "○ 풍랑 유의"]))
+    assert "너울" in text and "풍랑" not in text and "10/7" in text, text
+
+    # 조언이 없으면 인사로 맺는다
+    assert theme_paragraph([]).startswith("이번 주도")
+    print("[ok] 주간 본문 — 문장으로 맺고, 같은 날 조언은 한 문장으로")
 
 
 def test_chart_download() -> None:
@@ -1344,6 +1414,7 @@ if __name__ == "__main__":
     test_mention_parsing()
     test_card_render()
     test_message_template()
+    test_weekly_body()
     test_chart_download()
     test_footer_and_region_variation()
     test_foliage_season()

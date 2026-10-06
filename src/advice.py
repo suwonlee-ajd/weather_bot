@@ -17,6 +17,9 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 from dataclasses import dataclass
+from typing import TypeVar
+
+T = TypeVar("T")
 
 # 같은 조건이라도 문장을 돌려 쓴다. 날씨는 매일 비슷해서 문구가 하나뿐이면
 # 날짜와 숫자만 바뀐 같은 말이 매번 나간다. 고르는 기준은 «날짜 + 지역» 이라 —
@@ -26,7 +29,7 @@ from dataclasses import dataclass
 # 마지막 조건이 없으면 한 채널에서 여러 사람이 각자 다른 지역을 물었을 때
 # 봇이 같은 말을 되풀이하는 것처럼 보인다 — 실제로 그렇게 읽혔다.
 # 무작위로 고르면 같은 질문에 다른 답이 나와 봇이 미덥지 않아 보인다.
-def _pick(options: tuple[str, ...], date: dt.date, region: str = "") -> str:
+def _pick(options: tuple[T, ...], date: dt.date, region: str = "") -> T | str:
     if not options:               # 표를 손보다 문구를 다 지운 경우
         return ""                 # 조용히 넘어간다 — 이 모듈은 말 없는 쪽이 기본이다
     # 지역은 이름 그대로가 아니라 해시로 섞는다. hash() 는 프로세스마다 값이
@@ -39,48 +42,55 @@ def _pick(options: tuple[str, ...], date: dt.date, region: str = "") -> str:
     return options[(date.toordinal() + salt) % len(options)]
 
 
-def _days_text(ds) -> str:
-    """날짜 몇 개를 슬랙 볼드로 묶어 적는다.
+def first_three(labels: list[str], sep: str = ", ") -> str:
+    """날짜 표기 몇 개를 잇는다. 셋까지만 적는다 — 그 이상은 읽히지 않는다.
 
-    셋까지만 적는다 — 그 이상은 읽히지 않는다. 다만 잘렸다는 사실은 밝힌다.
-    닷새 비가 오는데 사흘만 적으면 나머지 이틀을 맑은 날로 읽는다.
+    다만 잘렸다는 사실은 밝힌다. 닷새 비가 오는데 사흘만 적으면 나머지 이틀을 맑은 날로 읽는다.
     """
-    shown = ", ".join(f"*{d.date:%m/%d}*" for d in ds[:3])
-    rest = len(ds) - 3
+    shown = sep.join(labels[:3])
+    rest = len(labels) - 3
     return f"{shown} 외 {rest}일" if rest > 0 else shown
 
 
+def _days_text(ds) -> str:
+    """날짜 몇 개를 슬랙 볼드로 묶어 적는다."""
+    return first_three([f"*{d.date:%m/%d}*" for d in ds])
+
+
+# build_advice 의 문구는 (사실, 권하는 말) 짝으로 둔다. 멘션은 둘을 이어 한 줄로 보이고,
+# 주간 본문은 기온 조언의 사실을 한 문장으로 합친 뒤 권하는 말만 하나 고른다
+# (writer.theme_paragraph). 한 덩어리 문장이면 그렇게 나눌 수가 없다.
 SPREAD_LINES = (
-    "일교차가 {gap:.0f}도까지 벌어집니다. 겉옷 하나 걸치시고 환절기 감기 조심하세요.",
-    "아침저녁으로 {gap:.0f}도 차이가 납니다. 낮 기준으로만 입으면 아침에 춥습니다.",
-    "낮과 아침의 기온차가 {gap:.0f}도입니다. 얇은 겉옷을 챙기시면 하루가 편합니다.",
-    "{gap:.0f}도 일교차라 체감이 크게 달라집니다. 벗기 쉬운 옷으로 맞춰 입으세요.",
+    ("일교차가 {gap:.0f}도까지 벌어집니다.", "겉옷 하나 걸치시고 환절기 감기 조심하세요."),
+    ("아침저녁으로 {gap:.0f}도 차이가 납니다.", "낮 기준으로만 입으면 아침에 춥습니다."),
+    ("낮과 아침의 기온차가 {gap:.0f}도입니다.", "얇은 겉옷을 챙기시면 하루가 편합니다."),
+    ("{gap:.0f}도 일교차라 체감이 크게 달라집니다.", "벗기 쉬운 옷으로 맞춰 입으세요."),
 )
 HEAT_LINES = (
-    "낮 최고 {t:.0f}도입니다. 한낮 바깥일은 피하시고 물 자주 드세요. 온열질환 주의 구간입니다.",
-    "낮에 {t:.0f}도까지 오릅니다. 가장 더운 한두 시는 실내에서 보내시는 편이 좋습니다.",
-    "{t:.0f}도 더위입니다. 그늘과 물을 가까이 두시고 무리한 일정은 미루세요.",
+    ("낮 최고 {t:.0f}도입니다.", "한낮 바깥일은 피하시고 물 자주 드세요. 온열질환 주의 구간입니다."),
+    ("낮에 {t:.0f}도까지 오릅니다.", "가장 더운 한두 시는 실내에서 보내시는 편이 좋습니다."),
+    ("{t:.0f}도 더위입니다.", "그늘과 물을 가까이 두시고 무리한 일정은 미루세요."),
 )
 WARM_LINES = (
-    "낮에는 {t:.0f}도까지 올라 덥습니다. 얇게 입고 수분 챙기세요.",
-    "낮 기온이 {t:.0f}도로 제법 높습니다. 통풍 잘 되는 옷이 좋겠습니다.",
-    "한낮은 {t:.0f}도라 움직이면 덥습니다. 물 한 병 챙기시면 든든합니다.",
+    ("낮에는 {t:.0f}도까지 올라 덥습니다.", "얇게 입고 수분 챙기세요."),
+    ("낮 기온이 {t:.0f}도로 제법 높습니다.", "통풍 잘 되는 옷이 좋겠습니다."),
+    ("한낮은 {t:.0f}도라 움직이면 덥습니다.", "물 한 병 챙기시면 든든합니다."),
 )
 COLD_LINES = (
-    "아침 최저 {t:.0f}도까지 내려갑니다. 따뜻하게 껴입으시고 실내 온도도 살펴 주세요.",
-    "아침 기온이 {t:.0f}도입니다. 장갑과 목도리까지 챙기시는 편이 좋습니다.",
-    "{t:.0f}도까지 떨어지는 아침입니다. 얇게 여러 겹 껴입으면 덜 춥습니다.",
+    ("아침 최저 {t:.0f}도까지 내려갑니다.", "따뜻하게 껴입으시고 실내 온도도 살펴 주세요."),
+    ("아침 기온이 {t:.0f}도입니다.", "장갑과 목도리까지 챙기시는 편이 좋습니다."),
+    ("{t:.0f}도까지 떨어지는 아침입니다.", "얇게 여러 겹 껴입으면 덜 춥습니다."),
 )
 CHILLY_LINES = (
-    "아침 최저 {t:.0f}도로 쌀쌀합니다. 출근길 겉옷 하나 걸치시면 딱 좋겠습니다.",
-    "아침 공기가 {t:.0f}도로 서늘합니다. 얇은 겉옷 하나면 충분하겠습니다.",
-    "{t:.0f}도 아침이라 초반에 손이 시립니다. 가벼운 겉옷을 권합니다.",
+    ("아침 최저 {t:.0f}도로 쌀쌀합니다.", "출근길 겉옷 하나 걸치시면 딱 좋겠습니다."),
+    ("아침 공기가 {t:.0f}도로 서늘합니다.", "얇은 겉옷 하나면 충분하겠습니다."),
+    ("{t:.0f}도 아침이라 초반에 손이 시립니다.", "가벼운 겉옷을 권합니다."),
 )
 RAIN_LINES = (
-    "{days}에 비 소식이 있어요. 나가시기 전에 우산 꼭 챙기세요.",
-    "{days}에 비가 옵니다. 우산 없이 나서면 곤란하겠습니다.",
-    "{days}에 비가 예보됐습니다. 우산과 함께 신발도 한 번 보세요.",
-    "{days}에 비 예보가 있습니다. 접이식 우산 하나면 충분하겠습니다.",
+    ("{days}에 비 소식이 있어요.", "나가시기 전에 우산 꼭 챙기세요."),
+    ("{days}에 비가 옵니다.", "우산 없이 나서면 곤란하겠습니다."),
+    ("{days}에 비가 예보됐습니다.", "우산과 함께 신발도 한 번 보세요."),
+    ("{days}에 비 예보가 있습니다.", "접이식 우산 하나면 충분하겠습니다."),
 )
 FOG_LINES = (
     "안개가 끼겠습니다. 출근길 차간거리 넉넉히 두세요.",
@@ -176,10 +186,35 @@ def detect_topic(text: str) -> str | None:
     return None
 
 
+# 주간 본문이 기온 조언을 한 문장으로 이을 때 쓰는 어간 — 키가 곧 Advice.kind 다.
+# 순서가 우선순위다. 원인(아침·낮 기온)이 결과(일교차)보다 앞서고, 권하는 말과 이모지도
+# 앞선 쪽 것을 쓴다. 일교차는 지역 간 분포의 가운데 값끼리 뺀 수라 어느 한 곳의 실제
+# 일교차가 아니다 — 그래서 «까지» 가 아니라 «안팎» 이다.
+TEMP_STEMS = {
+    "추위": "아침 최저 {v:.0f}도까지 내려가",
+    "더위": "낮 최고 {v:.0f}도까지 오르",
+    "쌀쌀": "아침 최저 {v:.0f}도로 쌀쌀하",
+    "더움": "낮 최고 {v:.0f}도까지 올라 덥",
+    "일교차": "일교차가 {v:.0f}도 안팎으로 벌어지",
+}
+RAIN = "비"
+
+
 @dataclass
 class Advice:
     emoji: str
-    text: str
+    fact: str             # 사실. 특이사항·관심사 조언은 한 줄 전부가 여기 든다
+    act: str = ""         # 권하는 말
+    # 아래는 build_advice 의 기온·비 조언에만 채운다. 주간 본문이 여러 조언을 한 문단으로
+    # 엮을 때 쓴다(writer.theme_paragraph).
+    kind: str = ""        # TEMP_STEMS 의 키 또는 RAIN
+    dates: tuple[dt.date, ...] = ()
+    value: float | None = None
+
+    @property
+    def text(self) -> str:
+        """한 줄로 보일 때의 문장 (멘션은 이것만 본다)."""
+        return f"{self.fact} {self.act}".strip()
 
 
 def _spread(day) -> float | None:
@@ -262,13 +297,30 @@ def topic_advice(topic: str, days, region: str = "") -> list[Advice]:
     return []
 
 
+def _dated(emoji: str, kind: str, lines, date: dt.date, value: float, region: str,
+           *, labeled: bool = True) -> Advice | None:
+    """하루에 묶이는 기온 조언. 멘션 한 줄은 «*10/07* 사실. 권하는 말.» 모양이다.
+
+    더움·쌀쌀의 멘션 문구는 원래 날짜 없이 나간다(labeled=False). 주간 본문은 dates 를 쓴다.
+    표를 비웠으면 None — 짝을 풀다 죽지 않고 그 조언만 말하지 않는다(_pick 과 같은 규칙).
+    """
+    picked = _pick(lines, date, region)
+    if not picked:
+        return None
+    fact, act = picked
+    fact = fact.format(gap=value, t=value)
+    if labeled:
+        fact = f"*{date:%m/%d}* {fact}"
+    return Advice(emoji, fact, act, kind, (date,), value)
+
+
 def build_advice(days, narratives=None, region: str = "") -> list[Advice]:
     """수치에서 짚이는 것만 고른다. 없으면 빈 목록."""
     usable = [d for d in days if d.tmin_lo is not None and d.tmax_hi is not None]
     if not usable:
         return []
 
-    out: list[Advice] = []
+    out: list[Advice | None] = []
     spreads = [(d, s) for d in usable if (s := _spread(d)) is not None]
     coldest = min(usable, key=lambda d: d.tmin_lo)
     hottest = max(usable, key=lambda d: d.tmax_hi)
@@ -279,41 +331,25 @@ def build_advice(days, narratives=None, region: str = "") -> list[Advice]:
     if spreads:
         worst, gap = max(spreads, key=lambda pair: pair[1])
         if gap >= BIG_SPREAD:
-            out.append(Advice(
-                ":thermometer:",
-                f"*{worst.date:%m/%d}* " + _pick(SPREAD_LINES, worst.date, region).format(gap=gap),
-            ))
+            out.append(_dated(":thermometer:", "일교차", SPREAD_LINES, worst.date, gap, region))
 
     # 2) 추위 / 더위 — 둘 다 해당하면 더 극단적인 쪽만
     if coldest.tmin_lo <= COLD_MORNING:
-        out.append(Advice(
-            ":cold_face:",
-            f"*{coldest.date:%m/%d}* "
-            + _pick(COLD_LINES, coldest.date, region).format(t=coldest.tmin_lo),
-        ))
+        out.append(_dated(":cold_face:", "추위", COLD_LINES, coldest.date, coldest.tmin_lo, region))
     elif hottest.tmax_hi >= HEAT_WAVE:
-        out.append(Advice(
-            ":sun_with_face:",
-            f"*{hottest.date:%m/%d}* "
-            + _pick(HEAT_LINES, hottest.date, region).format(t=hottest.tmax_hi),
-        ))
+        out.append(_dated(":sun_with_face:", "더위", HEAT_LINES, hottest.date, hottest.tmax_hi, region))
     elif hottest.tmax_hi >= WARM_DAY:
-        out.append(Advice(
-            ":sunny:",
-            _pick(WARM_LINES, hottest.date, region).format(t=hottest.tmax_hi),
-        ))
+        out.append(_dated(":sunny:", "더움", WARM_LINES, hottest.date, hottest.tmax_hi, region,
+                          labeled=False))
     elif coldest.tmin_lo <= CHILLY_MORNING:
-        out.append(Advice(
-            ":fallen_leaf:",
-            _pick(CHILLY_LINES, coldest.date, region).format(t=coldest.tmin_lo),
-        ))
+        out.append(_dated(":fallen_leaf:", "쌀쌀", CHILLY_LINES, coldest.date, coldest.tmin_lo, region,
+                          labeled=False))
 
     # 3) 비
-    if rainy:
-        out.append(Advice(
-            ":umbrella_with_rain_drops:",
-            _pick(RAIN_LINES, rainy[0].date, region).format(days=_days_text(rainy)),
-        ))
+    if rainy and (picked := _pick(RAIN_LINES, rainy[0].date, region)):
+        fact, act = picked
+        out.append(Advice(":umbrella_with_rain_drops:", fact.format(days=_days_text(rainy)), act,
+                          RAIN, tuple(d.date for d in rainy)))
 
     # 4) 예보관이 짚은 특이사항 — 수치로는 안 잡히는 것 (풍랑·건조·태풍 등)
     #
@@ -329,7 +365,7 @@ def build_advice(days, narratives=None, region: str = "") -> list[Advice]:
     hits.sort(key=lambda pair: SPECIAL_ORDER.index(pair[0]))
     special = [advice for _, advice in hits]
 
-    return (special + out)[:3]      # 너무 많으면 잔소리가 된다
+    return (special + [tip for tip in out if tip])[:3]      # 너무 많으면 잔소리가 된다
 
 
 # 급한 순서. 사람 목숨·안전에 가까운 것이 앞이다. SPECIAL 에 키를 더하면
@@ -340,7 +376,7 @@ SPECIAL_ORDER = ("태풍", "한파", "폭염", "너울", "풍랑", "황사", "�
 # 더할 때 이 표만 고치면 되고, _pick 은 길이 1 에서도 그대로 동작한다.
 SPECIAL: dict[str, tuple[str, tuple[str, ...]]] = {
     "태풍": (":cyclone:", ("태풍 영향이 예보돼 있어요. 이동 시간 넉넉히 잡으시고 창문 주변도 정리해 두세요.",)),
-    "풍랑": (":ocean:", ("해상에 풍랑이 일겠습니다. 해안가는 오늘만큼은 피해 주세요.",)),
+    "풍랑": (":ocean:", ("해상에 풍랑이 일겠습니다. 해안가는 되도록 피해 주세요.",)),
     "너울": (":ocean:", ("너울성 파도가 높겠습니다. 방파제·갯바위 근처는 정말 위험합니다.",)),
     "건조": (":droplet:", ("건조한 날이 이어집니다. 실내 가습하시고 화기 취급도 조심하세요.",)),
     "안개": (":fog:", FOG_LINES),

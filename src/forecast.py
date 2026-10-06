@@ -31,6 +31,11 @@ def short_date(date: dt.date) -> str:
     return f"{date.month}/{date.day}"
 
 
+def short_day_label(date: dt.date) -> str:
+    """요일을 붙인 짧은 표기. 문장 안에 날짜를 넣을 때 쓴다. 예: "10/7(수)"."""
+    return f"{short_date(date)}({WEEKDAY_KO[date.weekday()]})"
+
+
 def range_text(lo: float | None, hi: float | None) -> str | None:
     """기온 범위 표기. lo == hi 면 한 값으로 접는다. 둘 다 없으면 None."""
     if lo is None and hi is None:

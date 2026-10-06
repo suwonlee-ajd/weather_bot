@@ -12,8 +12,8 @@
 MENTION_UNIT=weather-mention.service
 TIMER_UNITS=(weather-weekly.timer weather-cleanup.timer)
 PIDFILE="$ROOT/data/mention.pid"
-# 직접 띄울 때의 콘솔 출력. 앱 로그는 logs/{연}/… 에 따로 쌓이므로, 이 파일은 파이썬이
-# 뜨기도 전에 죽은 경우(.env·venv)를 보려는 것이다. 띄울 때마다 비운다.
+# 직접 띄울 때의 콘솔 출력 — 파이썬이 뜨기도 전에 죽은 경우(.env·venv)를 보는 용도다.
+# 앱 로그는 logs/{연}/… 에 따로 쌓인다. 띄울 때마다 비운다.
 CONSOLE="$ROOT/logs/weather-mention.console.log"
 
 detect_mode() {
@@ -58,7 +58,7 @@ direct_start() {
     direct_stop
   fi
   mkdir -p "$(dirname "$PIDFILE")" "$(dirname "$CONSOLE")"
-  # run-mention.sh 가 exec 으로 파이썬이 되므로 $! 가 곧 봇의 PID 다
+  # $! 가 곧 봇의 PID 다 — run-mention.sh 가 exec 으로 파이썬이 된다
   nohup "$ROOT/deploy/run-mention.sh" >"$CONSOLE" 2>&1 </dev/null &
   echo $! >"$PIDFILE"
   sleep 3

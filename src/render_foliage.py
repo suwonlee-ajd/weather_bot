@@ -1,7 +1,7 @@
 """단풍 지도 — 기상청 현황과 웨더아이 예상을 한 장에.
 
-주간 게시물에 카드·일기도와 함께 붙는 세 번째 이미지다. 기상청 날씨누리의 지도는
-320×418 GIF 라 슬랙에서 흐리고 예상일이 없어, 자료만 받아 직접 그린다.
+주간 게시물에 카드·일기도와 함께 붙는 세 번째 이미지로, 자료만 받아 직접 그린다.
+기상청 날씨누리의 지도는 320×418 GIF 라 슬랙에서 흐리고 예상일이 없다.
 
     [제목 · 게시 주]
     [관측 한 줄 / 이번 주 예상 한 줄]
@@ -15,7 +15,7 @@
   - 게시 주에 예상된 변화가 있는 산은 점선 고리와 표 강조로 짚는다.
 
 지도 윤곽은 src/assets/korea_provinces.json (Natural Earth, 퍼블릭 도메인).
-울릉도·독도는 오른쪽 상자로 옮겨 그린다. 독도는 원자료에 없어 좌표로 점만 찍는다.
+울릉도·독도는 오른쪽 상자로 옮겨 그린다. 독도는 좌표로 점만 찍는다(원자료에 없다).
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ ASSET = Path(__file__).parent / "assets" / "korea_provinces.json"
 
 ORANGE, RED, GRAY = "#eb6834", "#a8321f", "#898781"
 
-# 투영 — 한반도 남쪽만 쓰므로 위도 36° 기준 등장방형이면 충분하다
+# 투영 — 위도 36° 기준 등장방형. 한반도 남쪽만 쓰므로 이것으로 충분하다
 LON0, LON1, LAT0, LAT1 = 124.55, 130.35, 33.05, 38.68
 _K = math.cos(math.radians(36))
 _S = 74.0
@@ -61,7 +61,7 @@ def _path(ring: list[list[float]], inset: bool = False) -> str:
 
 @functools.cache
 def _basemap() -> str:
-    """지도 윤곽 SVG. 자산도 투영도 바뀌지 않으므로 프로세스마다 한 번만 만든다."""
+    """지도 윤곽 SVG. 프로세스마다 한 번만 만든다 — 자산도 투영도 바뀌지 않는다."""
     doc = json.loads(ASSET.read_text(encoding="utf-8"))
     main, islands = [], []
     for prov in doc["provinces"]:
@@ -72,7 +72,7 @@ def _basemap() -> str:
         if d_isl:
             islands.append(f'<path d="{d_isl}"/>')
     x, y, w, h = INSET["x"], INSET["y"], INSET["w"], INSET["h"]
-    dokdo_x, dokdo_y = x + w - 12, y + 22   # 실제 거리로는 상자에 안 들어가 위치만 표시
+    dokdo_x, dokdo_y = x + w - 12, y + 22   # 위치만 표시 — 실제 거리로는 상자에 안 들어간다
     return (
         f'<g class="land">{"".join(main)}</g>'
         f'<rect x="{x:.1f}" y="{y:.1f}" width="{w}" height="{h}" rx="4" fill="none" '
@@ -94,7 +94,7 @@ def _marker(x: float, y: float, stage: int, ring: bool = False, r: float = 6.5) 
         out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r}" fill="#fcfcfb" stroke="{ORANGE}" stroke-width="2"/>')
         out.append(f'<path d="M{x - r:.1f},{y:.1f} A{r},{r} 0 0 0 {x + r:.1f},{y:.1f} Z" fill="{ORANGE}"/>')
     else:
-        # 흰 테두리가 안쪽을 먹으므로 반지름을 키워 빈 원·반원과 같은 크기로 보이게 한다
+        # 반지름을 키워 빈 원·반원과 같은 크기로 보이게 한다 — 흰 테두리가 안쪽을 먹는다
         out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r + 1}" fill="{RED}" stroke="#fcfcfb" stroke-width="1.5"/>')
     return "".join(out)
 

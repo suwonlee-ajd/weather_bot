@@ -81,7 +81,7 @@ class Message:
     blocks: list[Block] = field(default_factory=list)
 
     def add(self, block: Block) -> Message:
-        """덩어리를 더한다. 줄이 하나도 없는 문단은 제목만 남으므로 넣지 않는다."""
+        """덩어리를 더한다. 줄이 하나도 없는 문단은 넣지 않는다 — 제목만 남는다."""
         if not block.paragraph.empty:
             self.blocks.append(block)
         return self

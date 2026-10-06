@@ -47,8 +47,8 @@ class Region:
     """기상청 페이지의 지역 구분.
 
     통보문(notice.do)은 지역별 페이지가 따로 있어 stnId 하나로 끝난다.
-    중기예보(mid-term.do)는 두 지역을 한 페이지에 묶어 보여주는 경우가 있어
-    (예: 부산·울산·경남 + 대구·경북), 표에서 해당 그룹 행만 골라내야 한다.
+    중기예보(mid-term.do)는 표에서 해당 그룹 행만 골라내야 한다 — 두 지역을 한 페이지에
+    묶어 보여주는 경우가 있다(예: 부산·울산·경남 + 대구·경북).
     """
 
     key: str
@@ -86,8 +86,8 @@ REGIONS: tuple[Region, ...] = (
     Region("제주", "제주", "184", "184", aliases=("제주도", "서귀포")),
 )
 
-# 여러 광역 구역을 아우르는 말. 기상청에 대응하는 단일 페이지가 없어 대표 구역으로 보낸다.
-# (예보 자체가 그 구역 기준이므로, 응답에 어떤 구역으로 해석했는지 함께 적는다.)
+# 여러 광역 구역을 아우르는 말은 대표 구역으로 보낸다 — 기상청에 대응하는 단일 페이지가 없다.
+# (응답에는 어떤 구역으로 해석했는지 함께 적는다 — 예보 자체가 그 구역 기준이다.)
 WIDE_AREAS: dict[str, tuple[str, str]] = {
     # 별칭 → (대표 REGIONS key, 사용자에게 보여줄 설명)
     "중부": ("수도권", "중부지방은 서울·인천·경기 기준으로 보여드립니다"),
@@ -111,9 +111,8 @@ REGION_HELP = " · ".join(r.key for r in REGIONS)
 def extract_region(text: str) -> tuple[Region | None, str]:
     """문장에서 지역을 집어낸다. 조언 문장처럼 군더더기가 섞여 있어도 동작한다.
 
-    지우는 방식(정규식으로 조언어 제거)은 '무등산' 의 '등산' 까지 지워 버린다.
-    그래서 반대로 — 아는 지역 이름이 문장 안에 있는지 훑는다. 긴 이름부터 봐서
-    '경기'보다 '경기도' 가 먼저 걸리게 한다.
+    아는 지역 이름이 문장 안에 있는지 긴 이름부터 훑는다 — '경기'보다 '경기도' 가 먼저 걸린다.
+    지우는 방식(정규식으로 조언어 제거)은 '무등산' 의 '등산' 까지 지워 버려 쓰지 않는다.
     """
     flat = (text or "").replace(" ", "")
     if not flat:
@@ -164,10 +163,9 @@ def resolve_region(query: str | None) -> tuple[Region | None, str]:
         canon = {region.key, region.label}
         for name in (region.key, region.label, *region.aliases):
             if text == name.lower().replace(" ", "").replace("·", ""):
-                # '부산' 처럼 도시 하나를 물었는데 구역 전체(부산·울산·경남)로
-                # 답하게 되면 그 사실을 밝힌다. 헤더에 구역 이름이 뜨긴 하지만
-                # 물은 대로 답했다고 읽기 쉽다 — 기온 범위가 남의 동네까지
-                # 아우른 값이라는 것을 모르면 «예보가 틀렸다» 로 읽힌다.
+                # 도시 하나를 구역 전체로 답할 때는 그 사실을 밝힌다('부산' → 부산·울산·경남).
+                # 헤더에 구역 이름이 떠도 물은 대로 답했다고 읽기 쉽고, 기온 범위가
+                # 남의 동네까지 아우른 값인 줄 모르면 «예보가 틀렸다» 로 읽힌다.
                 if name not in canon:
                     return region, (f"'{query.strip()}' 은 기상청 구역 "
                                     f"'{region.label}' 에 묶여 있어 그 기준으로 "
@@ -231,8 +229,8 @@ class Scrape:
 # --------------------------------------------------------------------------- #
 
 def _get_soup(url: str, timeout: float = 25.0) -> BeautifulSoup:
-    # 실패했을 때 기상청이 죽은 것인지 파서가 깨진 것인지 로그만 보고 갈라야 한다.
-    # 그래서 상태코드와 본문 크기를 남긴다 — 200 인데 4KB 면 페이지 구조가 바뀐 것이다.
+    # 상태코드와 본문 크기를 로그에 남긴다 — 실패했을 때 기상청이 죽었는지 파서가
+    # 깨졌는지 로그만 보고 갈라야 한다. 200 인데 4KB 면 페이지 구조가 바뀐 것이다.
     started = time.monotonic()
     try:
         resp = requests.get(url, headers={"User-Agent": UA}, timeout=timeout)
@@ -278,7 +276,7 @@ def _narrative_lines(soup: BeautifulSoup) -> list[str]:
         if line.startswith(("□", "○")) and len(line) > 4:
             lines.append(line)
         elif lines and not line.startswith(("□", "○")) and len(line) > 8 and len(lines) <= 6:
-            # 서술이 <br> 로 이어지는 경우가 있어 직전 줄에 붙인다
+            # 직전 줄에 붙인다 — 서술이 <br> 로 이어지는 경우가 있다
             if lines[-1].endswith((",", "및")):
                 lines[-1] += " " + line
     return lines
@@ -315,8 +313,8 @@ def lines_for_dates(lines: list[str], ref: dt.date,
     """서술 줄 중 물어본 날짜에 해당하는 것만 고른다.
 
     "○ (모레, 14일) ..." 처럼 날짜가 박힌 줄은 그 날짜가 window 에 있을 때만 남긴다.
-    날짜가 없는 줄(□ 종합, ○ (기온)/(하늘상태) 같은 기간 전체 서술)은 어느 날을
-    물어도 유효하므로 그대로 남긴다.
+    날짜가 없는 줄(□ 종합, ○ (기온)/(하늘상태) 같은 기간 전체 서술)은 그대로 남긴다 —
+    어느 날을 물어도 유효하다.
 
     날짜가 박힌 줄이 하나도 안 맞으면 기간 전체 서술만 돌아간다 — 물은 날과
     다른 날의 이야기를 붙이느니 덜 보여주는 쪽이 낫다.
@@ -336,8 +334,8 @@ def lines_for_dates(lines: list[str], ref: dt.date,
 def daily_sky(lines: list[str], ref: dt.date) -> dict[dt.date, str]:
     """통보문 서술문에서 날짜별 하늘상태를 뽑는다.
 
-    통보문 표에는 기온과 파고만 있고 하늘상태·강수확률이 없다. 그래서 D+0~D+3 은
-    서술문에서 읽어야 한다. 중기예보(D+4~)는 표에 하늘상태가 따로 있다.
+    D+0~D+3 은 서술문에서 읽는다 — 통보문 표에는 기온과 파고만 있고 하늘상태·강수확률이
+    없다. 중기예보(D+4~)는 표에 하늘상태가 따로 있다.
     """
     out: dict[dt.date, str] = {}
     for line in lines:
@@ -446,7 +444,7 @@ def _header_dates(tbl, ref: dt.date) -> list[tuple[int, dt.date]]:
 
 
 def _row_group(cells, current: str | None) -> str | None:
-    """지역 셀은 rowspan 으로 그룹 첫 행에만 나온다. 뒤 행들을 위해 값을 이어 나른다."""
+    """지역 그룹 값을 뒤 행으로 이어 나른다. 지역 셀은 rowspan 으로 그룹 첫 행에만 나온다."""
     if cells and cells[0].get("rowspan"):
         return cells[0].get_text(" ", strip=True)
     return current
@@ -502,7 +500,7 @@ def fetch_mid_term(
         )
 
     # --- 하늘상태·강수확률: 지역 × 날짜. 날짜별 대표값을 뽑는다 ---
-    # 앞쪽 날짜는 오전/오후 두 칸, 뒤쪽 날짜(발표일 +8일 이후)는 하루 한 칸이라 열 수가 가변이다.
+    # 열 수는 가변이다 — 앞쪽 날짜는 오전/오후 두 칸, 뒤쪽 날짜(발표일 +8일 이후)는 하루 한 칸이다.
     # 페이지 안내: "18일~20일 은 오전, 오후 구분 없이 일별로 예보합니다."
     if sky_tbl is not None:
         sky_dates = [d for _, d in _header_dates(sky_tbl, ref)]
@@ -558,7 +556,7 @@ def scrape_range(
     narratives: list[Narrative] = []
     errors: list[str] = []
 
-    for fetch in (fetch_mid_term, fetch_notice):  # 통보문이 더 정확하므로 나중에 덮어쓴다
+    for fetch in (fetch_mid_term, fetch_notice):  # 나중에 오는 통보문이 덮어쓴다 — 더 정확하다
         try:
             days, narrative = fetch(now, region)
         except (requests.RequestException, ScrapeError) as exc:

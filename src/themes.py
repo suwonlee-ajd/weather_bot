@@ -43,7 +43,7 @@ def foliage_block(week_start: dt.date, today: dt.date, scale: int) -> Block | No
         log.info("단풍 지도 %s bytes", f"{len(png):,}")
     except Exception:
         log.warning("단풍 지도를 만들지 못해 글로만 붙입니다", exc_info=True)
-    # 예상을 못 읽었으면 글에도 지도에도 예상이 없다 — 출처도 그에 맞춘다
+    # 출처는 실린 것에 맞춘다 — 예상을 못 읽었으면 글에도 지도에도 예상이 없다
     credit = f"{'단풍 지도' if attachment else '단풍'} · {render_foliage.sources(snap)}"
     return Block(paragraph, credit, attachment)
 
@@ -67,7 +67,7 @@ def blossom_block(week_start: dt.date, today: dt.date, scale: int) -> Block | No
     paragraph = Paragraph("이번 주 벚꽃", emoji=":cherry_blossom:")
     if status is not None:
         paragraph.add("관측", blossom.observed_line(status))
-    # 예상을 못 받았을 때 "아직 나오지 않았습니다" 로 둘러대지 않는다 — 줄을 뺀다
+    # 예상을 못 받았으면 줄을 뺀다 — "아직 나오지 않았습니다" 로 둘러대지 않는다
     if outlook is not None:
         paragraph.add("이번 주", blossom.week_line(outlook, week_start, week_end))
         paragraph.add("올해" if outlook.expected else "평년", blossom.year_line(outlook))

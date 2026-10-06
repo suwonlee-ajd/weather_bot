@@ -21,7 +21,7 @@ target=all
 for arg in "$@"; do
   case "$arg" in
     -r|--restart) restart=true ;;
-    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *) target="$arg" ;;
   esac
 done
@@ -54,7 +54,7 @@ for unit in "${UNITS[@]}"; do
   fi
 done
 
-# 멘션 봇은 떠 있다가 곧바로 죽을 수 있다(.env 누락, venv 경로). 잠깐 지켜본다.
+# 멘션 봇을 잠깐 지켜본다 — 떠 있다가 곧바로 죽을 수 있다(.env 누락, venv 경로).
 if wants_mention; then
   sleep 3
   if ! "${SCTL[@]}" is-active --quiet "$MENTION_UNIT"; then

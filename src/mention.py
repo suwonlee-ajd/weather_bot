@@ -1,8 +1,7 @@
 """`@주간 날씨 부산` 처럼 멘션으로 지역 날씨를 물어보는 봇. (Socket Mode)
 
-Socket Mode 를 쓰는 이유: 인바운드 포트도, 리버스 프록시도, TLS 인증서도, Signing Secret 도
-필요 없다. 나가는 WebSocket 연결 하나뿐이라 서버에 이미 떠 있는 다른 서비스의 ingress 를
-전혀 건드리지 않는다.
+Socket Mode 를 쓴다 — 나가는 WebSocket 연결 하나뿐이라 인바운드 포트·리버스 프록시·TLS 인증서·
+Signing Secret 이 필요 없고, 서버에 이미 떠 있는 다른 서비스의 ingress 를 건드리지 않는다.
 
     SLACK_BOT_TOKEN=xoxb-...   (chat:write, files:write, app_mentions:read)
     SLACK_APP_TOKEN=xapp-...   (connections:write)
@@ -53,9 +52,9 @@ LOADING_PREFERRED = (":loading:", ":loading2:", ":bearloading:")
 
 # 못 한다고 답할 때 / 그렇다고 답할 때 붙이는 표정. 문장 끝에 둔다 —
 # 앞에 두면 내용보다 먼저 눈에 띄어 정작 읽어야 할 말을 가린다.
-# 사용자가 뭘 잘못해서가 아니라 자료가 없는 경우(수집 실패·예보 없음)에는 붙이지 않는다.
-# 유니코드 15.1 ZWJ 시퀀스라 오래된 클라이언트에서는 안 보일 수 있어
-# NO_EMOJI / YES_EMOJI 로 갈아끼울 수 있게 해 둔다.
+# 자료가 없는 경우(수집 실패·예보 없음)에는 붙이지 않는다 — 사용자가 잘못한 게 아니다.
+# NO_EMOJI / YES_EMOJI 로 갈아끼울 수 있다 — 유니코드 15.1 ZWJ 시퀀스라
+# 오래된 클라이언트에서는 안 보일 수 있다.
 NO_EMOJI = os.environ.get("NO_EMOJI", ":head_shaking_horizontally:")
 YES_EMOJI = os.environ.get("YES_EMOJI", ":head_shaking_vertically:")
 
@@ -69,8 +68,8 @@ def self_mention() -> str:
 # 이 시간 안에 끝나면 로딩 메시지를 띄우지 않는다 (캐시 적중은 0.3초면 끝난다)
 SLOW_REPLY_SEC = 2.0
 
-# 하늘상태를 이모지로. 중기예보는 "구름많음", 동네예보는 "구름 많음" 처럼 표기가
-# 갈려서 공백을 지우고 맞춘다. 비/눈이 섞인 값이 먼저 걸리도록 순서가 중요하다.
+# 하늘상태를 이모지로. 공백을 지우고 견준다 — 중기예보 "구름많음", 동네예보 "구름 많음" 처럼
+# 표기가 갈린다. 순서가 중요하다 — 비/눈이 섞인 값이 먼저 걸려야 한다.
 SKY_EMOJI: tuple[tuple[str, str], ...] = (
     ("소나기", ":umbrella_with_rain_drops:"),
     ("비/눈", ":snow_cloud:"),
@@ -122,12 +121,13 @@ def help_text() -> str:
         "지역을 함께 적어 주세요.\n"
         f"• *광역* (7일) — {REGION_HELP}\n"
         "   중부 · 남부 · 영남 · 호남 · 충청 · 영동 · 영서 같은 말도 알아듣습니다.\n"
-        "• *동네예보* (오늘~5일) — 부산 · 역삼동 · 봉담 처럼 시도/동 이름\n"
+        f"• *동네예보* (오늘~{DONG_MAX_DAYS}일) — 부산 · 역삼동 · 봉담 처럼 시도/동 이름\n"
         f"   행정동코드 10자리를 직접 적어도 됩니다. 예: {me} 1168064000\n"
         "• *산* — 설악산 · 주말 지리산 등산 처럼 21개 명산 이름 (산 아래 마을 동네예보)\n"
         "• *단풍* (9월 둘째 주 ~ 11월 둘째 주) — 단풍 · 설악산 단풍 · 주말 내장산 단풍\n"
         "   이 기간에는 지역 날씨에도 그 지역 산의 단풍을 한 줄 붙입니다.\n"
-        "\n_광역은 최대 10일, 동 단위는 3일까지입니다. 그보다 먼 날은 기상청도 예보하지 않습니다._"
+        f"\n_광역은 최대 {MAX_FORECAST_DAYS}일, 동 단위는 {DONG_MAX_DAYS}일까지입니다. "
+        "그보다 먼 날은 기상청도 예보하지 않습니다._"
     )
 
 
@@ -151,8 +151,8 @@ OUTLOOK_RE = re.compile(
 TOO_FAR_RE = re.compile(
     r"[2-9]\s*개월|[0-9]{2,}\s*개월|내년|재작년|분기"
 )
-# 과거. 계절 표현과 겹칠 수 있어('지난 해 여름') 미래 분기보다 먼저 본다.
-# 과거 관측 안내 링크. /obs-climate/ 경로는 여기로 리다이렉트되므로 최종 주소를 쓴다.
+# 과거. 미래 분기보다 먼저 본다 — 계절 표현과 겹칠 수 있다('지난 해 여름').
+# 과거 관측 안내 링크. 최종 주소를 쓴다 — /obs-climate/ 경로는 여기로 리다이렉트된다.
 PAST_OBS_URL = "https://www.weather.go.kr/w/weather/land/past-obs/obs-by-day.do"
 PAST_RE = re.compile(
     r"어제|그제|그저께|엊그제|작년|재작년|과거|예전|옛날"
@@ -166,10 +166,9 @@ WEEKEND_RE = re.compile(r"주말|토일|토요일|일요일")
 # "9월 18일", "18일", "9/18", "09-18" 처럼 날짜를 콕 집어 묻는 경우.
 # 월이 없으면 오늘 기준 가까운 쪽으로 해석한다(_resolve_date).
 #
-# 뒤에 붙는 요일 표기 "(금)" · "(금요일)" 까지 한 덩어리로 삼는다. 봇이 내보낸
-# 답을 그대로 복사해 다시 묻는 사람이 많은데(«09/16(수)» 는 이 봇의 출력 형식이다),
-# 요일만 남으면 지역 해석이 그 찌꺼기를 지역 이름으로 읽는다 — «역삼동 9/18(금)»
-# 이 "아는 지역이 아닙니다" 로 빠졌다. 날짜 해석 자체는 요일이 있든 없든 같다.
+# 뒤에 붙는 요일 표기 "(금)" · "(금요일)" 까지 한 덩어리로 삼는다 — 요일만 남으면 지역 해석이
+# 그 찌꺼기를 지역 이름으로 읽어 «역삼동 9/18(금)» 이 "아는 지역이 아닙니다" 로 빠진다.
+# 봇의 답(«09/16(수)» 형식)을 복사해 다시 묻는 사람이 많다. 날짜 해석은 요일이 있든 없든 같다.
 _WEEKDAY_SUFFIX = r"(?:\s*[(（]\s*[월화수목금토일](?:요일)?\s*[)）])?"
 EXPLICIT_DATE_RE = re.compile(
     r"(?:"
@@ -254,9 +253,8 @@ def _dong_reply(zone: str, name: str, days: int = 4, start: dt.date | None = Non
         lines.append("")
         lines += [f"{t.emoji} {t.text}" for t in tips]
     lines.append(f"_기상청 동네예보 · {fc.issued} 발표_")
-    # 광역 안내는 «닿는 데까지 왔을 때» 만 한다. 하루치를 물은 사람에게는 쓸모가
-    # 없는데, 본문이 두 줄뿐이라 화면의 절반을 차지하며 매번 같은 말로 남는다.
-    # 실제로 서로 다른 지역을 물은 두 답이 이 꼬리말 때문에 같은 메시지로 읽혔다.
+    # 광역 안내는 «닿는 데까지 왔을 때» 만 한다. 하루치 답에서는 쓸모없이 두 줄 본문의
+    # 절반을 차지하고, 같은 꼬리말 탓에 다른 지역을 물은 두 답이 같은 메시지로 읽힌다.
     if len(summary) >= DONG_MAX_DAYS:
         lines.append(f"_더 먼 날이 필요하시면 광역 구역으로 불러 주세요 (최대 10일). "
                      f"예: {self_mention()} 수도권_")
@@ -268,9 +266,9 @@ def _dong_reply(zone: str, name: str, days: int = 4, start: dt.date | None = Non
 def resolve_loading_emoji(client) -> str:
     """쓸 수 있는 로딩 이모지를 고른다.
 
-    커스텀 이모지는 워크스페이스마다 다르다. emoji:read 가 있으면 실제로 있는지
-    확인하고, 없거나 스코프가 빠졌으면 표준 이모지로 물러선다 — 없는 코드를 쓰면
-    슬랙에 `:loading:` 이 날것으로 노출된다.
+    emoji:read 로 실제로 있는지 확인하고, 없거나 스코프가 빠졌으면 표준 이모지로 물러선다.
+    커스텀 이모지는 워크스페이스마다 달라서, 없는 코드를 쓰면 슬랙에 `:loading:` 이 날것으로
+    노출된다.
     """
     if LOADING_EMOJI:
         return LOADING_EMOJI
@@ -370,7 +368,7 @@ def _period(query: str, now: dt.datetime) -> tuple[dt.date, int, str]:
     else:
         start, title = today, f"앞으로 {FORWARD_DAYS}일"
 
-    # '주말 등산 괜찮아?' 는 토·일만 궁금한 것이다. 한 주 전체를 보여주면 답이 묻힌다.
+    # 주말을 물으면 토·일만 보여준다 — '주말 등산 괜찮아?' 에 한 주 전체를 보여주면 답이 묻힌다.
     if WEEKEND_RE.search(query):
         saturday = monday + dt.timedelta(days=5)
         # '다음 주 주말' · '다음주 토요일' 은 다음 주의 토·일, 이미 지난 주말이어도 다음 주말
@@ -391,8 +389,8 @@ FLOWER_URL = "https://www.weather.go.kr/w/forecast/life/seasonal-observation/spr
 # ("꽃구경 가는데 내일 서울 날씨", "단풍 구경 가는데 강원도 날씨 어때").
 # 산 이름과 함께면 산 아래 마을 날씨를 붙인다. 활동·우산 같은 관심사(advice.TOPICS)는 따로 본다.
 WEATHER_ASK_RE = re.compile(r"날씨|기온|춥|추워|덥|더워|바람")
-# 산 단풍에 날씨를 붙이는 기간 표현. '지금'·'현재' 는 단풍 상태를 묻는 말이고, '10/25' 같은
-# 날짜는 대개 단풍 날짜를 되묻는 말이라 뺀다 ("설악산 단풍 절정 10/25 맞아?").
+# 산 단풍에 날씨를 붙이는 기간 표현. '지금'·'현재' 와 '10/25' 같은 날짜는 뺀다 — 앞은 단풍 상태를
+# 묻는 말이고, 뒤는 대개 단풍 날짜를 되묻는 말이다 ("설악산 단풍 절정 10/25 맞아?").
 TRIP_SPANS = ("주말", "내일", "모레", "이번 주", "다음 주")
 
 
@@ -500,9 +498,9 @@ def _mountain_weather(m: Mountain, start: dt.date, days: int) -> str:
 
 
 def _mountain_reply(m: Mountain, start: dt.date, days: int, title: str, today: dt.date) -> str:
-    """단풍 말 없이 산 이름으로 물었을 때 ("설악산", "주말 지리산 등산").
+    """단풍 말 없이 산 이름으로 물은 답 ("설악산", "주말 지리산 등산").
 
-    날씨를 물은 것이므로 산 아래 마을 예보가 먼저고, 단풍철이면 그 산의 단풍을 덧붙인다.
+    산 아래 마을 예보가 먼저다 — 날씨를 물은 것이다. 단풍철이면 그 산의 단풍을 덧붙인다.
     기간을 콕 집지 않았으면 단풍 갈래의 산 날씨와 같은 기간을 보여준다.
     """
     if title.startswith("앞으로"):
@@ -527,7 +525,7 @@ def _snapshot_quietly(today: dt.date) -> Snapshot | None:
 def _foliage_brief(snap: Snapshot, mountains: tuple[Mountain, ...], start: dt.date, end: dt.date) -> str:
     """물든 산과 그 기간에 예상된 변화. 둘 다 없으면 빈 문자열.
 
-    전국은 산마다 적으면 스무 곳이 넘으므로 단풍 현황 답과 같은 요약을 쓴다.
+    전국은 단풍 현황 답과 같은 요약을 쓴다 — 산마다 적으면 스무 곳이 넘는다.
     """
     if len(mountains) == len(MOUNTAINS):
         parts = []
@@ -558,7 +556,7 @@ def _foliage_note(mountains: tuple[Mountain, ...], start: dt.date, end: dt.date,
                   today: dt.date) -> list[str]:
     """지역 날씨 끝에 붙이는 단풍 한 줄. 단풍철에, 그 지역에 말할 것이 있을 때만.
 
-    날씨를 물은 사람에게 주는 덤이라 단풍을 못 받아 와도 날씨 답은 그대로 나간다.
+    단풍을 못 받아 와도 날씨 답은 그대로 나간다 — 날씨를 물은 사람에게 주는 덤이다.
     """
     if not mountains or not in_season(today) or not (snap := _snapshot_quietly(today)):
         return []
@@ -584,7 +582,7 @@ def answer(text: str, now: dt.datetime | None = None) -> Reply:
         return Reply(reply)
     try:
         # 같은 현황이면 같은 그림 — 물을 때마다 Chromium 을 띄우지 않게. 키에 현황 내용을
-        # 넣어 두어 글(방금 받은 현황)과 그림(캐시)이 어긋나지 않는다.
+        # 넣는다 — 글(방금 받은 현황)과 그림(캐시)이 어긋나지 않게.
         image = get_or_set(
             ("foliage-map", now.date(), snap.signature()), CACHE_TTL_SEC,
             lambda: render_foliage_png(snap, now.date(), span_label="앞으로 7일"),
@@ -601,9 +599,9 @@ def build_reply(text: str, now: dt.datetime | None = None) -> str:
     now = now or dt.datetime.now(tz=KST)
     query = MENTION_RE.sub(" ", text).strip()
 
-    # 멘션으로 물을 때 원하는 건 달력상 '이번 주'가 아니라 **앞으로의 날씨**다.
-    # 주 중간에 "이번 주"로 잡으면 이미 지난 요일 때문에 이틀치만 나온다.
-    # 그래서 기본은 오늘부터 7일. "이번 주"/"다음 주"를 명시하면 그 주 월~일로 맞춘다.
+    # 기본 기간은 오늘부터 7일, "이번 주"/"다음 주"를 명시하면 그 주 월~일이다 — 멘션으로
+    # 원하는 건 **앞으로의 날씨**라, 달력상 '이번 주'로 잡으면 주 중간엔 지난 요일 탓에
+    # 이틀치만 나온다.
     # 지역 이름이 섞여 있지 않은 순수한 인사·잡담이면 자기소개로 답한다.
     # ('부산 안녕' 처럼 지역이 함께 오면 날씨를 보여주는 쪽이 맞다)
     if GREETING_RE.search(query):
@@ -612,13 +610,13 @@ def build_reply(text: str, now: dt.datetime | None = None) -> str:
         if not stripped or resolve_region(stripped)[0] is None:
             if re.search(r"도움말|help|사용법|어떻게\s*써", query, re.I):
                 return help_text()
-            # 감사 인사에 자기소개 전문을 다시 보내면 과하다
+            # 감사 인사엔 한 줄로 답한다 — 자기소개 전문은 과하다
             if THANKS_RE.search(query):
                 return f"천만에요. 날씨 궁금하시면 언제든 불러 주세요. {YES_EMOJI}"
             return about()
 
-    # 과거는 예보가 아니라 관측이라 이 봇이 다루는 자료에 없다. 계절 표현과 겹치므로
-    # ('지난 해 여름') 미래 분기보다 먼저 본다 — 아니면 과거 질문에 전망이 나간다.
+    # 과거는 관측 링크로 돌린다 — 예보가 아니라 관측이라 이 봇의 자료에 없다. 미래 분기보다
+    # 먼저 본다 — 계절 표현('지난 해 여름')과 겹쳐, 늦게 보면 과거 질문에 전망이 나간다.
     if PAST_RE.search(query):
         return (
             "지난 날씨는 제가 볼 수 없습니다. 기상청 예보만 다루고 있어서,\n"
@@ -644,8 +642,8 @@ def build_reply(text: str, now: dt.datetime | None = None) -> str:
 
     start, days, title = _period(query, now)
 
-    # 산은 지역 목록에 없다. 그냥 두면 '설악산' 은 "아는 지역이 아닙니다" 로,
-    # '주말 설악산 등산' 은 조언 갈래에서 전국으로 빠진다. 산 아래 마을 예보로 답한다.
+    # 산 이름이면 산 아래 마을 예보로 답한다. 산은 지역 목록에 없어, 그냥 두면 '설악산' 은
+    # "아는 지역이 아닙니다" 로, '주말 설악산 등산' 은 조언 갈래에서 전국으로 빠진다.
     mountain = find_mountain(query)
     if mountain:
         return _mountain_reply(mountain, start, days, title, now.date())
@@ -662,10 +660,10 @@ def build_reply(text: str, now: dt.datetime | None = None) -> str:
     # 광역 구역(부산·울산·경남)으로 답하면 기온이 경남내륙까지 아우른 분포라
     # 부산만 궁금한 사람에게는 남의 동네 숫자가 섞인다.
     #
-    # 동네예보는 5일까지라, 그보다 먼 날을 물었으면 광역으로 넘긴다 —
+    # 동네예보가 닿지 않는 날(5일 너머)을 물었으면 광역으로 넘긴다 —
     # 좁게 답하려다 아예 답을 못 하는 것보다 낫다.
-    # 문장으로 물어도 도시명을 집어낸다 ("내일 부산 출장가는데 뭐 입지").
-    # query 는 기간·잡음을 지운 뒤라 'X 날씨' 는 걸리지만 긴 문장은 안 걸린다.
+    # 문장으로 물어도 낱말마다 도시명을 찾는다 ("내일 부산 출장가는데 뭐 입지") — 기간·잡음을
+    # 지운 query 통째로는 'X 날씨' 만 걸리고 긴 문장은 안 걸린다.
     wide = find_wide(query) or next(
         (w for tok in re.split(r"[\s,]+", query) if (w := find_wide(tok))), None)
     if wide:
@@ -674,21 +672,21 @@ def build_reply(text: str, now: dt.datetime | None = None) -> str:
             pass                      # 동네예보가 닿지 않는 날 — 아래 광역으로
         elif start + dt.timedelta(days=days - 1) <= last:
             reply = _dong_reply(wide[0], wide[1], days, start, today=now.date())
-            # 예보 끝자락은 값이 모자라 거절로 끝난다(조각난 날은 버린다).
-            # 광역이라면 답할 수 있으므로 여기서 막지 않고 넘긴다.
+            # 거절로 끝나면 막지 않고 광역으로 넘긴다 — 예보 끝자락은 값이 모자라
+            # 거절되지만(조각난 날은 버린다) 광역은 답할 수 있다.
             if NO_EMOJI not in reply:
                 return reply
         elif title.startswith("앞으로"):
-            # 기간을 따로 말하지 않았다면 며칠인지보다 «부산 값» 인지가 중요하다.
-            # 닿는 데까지 좁게 답하고, 더 필요하면 광역으로 안내한다.
+            # 기간을 따로 말하지 않았으면 닿는 데까지 좁게 답하고, 더 필요하면 광역으로
+            # 안내한다 — 며칠인지보다 «부산 값» 인지가 중요하다.
             return _dong_reply(wide[0], wide[1], (last - start).days + 1, start, today=now.date())
         # '이번 주'·'다음 주' 처럼 기간을 콕 집어 물었으면 그 기간을 채울 수 있는
         # 광역으로 간다. 이레를 물었는데 사흘만 주는 것이 더 불친절하다.
 
     region, note = resolve_region(query)
     if region is None and topic:
-        # 조언을 물으면 문장이 길고 지역이 섞여 있다("주말 무등산 등산 괜찮아?").
-        # 지우기로는 '무등산' 의 '등산' 까지 잘려 나가므로, 문장에서 지역을 집어낸다.
+        # 조언 질문은 문장에서 지역을 집어낸다 — 문장이 길고 지역이 섞여 있어("주말 무등산
+        # 등산 괜찮아?") 지우기로는 '무등산' 의 '등산' 까지 잘려 나간다.
         region, note = extract_region(text)
         if region is None:
             region, note = NATIONWIDE, ""
@@ -706,11 +704,9 @@ def build_reply(text: str, now: dt.datetime | None = None) -> str:
             )
         return f"'{query}' 는 제가 아는 지역이 아닙니다. {NO_EMOJI}\n\n{help_text()}"
 
-    # 캐시는 지역 하나당 한 항목이다. 그러려면 담기는 값이 «물어본 기간» 과
-    # 무관해야 한다 — scrape_range 는 window 로 잘라 돌려주므로, 자르기 전의
-    # 넓은 구간(오늘부터 열흘)을 캐시하고 좁히는 일은 아래에서 한다.
-    # 잘린 값을 캐시하면 «다음 주» 를 먼저 물은 뒤 «앞으로 7일» 을 물었을 때
-    # 오늘·내일이 빠진 채로 나온다.
+    # 캐시에는 자르기 전의 넓은 구간(오늘부터 열흘)을 담고, 물어본 기간으로 좁히기는 아래에서
+    # 한다. 캐시는 지역 하나당 한 항목이라 «물어본 기간» 과 무관해야 한다 — scrape_range 가
+    # window 로 자른 값을 담으면 «다음 주» 를 먼저 물은 뒤 «앞으로 7일» 에 오늘·내일이 빠진다.
     try:
         cached = get_or_set(
             region.key, CACHE_TTL_SEC,
@@ -726,9 +722,8 @@ def build_reply(text: str, now: dt.datetime | None = None) -> str:
         return f"*{region.label}* {start:%m/%d} 부터의 예보를 찾지 못했습니다."
 
     end = start + dt.timedelta(days=days - 1)
-    # 기상청 중기예보는 오늘부터 열흘까지다. 주 초에 «다음 주» 를 물으면 그
-    # 한계에 사흘만 걸친다 — 머리글에 이레라고 적어 놓고 사흘만 보여주면
-    # 봇이 잘라먹은 것처럼 읽힌다. 실제로 있는 날까지만 적는다.
+    # 머리글에는 실제로 예보가 있는 날까지만 적는다. 중기예보는 오늘부터 열흘까지라
+    # 주 초에 «다음 주» 를 물으면 사흘만 걸치는데, 이레라고 적으면 잘라먹은 것처럼 읽힌다.
     have = max(scrape.days) if scrape.days else end
     shown_end = min(end, have)
     span_text = (day_label(start) if start == shown_end
@@ -768,7 +763,7 @@ def build_reply(text: str, now: dt.datetime | None = None) -> str:
                      f"아직 예보가 작성되지 않았습니다 {NO_EMOJI}_")
 
     shown = [scrape.days[d] for d in sorted(scrape.days)]
-    # 조언은 화면에 보인 날만 근거로 삼는다. 캐시는 7일을 들고 있어서, 하루만 물었는데
+    # 조언은 화면에 보인 날만 근거로 삼는다. 캐시는 열흘을 들고 있어서, 하루만 물었는데
     # 사흘 뒤 일교차를 말하면 물은 것과 다른 답이 된다.
     window = {start + dt.timedelta(days=i) for i in range(days)}
     scoped = [d for d in shown if d.date in window]
@@ -834,13 +829,13 @@ def main() -> int:
         text = event.get("text", "")
         thread_ts = event.get("thread_ts") or event.get("ts")
         channel = event["channel"]
-        # 실패했을 때 재현할 수 있어야 한다 — 질문 원문과 어느 스레드였는지를 함께 남긴다.
+        # 질문 원문과 어느 스레드였는지를 함께 남긴다 — 실패했을 때 재현할 수 있어야 한다.
         ctx = f"user={event.get('user')} ch={channel} ts={thread_ts}"
         started = time.monotonic()
         logger.info("멘션 수신 %s query=%r", ctx, text[:200])
 
-        # 동 단위 첫 조회는 전국 목록을 받느라 20초 가까이 걸린다. 그동안 아무 반응이
-        # 없으면 죽은 줄 안다. 다만 캐시가 맞으면 0.3초라, 느릴 때만 띄우고 지운다.
+        # 로딩 메시지는 느릴 때만 띄우고 지운다. 동 단위 첫 조회는 전국 목록을 받느라 20초 가까이
+        # 걸려 반응이 없으면 죽은 줄 알지만, 캐시가 맞으면 0.3초면 끝난다.
         holder = {"ts": None}
         def show_loading():
             try:
@@ -860,7 +855,7 @@ def main() -> int:
             logger.info("응답 완료 %s %.1fs %d자%s", ctx, time.monotonic() - started, len(reply),
                         f" + 지도 {len(res.image):,}B" if res.image else "")
         except Exception:
-            # 트레이스백만으로는 무엇을 물었는지 알 수 없다. 질문을 같은 줄에 붙인다.
+            # 질문을 같은 줄에 붙인다 — 트레이스백만으로는 무엇을 물었는지 알 수 없다.
             logger.exception("응답 생성 실패 %s query=%r", ctx, text[:200])
             reply = "예보를 정리하는 중에 문제가 생겼습니다. 잠시 뒤 다시 불러 주세요."
             res = Reply(reply)
@@ -899,8 +894,8 @@ def main() -> int:
         try:
             say(text=reply, thread_ts=thread_ts)
         except SlackApiError as exc:
-            # not_in_channel / missing_scope 는 코드가 아니라 슬랙 설정 문제다.
-            # 원인 코드를 그대로 남겨야 콘솔에서 무엇을 고칠지 바로 안다.
+            # 원인 코드를 그대로 남긴다 — not_in_channel / missing_scope 는 코드가 아니라
+            # 슬랙 설정 문제라, 그 코드를 보면 콘솔에서 무엇을 고칠지 바로 안다.
             logger.error("슬랙 전송 실패 %s error=%s", ctx, exc.response.get("error"))
 
     @app.event("message")

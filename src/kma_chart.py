@@ -1,8 +1,8 @@
 """기상청 일기도(분석일기도) PNG 원본을 직접 내려받는다.
 
-날씨누리 분석일기도 페이지(https://www.weather.go.kr/w/image/chart/analysis.do)는
-아래 정적 저장소의 PNG를 <img>로 띄우기만 한다. 페이지를 렌더링(Selenium 등)할 필요 없이
-파일명 규칙만 알면 바로 받을 수 있다.
+페이지를 렌더링(Selenium 등)하지 않고 파일명 규칙으로 바로 받는다. 날씨누리 분석일기도
+페이지(https://www.weather.go.kr/w/image/chart/analysis.do)는 아래 정적 저장소의 PNG를
+<img>로 띄우기만 한다.
 
     https://www.weather.go.kr/w/repositary/image/cht/img/{product}_{YYYYMMDDHH}.png
       - YYYYMMDDHH 는 **UTC** 기준
@@ -10,8 +10,8 @@
         (= 09시, 21시 KST)
       - 보관 기간이 약 2일이라 오래된 일자는 사라진다
 
-주의: 존재하지 않는 시각을 요청해도 404가 아니라 **HTTP 200 + 4KB짜리 HTML 오류 페이지**가
-돌아온다. 따라서 상태코드가 아니라 PNG 매직바이트로 검증해야 한다.
+주의: 상태코드가 아니라 PNG 매직바이트로 검증한다. 존재하지 않는 시각을 요청해도 404가 아니라
+**HTTP 200 + 4KB짜리 HTML 오류 페이지**가 돌아온다.
 """
 from __future__ import annotations
 

@@ -1,8 +1,7 @@
 """단풍 — 기상청 현황과 웨더아이 예상일.
 
-기상청은 단풍 시기를 예보하지 않는다. 산마다 지금 어느 단계인지를 관측해 알릴 뿐이다.
-예상일은 민간 업체(웨더아이)가 해마다 9월 첫 주에 낸다. 둘은 성격이 다르므로
-어디서든 «관측» 과 «예상» 을 섞어 쓰지 않는다.
+«관측» 과 «예상» 은 어디서든 섞어 쓰지 않는다. 기상청은 단풍 시기를 예보하지 않고 산마다
+지금 단계를 관측해 알릴 뿐이며, 예상일은 민간 업체(웨더아이)가 해마다 9월 첫 주에 낸다.
 
   현황  기상청 날씨누리 유명산 단풍현황 (21곳, 9/20 무렵 ~ 11월 중하순)
         https://www.kma.go.kr/kma/theme/maple_photojs.jsp?treeType=4&obsPlace=<산>
@@ -56,14 +55,14 @@ NOT_STARTED_TEXT = "기상청 단풍 관측이 아직 시작되지 않았습니�
 STATUS_TTL_SEC = 3600
 # 예상은 한 해 한 번, 9월 첫 주에 나온다. 다루는 기간(9월 둘째 주~) 안에는 늘 나와 있다.
 OUTLOOK_TTL_SEC = 24 * 3600
-# 산별 날짜는 단계가 바뀌지 않는 한 그대로다. 키에 단계가 들어 있어 바뀐 산만 다시 부르므로
-# 한 시즌 내내 들고 있어도 된다.
+# 산별 날짜는 한 시즌 내내 들고 있어도 된다. 단계가 바뀌지 않는 한 그대로이고,
+# 키에 단계가 들어 있어 바뀐 산만 다시 부른다.
 DETAIL_TTL_SEC = 120 * 24 * 3600
 # 예상 조회가 실패했거나 아직 안 올라왔을 때 다시 보기까지. 멘션마다 PDF 를 받으러 가지 않게 한다.
 OUTLOOK_RETRY_SEC = 1800
-# 현황 조회가 실패했을 때 다시 보기까지. 단풍철엔 지역 날씨 답마다 현황을 붙이므로(mention),
-# 기상청이 점검 중이면 날씨 답 하나하나가 실패할 요청을 기다리게 된다. 단풍을 직접 물은
-# 사람에게는 «잠시 뒤 다시 불러 주세요» 라고 답하므로 길게 잡지 않는다.
+# 현황 조회가 실패했을 때 다시 보기까지. 실패를 기억하되 짧게 잡는다 — 단풍철엔 지역 날씨
+# 답마다 현황을 붙여(mention) 기상청 점검 중이면 답마다 실패할 요청을 기다리게 되고,
+# 단풍을 직접 물은 사람에게는 «잠시 뒤 다시 불러 주세요» 라고 답한다.
 STATUS_RETRY_SEC = 120
 # 산별 날짜를 동시에 몇 개까지 받을지. 늦가을엔 20곳 가까이 물들어 하나씩 받으면 길어진다.
 DETAIL_WORKERS = 4
@@ -165,7 +164,7 @@ def parse_status(text: str, year: int) -> tuple[dict[str, int], bool, dict]:
     if not places:
         raise FoliageError("기상청 단풍 응답에 관측 지점이 없습니다")
     in_service = bool(data.get("isService"))
-    # 서비스 기간 밖에는 지난 시즌의 단계가 남아 있다. 올해 현황으로 읽으면 안 된다.
+    # 서비스 기간 밖이면 단풍전으로 둔다 — 남아 있는 지난 시즌 단계를 올해 것으로 읽지 않게.
     stages = {p["obsPlace"]: (_stage_of(p) if in_service else 0) for p in places if p.get("obsPlace")}
     return stages, in_service, data.get("flower") or {}
 
@@ -213,7 +212,7 @@ def _safe_detail(name: str, stage: int, year: int) -> tuple[dt.date | None, dt.d
     try:
         return _detail(name, stage, year)
     except (FoliageError, KeyError, TypeError, AttributeError) as exc:
-        # 한 산의 날짜를 못 받아도 단계는 맞다. 날짜만 비워 둔다.
+        # 날짜만 비워 둔다 — 한 산의 날짜를 못 받아도 단계는 맞다.
         log.warning("단풍 상세 실패 %s: %s", name, exc)
         return None, None
 
@@ -227,7 +226,7 @@ def fetch_status(today: dt.date) -> Status:
             raise FoliageError(f"기상청 단풍 응답 형식이 바뀌었습니다: {exc}") from exc
         status = Status(stages=stages, in_service=in_service)
         colored = [(name, stage) for name, stage in stages.items() if stage > 0]
-        # 목록 응답에도 한 곳(기본 설악산)의 상세가 딸려 온다. 그 산은 다시 부르지 않는다.
+        # 목록 응답에 딸려 온 한 곳(기본 설악산)의 상세는 다시 부르지 않는다.
         known = {flower.get("obsPlace"): _dates(flower, today.year)}
 
         def dates_of(item):
@@ -268,8 +267,8 @@ _MIN_KNOWN_ROWS = 10
 def parse_outlook_text(text: str, year: int) -> tuple[dict[str, dt.date], dict[str, dt.date]]:
     """PDF 에서 뽑은 글자에서 산별 (첫단풍, 절정) 예상일. 기상청 목록에 없는 산(금강산)은 뺀다.
 
-    잘못 읽은 날짜가 지도에 오르면 그럴듯해 보여서 알아채기 어렵다. 그래서 조금이라도
-    어긋나면 통째로 버리고 FoliageError 를 낸다 — 예상 없이 현황만 그리는 편이 낫다.
+    조금이라도 어긋나면 통째로 버리고 FoliageError 를 낸다. 잘못 읽은 날짜는 지도에서
+    그럴듯해 보여 알아채기 어려우니, 예상 없이 현황만 그리는 편이 낫다.
     """
     first: dict[str, dt.date] = {}
     peak: dict[str, dt.date] = {}
@@ -294,7 +293,7 @@ def parse_outlook_text(text: str, year: int) -> tuple[dict[str, dt.date], dict[s
 def _pdf_text(blob: bytes) -> str:
     try:
         from pypdf import PdfReader
-    except ImportError as exc:            # 서버에서 uv sync 를 빠뜨리면 — 현황만으로라도 답한다
+    except ImportError as exc:            # 현황만으로라도 답한다 — 서버에서 uv sync 를 빠뜨린 경우
         raise FoliageError("pypdf 가 설치되지 않아 웨더아이 예상을 읽지 못합니다") from exc
     try:
         reader = PdfReader(io.BytesIO(blob))
@@ -311,7 +310,7 @@ def _find_post(list_html: str, year: int) -> str | None:
 def posted_on(post_html: str, year: int) -> dt.date | None:
     """웨더아이 게시물의 게시일. 머리 표의 날짜 칸에 있다 — 벚꽃 게시물도 같은 판이다.
 
-    페이지 맨 위 특보 띠에도 오늘 날짜가 흘러가므로 칸의 글자색으로 집는다.
+    날짜 칸은 글자색으로 집는다. 페이지 맨 위 특보 띠에도 오늘 날짜가 흘러가고,
     작성자 칸이 비어 있는 해(2026 벚꽃)가 있어 '관리자' 뒤를 찾으면 놓친다.
     """
     m = re.search(rf"#124c78\">\s*({year})-(\d{{2}})-(\d{{2}})", post_html)

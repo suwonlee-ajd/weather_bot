@@ -93,7 +93,7 @@ def test_wide_areas() -> None:
         # 대응하는 기상청 페이지가 없는 말은 어떻게 해석했는지 반드시 알려야 한다
         if query in ("중부", "남부", "영남", "호남", "충청"):
             assert note, f"{query}: 해석 안내문이 없습니다"
-    # 영동/영서는 실제 중기예보 구역이라 안내문이 필요 없다
+    # 영동/영서는 안내문이 필요 없다 — 실제 중기예보 구역이다
     assert resolve_region("영동")[1] == ""
     print(f"[ok] 광역 표현 {len(cases)}건 + 대체 해석 안내")
 
@@ -145,8 +145,8 @@ def test_greeting() -> None:
     try:
         for greeting in ("안녕?", "하이", "너 누구야", "뭐해"):
             reply = build_reply(f"<@U1> {greeting}", now)
-            # 첫 인사말은 날짜에 따라 돌려 쓰므로(HELLO_LINES) 문장에 묶지 않는다.
-            # 자기소개인지는 뒤따르는 기능 안내로 가린다 — 그쪽은 고정이다.
+            # 자기소개인지는 뒤따르는 기능 안내로 가린다 — 그쪽은 고정이고, 첫 인사말은
+            # 날짜에 따라 돌려 쓰므로(HELLO_LINES) 문장에 묶지 않는다.
             assert "날씨 알리미" in reply, f"{greeting}: {reply[:40]}"
             assert "동네예보" in reply, f"{greeting}: {reply[:80]}"
         assert not calls, "인사인데 예보를 수집했습니다"
@@ -158,7 +158,7 @@ def test_greeting() -> None:
         assert "•" in build_reply("<@U1> 도움말", now), "도움말이 사용법을 안 보여줍니다"
 
         # 지역이 함께 오면 인사말이 섞여 있어도 날씨를 보여준다.
-        # '부산' 은 시도 동네예보로 빠지므로(find_wide) 구역명으로 확인한다.
+        # 구역명으로 확인한다 — '부산' 은 시도 동네예보로 빠진다(find_wide).
         build_reply("<@U1> 경남 안녕", now)
         assert calls == ["경남"], calls
         print("[ok] 인사 응답 — 자기소개/감사/도움말 구분, 지역 우선")
@@ -247,7 +247,7 @@ def test_topic_advice() -> None:
     assert detect_topic("빨래 널어도 될까") == "빨래"
     assert detect_topic("부산 날씨") is None, "평범한 조회를 조언으로 오해했습니다"
 
-    # '무등산' 의 '등산' 을 지우면 지역까지 잘린다 — 지우지 말고 집어내야 한다
+    # '등산' 은 지우지 말고 집어낸다 — '무등산' 의 '등산' 을 지우면 지역까지 잘린다
     assert extract_region("주말 무등산 등산 괜찮아?")[0] is None
     assert extract_region("광주 등산 갈만해?")[0].key == "전남"
     assert extract_region("부산 뭐 입지")[0].key == "경남"
@@ -289,16 +289,16 @@ def test_cache_shared_across_spans() -> None:
     try:
         now = dt.datetime(2026, 9, 12, 9, 0, tzinfo=KST)   # 토요일
         clear()
-        # «다음 주» 를 먼저 물어 캐시를 채운 뒤 «기본(오늘부터 7일)» 을 묻는다.
-        # '부산' 은 시도 동네예보로 빠지므로(find_wide) 구역명으로 부른다 —
-        # 여기서 보려는 것은 광역 캐시가 기간을 가로채지 않는지다.
+        # 광역 캐시가 기간을 가로채지 않는지 본다 — «다음 주» 로 캐시를 채운 뒤
+        # «기본(오늘부터 7일)» 을 묻는다.
+        # 구역명으로 부른다 — '부산' 은 시도 동네예보로 빠진다(find_wide).
         mention.build_reply("<@U123> 경남 다음주", now)
         reply = mention.build_reply("<@U123> 경남 날씨", now)
     finally:
         mention.scrape_range = orig
         clear()
 
-    # 캐시에 다음 주만 담겨 있으면 오늘·내일이 통째로 사라진다 (실제로 그랬다)
+    # 오늘·내일이 빠지면 안 된다 — 캐시에 다음 주만 담겨 통째로 사라진 적이 있다
     for day in ("09/12", "09/13", "09/18"):
         assert day in reply, (day, reply)
     print("[ok] 캐시 공유 — 기간을 바꿔 물어도 날이 빠지지 않는다")
@@ -332,7 +332,7 @@ def test_city_uses_dong_forecast() -> None:
         mention.build_reply("<@U1> 부산 날씨", now)
         assert dong_calls and not calls, (dong_calls, calls)
 
-        # 주 단위는 동네예보가 못 채운다(5일) — 이레를 물었는데 사흘만 주지 않는다
+        # 주 단위는 광역으로 — 이레를 물었는데 동네예보(5일)로 사흘만 주지 않는다
         dong_calls.clear()
         clear()
         mention.build_reply("<@U1> 부산 이번주", now)
@@ -356,7 +356,7 @@ def test_partial_week_is_declared() -> None:
     from src.cache import clear
     from src.kma_scrape import Narrative, Scrape, ScrapedDay
 
-    # 기상청 중기예보는 오늘부터 열흘. 월요일에 «다음 주» 를 물으면 사흘만 걸친다.
+    # 자료는 중기예보처럼 오늘부터 열흘까지만 — 월요일에 «다음 주» 를 물으면 사흘만 걸친다.
     today = dt.date(2026, 9, 14)
     horizon = {today + dt.timedelta(days=i) for i in range(10)}
 
@@ -368,7 +368,7 @@ def test_partial_week_is_declared() -> None:
     orig = (mention.scrape_range, mention.find_wide, mention.fetch_snapshot)
     mention.scrape_range = fake_scrape
     mention.find_wide = lambda q: None
-    mention.fetch_snapshot = lambda today: fake_snapshot(outlook=False)   # 단풍철이라 — 기상청을 부르지 않게
+    mention.fetch_snapshot = lambda today: fake_snapshot(outlook=False)   # 기상청을 부르지 않게 — 단풍철이다
     now = dt.datetime(2026, 9, 14, 9, 0, tzinfo=KST)
     try:
         clear()
@@ -468,8 +468,8 @@ def test_advice() -> None:
         day(base, 18, 33), day(base + dt.timedelta(days=1), 20, 26, "비", 80),
     ])
     joined = " ".join(t.text for t in tips)
-    # 문구는 날짜에 따라 돌려 쓰므로(advice.py _pick) 특정 문장에 묶지 않는다.
-    # 어떤 조언이 나왔는지는 이모지가 가리킨다.
+    # 어떤 조언이 나왔는지는 이모지로 가린다 — 문구는 날짜에 따라
+    # 돌려 쓰므로(advice.py _pick) 특정 문장에 묶지 않는다.
     emojis = {t.emoji for t in tips}
     assert ":thermometer:" in emojis, joined          # 일교차
     assert ":sun_with_face:" in emojis, joined        # 폭염
@@ -576,8 +576,8 @@ def test_mention_parsing() -> None:
     mention.scrape_range = fake_scrape
     try:
         now = dt.datetime(2026, 9, 12, 9, 0, tzinfo=KST)   # 토요일
-        # 시도 이름('부산'·'제주')은 동네예보로 빠지므로(find_wide) 구역명으로 부른다.
-        # 여기서 보려는 것은 광역 조회의 수집 범위다.
+        # 광역 조회의 수집 범위를 본다 — 시도 이름('부산'·'제주')은 동네예보로
+        # 빠지므로(find_wide) 구역명으로 부른다.
         for text in ("<@U123> 경남 날씨 알려줘", "<@U123> 전북 다음주", "<@U123> 강원 이번주"):
             clear()
             build_reply(text, now)
@@ -633,8 +633,8 @@ def test_message_template() -> None:
 def test_weekly_body() -> None:
     """규칙 기반 본문 — 1문단은 문장으로 맺고, 2문단은 같은 날 조언을 한 문장으로 엮는다.
 
-    10/5 게시물이 «…유의*이라 전하고 있사오니 / *10/07* 일교차가 … *10/07* 아침 최저 …» 로
-    끊겨 읽혔다. 연결어미를 2문단이 이어받지 못했고, 한 줄짜리 조언을 문단에 그대로 붙였다.
+    10/5 게시물처럼 «…유의*이라 전하고 있사오니 / *10/07* 일교차가 … *10/07* 아침 최저 …» 로
+    끊겨 읽히면 안 된다 — 연결어미를 2문단이 이어받지 못했고, 한 줄짜리 조언을 그대로 붙였었다.
     """
     import re
     from types import SimpleNamespace
@@ -645,7 +645,7 @@ def test_weekly_body() -> None:
     assert first.endswith("습니다."), first                   # 열어 두지 않는다
     assert '유의*"라고 전하고' in first, first                # «유의이라» 가 아니다
 
-    # 닫는 별표 바로 뒤에 한글이 붙으면 슬랙이 굵게로 읽지 않을 수 있다
+    # 닫는 별표 바로 뒤에 한글을 붙이지 않는다 — 슬랙이 굵게로 읽지 않을 수 있다
     for part in (first, second):
         for m in re.finditer(r"\*[^*\n]+\*", part):
             assert not re.match(r"[가-힣]", part[m.end():m.end() + 1]), part
@@ -711,9 +711,8 @@ def test_chart_download() -> None:
 def test_footer_and_region_variation() -> None:
     """서로 다른 지역을 물으면 답이 서로 달라 보인다 — 꼬리말·조언 양쪽에서.
 
-    실제로 서울과 부산을 잇달아 물었더니 두 답이 같은 메시지로 읽혔다. 본문은
-    달랐지만 고정 꼬리말 두 줄이 화면의 절반이었고, 조언 문구는 날짜만 보고
-    골라 지역과 무관했다.
+    고정 꼬리말 두 줄이 화면의 절반이고 조언 문구를 날짜만 보고 고르면, 서울과 부산을
+    잇달아 물었을 때 본문이 달라도 두 답이 같은 메시지로 읽힌다(실제로 그랬다).
     """
     import src.mention as mention
     from types import SimpleNamespace
@@ -735,7 +734,7 @@ def test_footer_and_region_variation() -> None:
         assert "더 먼 날이 필요" not in one, one
         assert "발표" in one, one            # 출처는 남는다
 
-        # 동네예보가 닿는 끝까지 물었으면 그때는 안내가 쓸모 있다
+        # 동네예보 끝까지 물었으면 안내를 단다 — 그때는 쓸모 있다
         mention.fetch_dong = lambda z, n: fake_fetch(z, n, mention.DONG_MAX_DAYS)
         full = mention._dong_reply("1100000000", "서울특별시", days=mention.DONG_MAX_DAYS)
         assert "더 먼 날이 필요" in full, full
@@ -805,7 +804,7 @@ def test_foliage_parse() -> None:
               {"obsPlace": "설악산", "cfShotDate": "2026-09-28"}), 2026)
     assert live and stages == {"설악산": 1, "오대산": 0, "한라산": 2}, stages
     assert _date(flower["cfShotDate"], 2026) == dt.date(2026, 9, 28)
-    # 서비스 기간 밖에는 지난 시즌 단계가 남아 있다 — 올해 현황으로 읽지 않는다
+    # 서비스 기간 밖의 단계는 올해 현황으로 읽지 않는다 — 지난 시즌 값이 남아 있다
     stages, live, _ = parse_status(jsonp(False, {"설악산": "절정"}, {}), 2026)
     assert not live and stages == {"설악산": 0}, stages
     assert _date("2025-10-20", 2026) is None, "지난해 촬영일을 올해 것으로 읽었습니다"
@@ -928,7 +927,7 @@ def test_foliage_routing() -> None:
         mention.answer("<@U1> 단풍 어때", now)
         assert len(renders) == 1, f"같은 현황인데 지도를 {len(renders)}번 그렸습니다"
 
-        # 예전에는 '었나' 로 과거, '가을' 로 1개월 전망에 빠졌다
+        # '었나' 는 과거로, '가을' 은 1개월 전망으로 새지 않는다 (예전엔 샜다)
         seorak = ask("설악산 단풍 물들었나")
         assert "*설악산* 단풍" in seorak and "9/28 관측" in seorak, seorak
         assert "지난 날씨" not in seorak
@@ -1275,7 +1274,7 @@ def test_blossom_parse() -> None:
 
     stages, live = parse_status(jsonp(True))
     assert live and stages == {"진해 여좌천": 2, "여의도 윤중로": 1, "춘천 소양강댐": 0}, stages
-    # 서비스 기간 밖에는 지난 봄의 만발이 남아 있다 — 올해 것으로 읽지 않는다
+    # 서비스 기간 밖의 단계는 올해 것으로 읽지 않는다 — 지난 봄의 만발이 남아 있다
     stages, live = parse_status(jsonp(False))
     assert not live and set(stages.values()) == {0}, stages
 

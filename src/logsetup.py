@@ -1,14 +1,14 @@
 """로그 초기화 — loguru 를 단일 출구로 두고 표준 logging 을 그쪽으로 흡수한다.
 
-슬랙 SDK·requests 는 표준 logging 으로 찍으므로, 다리를 놓지 않으면 같은 실행의
-로그가 두 갈래 포맷으로 갈린다. 여기서 다리를 놓고 소음이 큰 로거는 눌러 둔다.
+소음이 큰 서드파티 로거는 눌러 둔다. 슬랙 SDK·requests 가 표준 logging 으로 찍어서,
+흡수하지 않으면 같은 실행의 로그가 두 포맷으로 갈린다.
 
 파일은 연·월 폴더 아래 앱 이름과 날짜로 쌓인다.
 
     logs/2026/2026.09/weather-mention.2026-09-12.log
          └연┘ └─연.월─┘ └──앱 이름──┘ └──날짜──┘
 
-자정마다 새 파일로 넘어가므로 «언제의 로그인가» 가 파일명만으로 풀린다.
+자정마다 새 파일로 넘어간다 — «언제의 로그인가» 가 파일명만으로 풀린다.
 """
 from __future__ import annotations
 
@@ -24,8 +24,8 @@ from loguru import logger
 
 # 자정 회전 + 90일 보관. 개인 맥에서도 돌 수 있으므로 무한정 쌓이지 않게 상한을 둔다.
 _ROTATION: Final[str] = "00:00"
-# 보존 일수는 bin/cleanup.py 도 쓴다. 문자열을 따로 적어 두면 한쪽만 고쳐져
-# 조용히 어긋나므로, 숫자를 단일 출처로 두고 loguru 문자열을 여기서 만든다.
+# 보존 일수의 단일 출처 — loguru 문자열을 여기서 만들고, bin/cleanup.py 도 이 숫자를 쓴다.
+# 문자열을 따로 적어 두면 한쪽만 고쳐져 조용히 어긋난다.
 RETENTION_DAYS: Final[int] = 90
 _RETENTION: Final[str] = f"{RETENTION_DAYS} days"
 _COMPRESSION: Final[str] = "gz"  # 지난 날짜 파일은 압축해 둔다
@@ -35,7 +35,7 @@ _CONSOLE_FORMAT: Final[str] = (
     "<level>{level: <7}</level> "
     "<cyan>{name}</cyan>: <level>{message}</level>"
 )
-# 파일은 색 코드가 섞이면 grep 이 불편하다. 대신 어느 줄에서 났는지를 붙인다.
+# 파일 포맷은 색 코드를 빼고 어느 줄에서 났는지를 붙인다 — 색 코드가 섞이면 grep 이 불편하다.
 _FILE_FORMAT: Final[str] = (
     "{time:YYYY-MM-DD HH:mm:ss} {level: <7} {name}:{function}:{line} - {message}"
 )
@@ -72,7 +72,7 @@ class _InterceptHandler(logging.Handler):
         except ValueError:
             level = record.levelno
 
-        # logging 내부 프레임을 건너뛰어야 호출처 파일·줄번호가 제대로 찍힌다
+        # logging 내부 프레임을 건너뛴다 — 그래야 호출처 파일·줄번호가 제대로 찍힌다
         frame, depth = inspect.currentframe(), 0
         while frame is not None and (depth == 0 or frame.f_code.co_filename == logging.__file__):
             frame = frame.f_back
@@ -109,7 +109,7 @@ def _install_stdlib_bridge(level: str) -> None:
 
 
 def log_dir() -> Path:
-    """LOG_DIR 로 옮길 수 있다. 기본은 저장소 옆 logs/."""
+    """로그 디렉터리 — 기본은 저장소 옆 logs/, LOG_DIR 로 옮긴다."""
     env = os.environ.get("LOG_DIR")
     if env:
         return Path(env).expanduser()
@@ -117,9 +117,9 @@ def log_dir() -> Path:
 
 
 def dated_sink_path(base: Path, app_name: str, suffix: str = ".log") -> str:
-    """`logs/{연}/{연.월}/{앱}.{날짜}.log` 꼴 sink 패턴.
+    """`logs/{연}/{연.월}/{앱}.{날짜}.log` 꼴 sink 패턴을 만든다.
 
-    한 디렉토리에 날짜 파일이 무한정 쌓이면 목록 조회부터 느려진다 — 연·월로 갈라 둔다.
+    연·월로 갈라 둔다 — 한 디렉토리에 날짜 파일이 무한정 쌓이면 목록 조회부터 느려진다.
     """
     return str(base / "{time:YYYY}" / "{time:YYYY.MM}" / f"{app_name}.{{time:YYYY-MM-DD}}{suffix}")
 
@@ -149,14 +149,14 @@ def setup(app_name: str, *, level: str | None = None) -> None:
             diagnose=False,
             enqueue=True,  # 멘션 봇은 타이머 스레드와 함께 쓴다
         )
-        # 둘 중 하나만 열리면 상태가 어긋난다 — 오류 파일이 없는데 «없으니 경고도
-        # 없었다» 고 읽으면 디버깅이 헛돈다. 무엇이 열렸는지 정확히 말한다.
+        # 무엇이 열렸는지 정확히 말한다 — 하나만 열렸을 때 오류 파일이 없는 것을
+        # «경고도 없었다» 로 읽으면 디버깅이 헛돈다.
         logger.add(dated_sink_path(base, app_name), level=level, **common)
         opened.append("전체")
         logger.add(dated_sink_path(base, f"{app_name}.error"), level="WARNING", **common)
         opened.append("오류")
     except OSError as exc:
-        # 파일에 못 써도 봇은 돌아가야 한다 — 콘솔만으로 계속한다
+        # 콘솔만으로 계속한다 — 파일에 못 써도 봇은 돌아가야 한다
         if opened:
             logger.warning(
                 "{} 로그 파일만 열렸습니다 (나머지는 실패). WARNING 이상은 전체 로그에서 찾으세요: {}",

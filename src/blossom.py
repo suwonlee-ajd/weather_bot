@@ -1,7 +1,7 @@
 """벚꽃 — 기상청 군락지 관측과 웨더아이 개화 예상일. 주간 게시의 벚꽃 소식에 쓴다.
 
-단풍(src/foliage.py)과 같은 짜임이다. 기상청은 개화를 관측할 뿐 예보하지 않고, 예상일은
-민간 업체(웨더아이)가 해마다 2월 말에 낸다. 둘을 «관측» 과 «예상» 으로 갈라 쓴다.
+단풍(src/foliage.py)과 같은 짜임으로, «관측» 과 «예상» 을 갈라 쓴다. 기상청은 개화를 관측할 뿐
+예보하지 않고, 예상일은 민간 업체(웨더아이)가 해마다 2월 말에 낸다.
 
   관측  기상청 날씨누리 봄꽃 현황 · 벚꽃 군락지 (13곳, 3월 ~ 4월)
         https://www.kma.go.kr/kma/theme/flower_photojs.jsp?treeType=1&obsPlace=<군락지>
@@ -11,8 +11,8 @@
   예상  웨더아이 공지 「YYYY년 벚꽃 개화예상시기」 첨부 PDF 의 [첨부1] 주요도시 표 (19곳)
         https://www.weatheri.co.kr/board/board03_list.php
         2023~2026 네 해 모두 같은 표다. 날짜 표기만 '3.24'(~2024) → '3/25'(2025~) 로 바뀌었다.
-        예상일 옆에 평년 개화일이 있다. 평년은 해마다 같으므로, 올해 표가 아직 없으면
-        지난해 표의 평년만 빌려 쓴다(발표가 2/21~2/28 이라 다루는 기간의 첫 주와 엇갈린다).
+        올해 표가 아직 없으면 지난해 표의 평년 개화일(예상일 옆 칸)만 빌려 쓴다 — 평년은
+        해마다 같고, 발표가 2/21~2/28 이라 다루는 기간의 첫 주와 엇갈린다.
 
 개화는 한 가지에 세 송이 이상 핀 때, 만발은 80% 이상 핀 때다.
 
@@ -123,7 +123,7 @@ def parse_status(text: str) -> tuple[dict[str, int], bool]:
     if not places:
         raise BlossomError("기상청 봄꽃 응답에 관측 지점이 없습니다")
     in_service = bool(data.get("isService"))
-    # 서비스 기간 밖에는 지난 시즌의 단계(만발)가 남아 있다. 올해 현황으로 읽으면 안 된다.
+    # 서비스 기간 밖이면 개화 전으로 둔다 — 남아 있는 지난 시즌 단계(만발)를 올해 것으로 읽지 않게.
     return {p["obsPlace"]: (_stage_of(p) if in_service else 0)
             for p in places if p.get("obsPlace")}, in_service
 
@@ -183,8 +183,8 @@ _ROW = re.compile(rf"^\s*([가-힣]{{2,3}})\s+{_DAY}\s+{_DAY}\s*\(")
 def parse_outlook_text(text: str, year: int) -> tuple[dict[str, dt.date], dict[str, dt.date]]:
     """PDF 에서 뽑은 글자에서 도시별 (개화 예상일, 평년 개화일).
 
-    잘못 읽은 날짜가 게시물에 오르면 그럴듯해 보여서 알아채기 어렵다. 조금이라도
-    어긋나면 통째로 버리고 BlossomError 를 낸다 — 예상 없이 관측만 전하는 편이 낫다.
+    조금이라도 어긋나면 통째로 버리고 BlossomError 를 낸다. 잘못 읽은 날짜는 게시물에서
+    그럴듯해 보여 알아채기 어려우니, 예상 없이 관측만 전하는 편이 낫다.
     """
     expected: dict[str, dt.date] = {}
     normal: dict[str, dt.date] = {}
@@ -325,7 +325,7 @@ def year_line(outlook: Outlook | None) -> str:
     gap = outlook.gap_days()
     if gap is None:
         return ""
-    days = int(abs(gap) + 0.5)             # round() 는 2.5 를 2 로 — 날수는 보통 반올림으로
+    days = int(abs(gap) + 0.5)             # 날수는 보통 반올림으로 — round() 는 2.5 를 2 로
     trend = ("평년과 비슷하겠습니다" if days == 0
              else f"평년보다 {days}일가량 {'이르겠습니다' if gap < 0 else '늦겠습니다'}")
     seoul = outlook.expected.get("서울")

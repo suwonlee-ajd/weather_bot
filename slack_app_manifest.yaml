@@ -4,9 +4,9 @@
 # 멘션 쪽은 Socket Mode 라 인바운드 포트·도메인·TLS·리버스 프록시가 필요 없다.
 # 나가는 WebSocket 연결 하나뿐이다.
 #
-# 설치 후 한 가지가 더 필요하다. App-Level Token 은 매니페스트로 만들 수 없으므로
-# Basic Information > App-Level Tokens 에서 connections:write 스코프로 직접 발급해
-# .env 의 SLACK_APP_TOKEN(xapp-...) 에 넣는다. 이것이 없으면 멘션 봇이 뜨지 않는다.
+# 설치 후 App-Level Token 을 직접 발급해 .env 의 SLACK_APP_TOKEN(xapp-...) 에 넣는다 —
+# 없으면 멘션 봇이 뜨지 않는다. 매니페스트로는 만들 수 없어
+# Basic Information > App-Level Tokens 에서 connections:write 스코프로 발급한다.
 display_information:
   name: 주간 날씨
   description: 매주 월요일 아침 이번 주 날씨를 전하고, 불러 주시면 날씨를 알려드립니다.
@@ -14,7 +14,7 @@ display_information:
 features:
   bot_user:
     display_name: 주간 날씨
-    # display_name 없이 스코프만 넣으면 설치 시
+    # display_name 은 빼지 않는다 — 스코프만 넣으면 설치 시
     # '설치할 봇 사용자가 없습니다' 오류가 난다.
     always_online: false
 oauth_config:
@@ -26,8 +26,8 @@ oauth_config:
       - emoji:read        # 로딩 표시에 쓸 커스텀 이모지가 있는지 확인 (없어도 동작)
       # - commands        # /이번주날씨 같은 슬래시 커맨드를 붙일 때만 추가
 settings:
-  # 멘션에 답하려면 이벤트 구독이 있어야 한다. Socket Mode 가 켜져 있으면
-  # Event Subscriptions 에 Request URL 입력란이 뜨지 않는다 — 정상이다.
+  # 멘션에 답하려면 이벤트 구독이 있어야 한다. Event Subscriptions 에 Request URL
+  # 입력란이 없는 것은 정상이다 — Socket Mode 가 켜져 있으면 뜨지 않는다.
   event_subscriptions:
     bot_events:
       - app_mention

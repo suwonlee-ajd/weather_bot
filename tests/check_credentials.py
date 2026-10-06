@@ -32,8 +32,8 @@ def check_slack() -> bool:
     if not token.startswith("xoxb-"):
         print(f"{FAIL} SLACK_BOT_TOKEN 이 봇 토큰(xoxb-)이 아닙니다. OAuth & Permissions 에서 Bot User OAuth Token 을 쓰세요.")
         return False
-    # auth_test 의 user 는 앱 생성 당시의 내부 식별자다. 콘솔에서 바꾼 표시 이름은
-    # 여기 반영되지 않으므로, 이 값으로 "이름이 안 바뀌었다" 고 판단하면 안 된다.
+    # auth_test 의 user 로 "이름이 안 바뀌었다" 고 판단하면 안 된다. 앱 생성 당시의
+    # 내부 식별자라 콘솔에서 바꾼 표시 이름이 반영되지 않는다.
     print(f"{OK} Slack: {res['team']} / 봇 {res['user_id']} (내부 식별자 {res['user']})")
     print(f"     채널 {channel or '(미설정)'} — 초대 여부는 아래 게시 확인으로 판정합니다")
     return bool(channel)

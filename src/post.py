@@ -38,7 +38,7 @@ MAX_WAIT = dt.timedelta(minutes=60)
 
 
 def wait_until(post_at: str, now: dt.datetime) -> None:
-    """GitHub Actions 등 크론 지연을 흡수해 지정 시각(KST)에 맞춰 게시한다."""
+    """지정 시각(KST)까지 기다린다 — GitHub Actions 등 크론 지연을 흡수한다."""
     if not post_at:
         return
     hour, minute = (int(x) for x in post_at.split(":"))
@@ -55,8 +55,8 @@ def wait_until(post_at: str, now: dt.datetime) -> None:
 
 
 # 기상청 원문의 머릿기호를 마크다운 불릿로 바꾼다. □(종합)은 1단계, ○(개별)은 2단계.
-# 콘솔에 찍기 직전에만 쓴다 — 원문 문자열은 그대로 둬야 한다. writer.py 의
-# 서술 파싱(NARRATIVE_RE)이 □/○ 를 보고 갈라내기 때문이다.
+# 콘솔에 찍기 직전에만 쓰고 원문 문자열은 그대로 둔다 — writer.py 의
+# 서술 파싱(NARRATIVE_RE)이 □/○ 를 보고 갈라낸다.
 def _md_bullets(text: str) -> str:
     text = re.sub(r"^□\s*", "- ", text, flags=re.M)
     return re.sub(r"^○\s*", "  - ", text, flags=re.M)
@@ -79,8 +79,8 @@ def main(argv: list[str] | None = None) -> int:
     cfg = Config()
     data_dir = args.data_dir or cfg.data_dir
     if args.data_dir and not (args.dry_run or cfg.dry_run):
-        # 실제 게시는 슬랙에만 올리고 디스크에 남기지 않는다. 조용히 무시하면
-        # 지정한 자리를 뒤지다 «아무것도 안 만들어졌다» 로 헤맨다.
+        # --data-dir 은 dry-run 에서만 받는다 — 실제 게시는 디스크에 남기지 않아,
+        # 조용히 무시하면 지정한 자리를 뒤지다 «아무것도 안 만들어졌다» 로 헤맨다.
         parser.error("--data-dir 은 --dry-run 과 함께 써야 합니다 (실제 게시는 파일을 남기지 않습니다)")
 
     now = dt.datetime.now(tz=KST)
@@ -129,9 +129,9 @@ def main(argv: list[str] | None = None) -> int:
         },
     ]
 
-    # dry-run 저장 자리. uploads 는 슬랙 API 페이로드 그대로 둔다 — 우리 메타를
-    # 섞으면 넘기기 전에 걷어내야 하고, 키를 하나 더할 때마다 그 필터를 고쳐야 한다.
-    # 둘 다 data/img/ 로 가고, 보존 기간만 파일명 패턴으로 갈린다.
+    # dry-run 저장 규칙은 uploads 와 따로 둔다 — uploads 는 슬랙 API 페이로드 그대로다.
+    # 메타를 섞으면 넘기기 전에 걷어내야 하고, 키를 더할 때마다 그 필터를 고쳐야 한다.
+    # 모두 data/img/ 로 가고, 보존 기간만 파일명 패턴으로 갈린다.
     save_specs = [
         (cfg.card_keep_days, "weekly-weather-*.png"),
         (cfg.chart_keep_days, f"{cfg.chart_product}_*.png"),
@@ -143,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
             "title": att.title,
             "alt_txt": att.alt,
         })
-        # 카드와 같이 언제든 다시 만들 수 있으므로 보존 기간도 카드를 따른다
+        # 보존 기간은 카드를 따른다 — 카드처럼 언제든 다시 만들 수 있다
         save_specs.append((cfg.card_keep_days, f"{att.slug}-*.png"))
 
     if args.dry_run or cfg.dry_run:
@@ -152,8 +152,7 @@ def main(argv: list[str] | None = None) -> int:
         saved = []
         for item, (keep_days, pattern) in zip(uploads, save_specs, strict=True):
             # 이번 산출물을 쓰기 전에 지난 것을 치운다 — 방금 쓴 파일이 걸리지 않는 순서다.
-            # pattern 으로 좁히는 이유는 data/ 가 사용자도 열어 보는 자리라서
-            # 우리가 만들지 않은 파일까지 지우면 안 되기 때문이다.
+            # 우리가 만든 파일만 pattern 으로 좁혀 지운다 — data/ 는 사용자도 열어 보는 자리다.
             sweep(d, keep_days, pattern=pattern)
             path = d / item["filename"]
             path.write_bytes(item["file"])

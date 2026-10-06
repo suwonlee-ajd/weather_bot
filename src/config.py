@@ -46,16 +46,15 @@ class Config:
     writer_timeout_sec: int = field(default_factory=lambda: int(_env("WRITER_TIMEOUT_SEC", "90")))
 
     # --- 산출물 보존 ---
-    # 이미지는 data/img/ 한 자리에 모은다. 파일명이 weekly-weather-* 와
-    # surf_* 로 이미 갈리므로 디렉터리까지 나눌 이유가 없고, 보존 기간은
-    # 디렉터리가 아니라 파일명 패턴별로 준다(src/post.py 의 save_specs).
+    # 이미지는 data/img/ 한 자리에 모으고, 보존 기간은 파일명 패턴별로 준다(src/post.py 의
+    # save_specs). 파일명이 weekly-weather-* 와 surf_* 로 이미 갈려 디렉터리까지 나눌 이유가 없다.
     data_dir: str = field(default_factory=lambda: _env("DATA_DIR", "data"))
     img_dir: str = field(default_factory=lambda: _env("IMG_DIR", "img"))
 
     # 며칠 뒤 지울지. 0 이면 지우지 않는다.
     # logs/ 는 loguru 가 따로 관리한다(src/logsetup.py).
     card_keep_days: int = field(default_factory=lambda: int(_env("CARD_KEEP_DAYS", "14")))
-    # 일기도는 기상청이 2일치만 보관해 지나면 다시 받을 수 없다. 카드보다 길게 둔다.
+    # 일기도는 카드보다 길게 둔다 — 기상청이 2일치만 보관해 지나면 다시 받을 수 없다.
     chart_keep_days: int = field(default_factory=lambda: int(_env("CHART_KEEP_DAYS", "30")))
 
     # --- 실행 ---

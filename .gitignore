@@ -220,8 +220,11 @@ __marimo__/
 # --- 이 프로젝트 ---
 .env
 .env.bak.*
-# 산출물 — dry-run 이미지 등. src/retention.py 가 보존 기간 뒤 지운다
+# 산출물 — dry-run 이미지 등. src/retention.py 가 보존 기간 뒤 지움
 data/
 
-# 로그 (RotatingFileHandler 가 회전시킨다)
+# 로그 — loguru 가 자정에 회전·압축함
 logs/
+
+# Claude Code 로컬 설정·스킬 — 개발 편의용, 봇 동작과 무관. 문체 기준은 docs/writing-style.md
+.claude/

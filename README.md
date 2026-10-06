@@ -160,9 +160,6 @@ systemd timer 또는 GitHub Actions (월 07:50 KST 기동)
 12개. 기상청 페이지가 따로 없는 `중부`·`영남`·`호남` 같은 말은 대표 구역으로 바꿔 읽고, 바꿨다는
 안내를 함께 냄. 못 알아듣는 지역은 임의로 고르지 않고 되물음.
 
-[Claude Code](https://claude.com/claude-code) 를 쓴다면 `.claude/skills/` 의 스킬이 이 명령을
-대신 불러 줌 — "이번 주 날씨 어때" 하고 물으면 됨.
-
 ## 프로젝트 구조
 
 ```
@@ -188,7 +185,7 @@ src/cache.py · config.py · logsetup.py · retention.py
 bin/start.sh · stop.sh      멘션 봇·타이머 켜고 끄기
 bin/cleanup.py              data/ · logs/ 수동 정리 (--dry-run 먼저)
 deploy/                     systemd 유닛 · 실행 스크립트 · 배포 가이드
-docs/                       예보 자료 구조 · 로그
+docs/                       예보 자료 구조 · 로그 · 문체 기준
 tests/test_offline.py       토큰 없이 도는 검증
 tests/check_credentials.py  슬랙·기상청 페이지·Chromium 점검
 ```
@@ -200,6 +197,8 @@ uv sync                                     # dev 그룹(ruff)까지 설치
 .venv/bin/python -m tests.test_offline      # 토큰 없이 도는 검증
 uv run ruff check src tests bin
 ```
+
+조언·게시 문구를 고칠 때는 [`docs/writing-style.md`](docs/writing-style.md) 의 문체 기준을 따름.
 
 이슈와 풀 리퀘스트를 환영함. 기상청 페이지 구조가 바뀌어 파싱이 깨졌다면
 `LOG_LEVEL=DEBUG` 로 한 번 돌린 로그(응답 크기·URL)를 함께 올려 주면 빨리 고칠 수 있음.

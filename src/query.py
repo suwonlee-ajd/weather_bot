@@ -1,7 +1,6 @@
 """이번 주 날씨를 사람이 읽을 형태로 출력하는 조회 CLI.
 
 주간 게시 봇과 같은 수집 코드(src/kma_scrape.py)를 쓰되, 슬랙 게시 없이 결과만 찍음.
-Claude Code 스킬(.claude/skills/kma-weather)이 이 명령을 부름.
 
     python -m src.query            # 이번 주 전국
     python -m src.query 부산        # 지역 지정

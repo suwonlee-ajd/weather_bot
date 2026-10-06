@@ -9,7 +9,7 @@ API 키·결제 없이 동작하며, robots.txt 가 `User-Agent: * / Allow: /` �
 |---|---|---|---|
 | 예보 통보문 | `/w/forecast/notice.do?stnId=` | D+0 ~ D+3 (오전 발표 기준 — 2026-10-06 11시 발표로 확인) | requests + BeautifulSoup |
 | 중기예보 | `/w/forecast/overall/mid-term.do?stnId1=` | D+4 ~ D+10 | requests + BeautifulSoup |
-| 동네예보 | `/w/rss/dfs/hr1-forecast.do?zone=` | D+0 ~ D+3 (오전 발표 기준 — 2026-10-06 11시 발표로 확인. 끝날의 00시 한 점은 버림) | RSS (XML) |
+| 동네예보 | `/w/rss/dfs/hr1-forecast.do?zone=` | 02~14시 발표 D+0 ~ D+3, 17·20·23시 발표 D+4 까지 (기상청 단기예보 기간, 2024-11-28 확대. 끝날의 00시 한 점은 버림) | RSS (XML) |
 | 행정동 목록 | `/w/rest/zone/dong.do` | — | JSON, 하루 캐시 |
 | 지상일기도 | `/w/repositary/image/cht/img/{종류}_{YYYYMMDDHH}.png` | 최근 2일 | 정적 PNG |
 | 1개월 전망 | `/repositary/xml/fct/mon/img/fct_mon1rss_108_{YYYYMMDD}.xml` | 4주 | RSS (XML) |

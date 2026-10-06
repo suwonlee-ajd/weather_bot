@@ -45,11 +45,10 @@ zcat -f "$D"/*.error.*.log* | grep -c ERROR             # 이번 달 빈도 (압
 ```
 
 멘션 봇의 실패는 **질문 원문이 같은 줄에 남음.** 그대로 재현하면 됨. 멘션 처리 줄은
-슬랙 Bolt 의 로거로 찍혀 이름이 `mention.py:on_mention` 임 — `weather-mention` 으로
-grep 하면 안 걸림.
+`weather-mention` 로거로 찍힘.
 
 ```
-2026-09-12 10:15:02 ERROR   mention.py:on_mention:on_mention:859 - 응답 생성 실패 user=U0B2… ch=C0BD… ts=1788.001 query='<@U1> 역삼동 날씨'
+2026-09-12 10:15:02 ERROR   weather-mention:on_mention:862 - 응답 생성 실패 user=U0B2… ch=C0BD… ts=1788.001 query='<@U1> 역삼동 날씨'
 Traceback (most recent call last):
   ...
 ```
@@ -78,11 +77,10 @@ Traceback (most recent call last):
 로그 수준을 낮춰 다시 돌림:
 
 ```bash
-LOG_LEVEL=DEBUG .venv/bin/python -c "from src.logsetup import setup; setup('query'); from src.query import main; main(['부산'])"
+LOG_LEVEL=DEBUG .venv/bin/python -m src.query 부산
 ```
 
-`python -m src.query` 는 로그 설정을 따로 하지 않아(WARNING 고정) `LOG_LEVEL` 이
-먹지 않음 — 위처럼 `setup()` 으로 로그를 먼저 엶. 출력은 콘솔과
+조회 CLI 는 결과를 stdout 으로 내므로 `LOG_LEVEL` 을 주지 않으면 WARNING 만 남김. 로그는 콘솔(stderr)과
 `logs/…/query.{날짜}.log` 에 남음.
 
 ### `7일 중 N일의 기온을 얻지 못해…`
@@ -104,9 +102,9 @@ LOG_LEVEL=DEBUG .venv/bin/python -c "from src.logsetup import setup; setup('quer
 
 - 슬랙 토큰·`.env` 값 — 어떤 수준에서도 로그에 넣지 않음.
 - 사용자 발화는 질문 원문 200자까지만. 재현에 필요한 최소량.
-- `urllib3`·`requests`·`slack_sdk` 의 잡담은 WARNING 으로 눌러 뒀음. `slack_bolt.App` 은
-  앱을 만들 때 루트 수준(INFO)을 물려받아, 연결 줄(`A new session has been established`,
-  `Bolt app is running!`)이 INFO 로그에 남음.
+- `slack_bolt`·`slack_sdk`·`urllib3`·`requests` 의 잡담은 WARNING 으로 눌러 뒀음. Bolt 는 앱을 만들 때
+  자기 로거를 루트 수준(INFO)으로 되돌리므로 `src/mention.py` 가 앱을 만든 뒤 다시 WARNING 으로 누름 —
+  연결 줄(`A new session has been established` 등)은 남지 않고, 끊김·오류(WARNING 이상)만 남음.
 
 ## 산출물 보존 — `data/`
 
@@ -147,14 +145,13 @@ data/img/surf_2026091200.png           ← 기상청에서 받아 온 지상일�
 systemd 가 없는 서버에서 cron 으로 정리만 따로 돌릴 때.
 
 ```bash
-.venv/bin/python bin/cleanup.py --dry-run                  # 무엇이 지워지는지 먼저 봄
-.venv/bin/python bin/cleanup.py                            # 실제로 지움
-.venv/bin/python bin/cleanup.py --days 30                  # data/ 만 덮어씀
-.venv/bin/python bin/cleanup.py --days 30 --include-logs   # 로그까지 함께
+bin/cleanup.py --dry-run                  # 무엇이 지워지는지 먼저 봄
+bin/cleanup.py                            # 실제로 지움
+bin/cleanup.py --days 30                  # data/ 만 덮어씀
+bin/cleanup.py --days 30 --include-logs   # 로그까지 함께
 ```
 
-`bin/cleanup.py` 는 실행 권한과 shebang 이 없어 파이썬으로 부름
-(`weather-cleanup.service` 도 같은 방식).
+어디서 불러도 프로젝트 `.venv` 의 파이썬으로 다시 실행됨(loguru 가 거기에만 있음).
 
 `--days` 는 **로그에 적용되지 않음.** 디스크를 비우려고 `--days 1` 을 쳤다가
 90일치 디버깅 기록을 잃는 일이 없도록, 로그는 `--include-logs` 를 명시해야

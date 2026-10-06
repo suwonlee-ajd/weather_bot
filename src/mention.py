@@ -814,6 +814,9 @@ def main() -> int:
 
     # Socket Mode 는 서명 검증이 필요 없음 (Slack 과의 인증된 WebSocket 위로만 이벤트가 옴)
     app = App(token=bot_token)
+    # Bolt 는 App 로거 수준을 루트(INFO)로 덮어씀 — logsetup 의 WARNING 상한을 다시 걸어 연결 잡담을 누름.
+    # 그래서 멘션 처리 줄은 Bolt 가 넘기는 logger 가 아니라 weather-mention 로거(log)로 남김.
+    app.logger.setLevel(logging.WARNING)
     loading = resolve_loading_emoji(app.client)
     log.info("로딩 표시: %s", loading)
 
@@ -825,14 +828,14 @@ def main() -> int:
         log.info("봇 user_id 를 얻지 못해 기본 표기를 씁니다")
 
     @app.event("app_mention")
-    def on_mention(event, say, client, logger):
+    def on_mention(event, say, client):
         text = event.get("text", "")
         thread_ts = event.get("thread_ts") or event.get("ts")
         channel = event["channel"]
         # 질문 원문과 어느 스레드였는지를 함께 남김 — 실패했을 때 재현할 수 있어야 함.
         ctx = f"user={event.get('user')} ch={channel} ts={thread_ts}"
         started = time.monotonic()
-        logger.info("멘션 수신 %s query=%r", ctx, text[:200])
+        log.info("멘션 수신 %s query=%r", ctx, text[:200])
 
         # 로딩 메시지는 느릴 때만 띄우고 지움. 동 단위 첫 조회는 전국 목록을 받느라 20초 가까이
         # 걸려 반응이 없으면 죽은 줄 알지만, 캐시가 맞으면 0.3초면 끝남.
@@ -845,18 +848,18 @@ def main() -> int:
                 )
                 holder["ts"] = res["ts"]
             except Exception:
-                logger.debug("로딩 메시지 실패", exc_info=True)
+                log.debug("로딩 메시지 실패", exc_info=True)
 
         timer = threading.Timer(SLOW_REPLY_SEC, show_loading)
         timer.start()
         try:
             res = answer(text)
             reply = res.text
-            logger.info("응답 완료 %s %.1fs %d자%s", ctx, time.monotonic() - started, len(reply),
+            log.info("응답 완료 %s %.1fs %d자%s", ctx, time.monotonic() - started, len(reply),
                         f" + 지도 {len(res.image):,}B" if res.image else "")
         except Exception:
             # 질문을 같은 줄에 붙임 — 트레이스백만으로는 무엇을 물었는지 알 수 없음.
-            logger.exception("응답 생성 실패 %s query=%r", ctx, text[:200])
+            log.exception("응답 생성 실패 %s query=%r", ctx, text[:200])
             reply = "예보를 정리하는 중에 문제가 생겼습니다. 잠시 뒤 다시 불러 주세요."
             res = Reply(reply)
         finally:
@@ -877,12 +880,12 @@ def main() -> int:
                     try:
                         client.chat_delete(channel=channel, ts=holder["ts"])
                     except Exception:
-                        logger.debug("로딩 메시지 삭제 실패", exc_info=True)
+                        log.debug("로딩 메시지 삭제 실패", exc_info=True)
                 return
             except Exception as exc:
                 # 슬랙 오류든 네트워크 시간 초과든, 지도를 못 올리면 글로라도 답함
                 error = exc.response.get("error") if isinstance(exc, SlackApiError) else repr(exc)
-                logger.warning("지도 업로드 실패 — 글로만 답합니다 %s error=%s", ctx, error)
+                log.warning("지도 업로드 실패 — 글로만 답합니다 %s error=%s", ctx, error)
 
         # 로딩 메시지를 띄웠으면 그 자리를 결과로 바꿈 — 채널에 흔적을 남기지 않음
         if holder["ts"]:
@@ -890,16 +893,16 @@ def main() -> int:
                 client.chat_update(channel=channel, ts=holder["ts"], text=reply)
                 return
             except Exception:
-                logger.debug("로딩 메시지 교체 실패 — 새 메시지로 보냅니다", exc_info=True)
+                log.debug("로딩 메시지 교체 실패 — 새 메시지로 보냅니다", exc_info=True)
         try:
             say(text=reply, thread_ts=thread_ts)
         except SlackApiError as exc:
             # 원인 코드를 그대로 남김 — not_in_channel / missing_scope 는 코드가 아니라
             # 슬랙 설정 문제라, 그 코드를 보면 콘솔에서 무엇을 고칠지 바로 앎.
-            logger.error("슬랙 전송 실패 %s error=%s", ctx, exc.response.get("error"))
+            log.error("슬랙 전송 실패 %s error=%s", ctx, exc.response.get("error"))
 
     @app.event("message")
-    def ignore_messages(logger):
+    def ignore_messages():
         """app_mention 과 함께 오는 message 이벤트를 조용히 흘려보냄."""
 
     log.info("Socket Mode 연결 시작 (캐시 TTL %d초)", CACHE_TTL_SEC)

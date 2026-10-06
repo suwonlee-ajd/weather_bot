@@ -1,9 +1,10 @@
+#!/usr/bin/env python3
 """보존 기간이 지난 산출물·로그를 지움.
 
-    .venv/bin/python bin/cleanup.py                설정대로 정리
-    .venv/bin/python bin/cleanup.py --dry-run      지우지 않고 대상만 보여줌
-    .venv/bin/python bin/cleanup.py --days 30      data/ 의 보존 기간을 덮어씀 (로그는 그대로)
-    .venv/bin/python bin/cleanup.py --days 30 --include-logs   로그까지 함께 덮어씀
+    bin/cleanup.py                설정대로 정리
+    bin/cleanup.py --dry-run      지우지 않고 대상만 보여줌
+    bin/cleanup.py --days 30      data/ 의 보존 기간을 덮어씀 (로그는 그대로)
+    bin/cleanup.py --days 30 --include-logs   로그까지 함께 덮어씀
 
 평소에는 정리 타이머(weather-cleanup.timer, 매일 04:00)가 부름 — 한 번 돌고 끝나는 주간 게시·정리의
 로그는 loguru 가 회전하지 않으므로 여기서 지움(멘션 봇 로그는 loguru 도 치움). 손으로 부르는 때는 —
@@ -22,6 +23,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+# 프로젝트 .venv 밖에서 불렸으면(bin/cleanup.py 로 바로 실행) .venv 의 파이썬으로 다시 띄움 — loguru 가 거기에만 있음
+_VENV = ROOT / ".venv"
+if (_VENV / "bin" / "python").exists() and Path(sys.prefix).resolve() != _VENV.resolve():
+    os.execv(_VENV / "bin" / "python", [str(_VENV / "bin" / "python"), __file__, *sys.argv[1:]])
 sys.path.insert(0, str(ROOT))
 
 from src.logsetup import RETENTION_DAYS, log_dir, setup  # noqa: E402

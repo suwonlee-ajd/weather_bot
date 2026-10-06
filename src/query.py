@@ -13,7 +13,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
-import logging
+import os
 import sys
 
 from .config import KST
@@ -23,6 +23,7 @@ from .foliage import (
 )
 from .forecast import WEEKDAY_KO, day_label, range_text, short_date
 from .kma_scrape import REGION_HELP, ScrapeError, find_region, scrape_week
+from .logsetup import setup
 from .mountains import MOUNTAINS, find_mountain
 from .render_foliage import sources
 
@@ -85,7 +86,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--foliage", action="store_true",
                         help="단풍 현황·예상. region 자리에 산 이름을 주면 그 산만")
     args = parser.parse_args(argv)
-    logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
+    # 로그 설정(src/logsetup.py)을 따름. 결과는 stdout 이라 기본은 WARNING 으로 조용히 둠 — LOG_LEVEL=DEBUG 로 엶
+    setup("query", level=os.environ.get("LOG_LEVEL") or "WARNING")
 
     if args.foliage:
         return _foliage("" if args.region == "전국" else args.region, args.json)

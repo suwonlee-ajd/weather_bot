@@ -1,11 +1,11 @@
-"""기상청 공개 페이지에서 긁어온 값으로 이번 주(월~일) 예보를 조립한다.
+"""기상청 공개 페이지에서 긁어온 값으로 이번 주(월~일) 예보를 조립함.
 
 값이 물리적으로 가능한 범위인지 한 번 더 검증하고, 7일 중 절반 이상이 비면 예외를 던져
-**게시를 포기**한다. 수치는 전부 기상청 원문이라 LLM 이 지어낼 여지는 없지만,
-페이지 구조가 바뀌면 엉뚱한 값이 잡힐 수 있다.
+**게시를 포기**함. 수치는 전부 기상청 원문이라 LLM 이 지어낼 여지는 없지만,
+페이지 구조가 바뀌면 엉뚱한 값이 잡힐 수 있음.
 
-기온은 '지역 간 분포 범위'다. 전국 예보의 "아침 14~22℃, 낮 23~30℃" 가 곧
-(tmin_lo, tmin_hi) / (tmax_lo, tmax_hi) 다.
+기온은 '지역 간 분포 범위'임. 전국 예보의 "아침 14~22℃, 낮 23~30℃" 가 곧
+(tmin_lo, tmin_hi) / (tmax_lo, tmax_hi) 임.
 """
 from __future__ import annotations
 
@@ -27,17 +27,17 @@ def day_label(date: dt.date) -> str:
 
 
 def short_date(date: dt.date) -> str:
-    """요일 없이 짧게. 단풍처럼 날짜를 여러 개 늘어놓을 때 쓴다. 예: "9/28"."""
+    """요일 없이 짧게. 단풍처럼 날짜를 여러 개 늘어놓을 때 씀. 예: "9/28"."""
     return f"{date.month}/{date.day}"
 
 
 def short_day_label(date: dt.date) -> str:
-    """요일을 붙인 짧은 표기. 문장 안에 날짜를 넣을 때 쓴다. 예: "10/7(수)"."""
+    """요일을 붙인 짧은 표기. 문장 안에 날짜를 넣을 때 씀. 예: "10/7(수)"."""
     return f"{short_date(date)}({WEEKDAY_KO[date.weekday()]})"
 
 
 def range_text(lo: float | None, hi: float | None) -> str | None:
-    """기온 범위 표기. lo == hi 면 한 값으로 접는다. 둘 다 없으면 None."""
+    """기온 범위 표기. lo == hi 면 한 값으로 접음. 둘 다 없으면 None."""
     if lo is None and hi is None:
         return None
     if lo is None or hi is None or lo == hi:
@@ -63,7 +63,7 @@ class Section:
 
 @dataclass
 class DayForecast:
-    """하루치 예보. 기온은 지역 간 분포 범위로 담는다."""
+    """하루치 예보. 기온은 지역 간 분포 범위로 담음."""
 
     date: dt.date
     tmin_lo: float | None = None
@@ -220,8 +220,8 @@ def build_week(
     incomplete = [d for d in days if not d.is_complete]
     if len(incomplete) > MAX_BAD_DAYS:
         missing = ", ".join(f"{d.date:%m/%d}" for d in incomplete)
-        # 지난 날짜가 빈 것은 파서 고장과 구분해 알린다. 기상청이 지난 날짜 예보는
-        # 내리지 않아 비는 게 정상인데, 구분이 없으면 로그만 보고 파서가 깨진 줄 안다.
+        # 지난 날짜가 빈 것은 파서 고장과 구분해 알림. 기상청이 지난 날짜 예보는
+        # 내리지 않아 비는 게 정상인데, 구분이 없으면 로그만 보고 파서 고장으로 오해함.
         today = now.date()
         future = [d for d in incomplete if d.date >= today]
         cause = (

@@ -1,22 +1,22 @@
-"""벚꽃 — 기상청 군락지 관측과 웨더아이 개화 예상일. 주간 게시의 벚꽃 소식에 쓴다.
+"""벚꽃 — 기상청 군락지 관측과 웨더아이 개화 예상일. 주간 게시의 벚꽃 소식에 씀.
 
-단풍(src/foliage.py)과 같은 짜임으로, «관측» 과 «예상» 을 갈라 쓴다. 기상청은 개화를 관측할 뿐
-예보하지 않고, 예상일은 민간 업체(웨더아이)가 해마다 2월 말에 낸다.
+단풍(src/foliage.py)과 같은 짜임으로, «관측» 과 «예상» 을 갈라 씀. 기상청은 개화를 관측할 뿐
+예보하지 않고, 예상일은 민간 업체(웨더아이)가 해마다 2월 말에 냄.
 
   관측  기상청 날씨누리 봄꽃 현황 · 벚꽃 군락지 (13곳, 3월 ~ 4월)
         https://www.kma.go.kr/kma/theme/flower_photojs.jsp?treeType=1&obsPlace=<군락지>
         JSONP `applyFlowerData({...})`. places[] 에 13곳의 단계(1 개화 전 / 2 개화 / 3 만발)가,
-        flower 에 obsPlace 로 고른 한 곳의 촬영일(cf 개화 / ff 만발)이 온다.
+        flower 에 obsPlace 로 고른 한 곳의 촬영일(cf 개화 / ff 만발)이 옴.
 
   예상  웨더아이 공지 「YYYY년 벚꽃 개화예상시기」 첨부 PDF 의 [첨부1] 주요도시 표 (19곳)
         https://www.weatheri.co.kr/board/board03_list.php
-        2023~2026 네 해 모두 같은 표다. 날짜 표기만 '3.24'(~2024) → '3/25'(2025~) 로 바뀌었다.
-        올해 표가 아직 없으면 지난해 표의 평년 개화일(예상일 옆 칸)만 빌려 쓴다 — 평년은
-        해마다 같고, 발표가 2/21~2/28 이라 다루는 기간의 첫 주와 엇갈린다.
+        2023~2026 네 해 모두 같은 표. 날짜 표기만 '3.24'(~2024) → '3/25'(2025~) 로 바뀌었음.
+        올해 표가 아직 없으면 지난해 표의 평년 개화일(예상일 옆 칸)만 빌려 씀 — 평년은
+        해마다 같고, 발표가 2/21~2/28 이라 다루는 기간의 첫 주와 엇갈림.
 
-개화는 한 가지에 세 송이 이상 핀 때, 만발은 80% 이상 핀 때다.
+개화는 한 가지에 세 송이 이상 핀 때, 만발은 80% 이상 핀 때.
 
-봇이 벚꽃을 다루는 기간은 2월 마지막 월요일 ~ 3월 마지막 월요일이 든 주까지다.
+봇이 벚꽃을 다루는 기간은 2월 마지막 월요일 ~ 3월 마지막 월요일이 든 주까지.
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 import requests
 
 from .config import UA
-from .foliage import _date, posted_on      # 촬영일(올해 것만)·게시일 — 단풍과 같은 판이다
+from .foliage import _date, posted_on      # 촬영일(올해 것만)·게시일 — 단풍과 같은 판
 from .forecast import short_date
 from .paragraph import bold
 
@@ -47,7 +47,7 @@ OUTLOOK_SOURCE = "웨더아이"
 NOT_STARTED_TEXT = "기상청 벚꽃 관측이 아직 시작되지 않았습니다 (해마다 3월부터)"
 NOT_PUBLISHED_TEXT = f"올해 개화 예상은 아직 나오지 않았습니다 ({OUTLOOK_SOURCE}, 해마다 2월 말 발표)"
 
-# 표가 통째로 바뀌었는지 가려낼 문턱. 해마다 19곳이 나왔다.
+# 표가 통째로 바뀌었는지 가려낼 문턱. 해마다 19곳이 나왔음.
 _MIN_ROWS = 15
 
 
@@ -110,7 +110,7 @@ def _stage_of(place: dict) -> int:
     text = place.get("status") or ""
     if text in STAGES:
         return STAGES.index(text)
-    try:                                  # 글자가 바뀌어도 코드는 남는다
+    try:                                  # 글자가 바뀌어도 코드는 남음
         return max(0, min(2, int(place.get("sts", "1")) - 1))
     except (TypeError, ValueError):
         return 0
@@ -123,7 +123,7 @@ def parse_status(text: str) -> tuple[dict[str, int], bool]:
     if not places:
         raise BlossomError("기상청 봄꽃 응답에 관측 지점이 없습니다")
     in_service = bool(data.get("isService"))
-    # 서비스 기간 밖이면 개화 전으로 둔다 — 남아 있는 지난 시즌 단계(만발)를 올해 것으로 읽지 않게.
+    # 서비스 기간 밖이면 개화 전으로 둠 — 남아 있는 지난 시즌 단계(만발)를 올해 것으로 읽지 않게.
     return {p["obsPlace"]: (_stage_of(p) if in_service else 0)
             for p in places if p.get("obsPlace")}, in_service
 
@@ -135,7 +135,7 @@ def _kma(place: str = "") -> str:
 
 
 def fetch_status(today: dt.date) -> Status:
-    """13곳의 단계와, 핀 곳의 관측일. 한 곳의 날짜를 못 받아도 단계는 그대로 둔다."""
+    """13곳의 단계와, 핀 곳의 관측일. 한 곳의 날짜를 못 받아도 단계는 그대로 둠."""
     try:
         stages, in_service = parse_status(_kma())
     except (KeyError, TypeError, AttributeError) as exc:
@@ -163,8 +163,8 @@ def fetch_status(today: dt.date) -> Status:
 
 @dataclass
 class Outlook:
-    expected: dict[str, dt.date]    # 도시 → 올해 개화 예상일. 지난해 표를 빌렸으면 비어 있다
-    normal: dict[str, dt.date]      # 도시 → 평년 개화일 (올해 날짜로 옮겨 둔다)
+    expected: dict[str, dt.date]    # 도시 → 올해 개화 예상일. 지난해 표를 빌렸으면 비어 있음
+    normal: dict[str, dt.date]      # 도시 → 평년 개화일 (올해 날짜로 옮겨 둠)
     published: dt.date | None = None
     url: str = ""
 
@@ -174,8 +174,8 @@ class Outlook:
         return sum(gaps) / len(gaps) if gaps else None
 
 
-# 도시  예상일  평년(평년차)  작년(편차). 2023 표에는 '4. 1' 처럼 띄어 쓴 날짜도 있다.
-# 군락지 줄('진해 여좌천 3/27 …')은 이름이 두 낱말이라 걸리지 않는다.
+# 도시  예상일  평년(평년차)  작년(편차). 2023 표에는 '4. 1' 처럼 띄어 쓴 날짜도 있음.
+# 군락지 줄('진해 여좌천 3/27 …')은 이름이 두 낱말이라 걸리지 않음.
 _DAY = r"(\d{1,2})\s*[/.]\s*(\d{1,2})"
 _ROW = re.compile(rf"^\s*([가-힣]{{2,3}})\s+{_DAY}\s+{_DAY}\s*\(")
 
@@ -183,8 +183,8 @@ _ROW = re.compile(rf"^\s*([가-힣]{{2,3}})\s+{_DAY}\s+{_DAY}\s*\(")
 def parse_outlook_text(text: str, year: int) -> tuple[dict[str, dt.date], dict[str, dt.date]]:
     """PDF 에서 뽑은 글자에서 도시별 (개화 예상일, 평년 개화일).
 
-    조금이라도 어긋나면 통째로 버리고 BlossomError 를 낸다. 잘못 읽은 날짜는 게시물에서
-    그럴듯해 보여 알아채기 어려우니, 예상 없이 관측만 전하는 편이 낫다.
+    조금이라도 어긋나면 통째로 버리고 BlossomError 를 냄. 잘못 읽은 날짜는 게시물에서
+    그럴듯해 보여 알아채기 어려우니, 예상 없이 관측만 전하는 편이 나음.
     """
     expected: dict[str, dt.date] = {}
     normal: dict[str, dt.date] = {}
@@ -215,7 +215,7 @@ def _pdf_text(blob: bytes) -> str:
     try:
         reader = PdfReader(io.BytesIO(blob))
         return "\n".join(p.extract_text(extraction_mode="layout") for p in reader.pages)
-    except Exception as exc:          # pypdf 는 깨진 파일마다 다른 예외를 낸다
+    except Exception as exc:          # pypdf 는 깨진 파일마다 다른 예외를 냄
         raise BlossomError(f"웨더아이 PDF 를 읽지 못했습니다: {exc}") from exc
 
 
@@ -234,7 +234,7 @@ def _load_post(list_html: str, year: int) -> Outlook | None:
     pdf = re.search(r"https?://[^\"'\s<>]+\.pdf", post.text, re.I)
     if not pdf:
         raise BlossomError(f"웨더아이 {year}년 벚꽃 게시물에 PDF 가 없습니다: {post_url}")
-    # 파일명에 대괄호가 들어 있다 ([Weatheri]2026_spring_flower2.pdf). http 는 https 로 넘어간다.
+    # 파일명에 대괄호가 들어 있음 ([Weatheri]2026_spring_flower2.pdf). http 는 https 로 넘어감.
     pdf_url = urllib.parse.quote(pdf.group(0), safe=":/?&=%")
     expected, normal = parse_outlook_text(_pdf_text(_get(pdf_url, timeout=30).content), year)
     return Outlook(expected=expected, normal=normal, published=posted_on(post.text, year), url=post_url)
@@ -244,7 +244,7 @@ def fetch_outlook(year: int) -> Outlook:
     """올해 웨더아이 예상. 아직 없으면 지난해 표의 평년만, 그것도 없으면 빈 예상.
 
     읽다 실패하면 BlossomError — «아직 안 나왔다» 와 «받지 못했다» 를 섞으면 실패를
-    "아직 나오지 않았습니다" 로 잘못 알리게 된다.
+    "아직 나오지 않았습니다" 로 잘못 알리게 됨.
     """
     listing = _get(WEATHERI_LIST)
     listing.encoding = "utf-8"
@@ -263,7 +263,7 @@ def fetch_outlook(year: int) -> Outlook:
 # --- 주간 게시 문구 -----------------------------------------------------------
 
 def observed_line(status: Status) -> str:
-    """관측 한 줄. 핀 곳이 적으면 이름과 날짜를, 많아지면 개수와 최근 변화를 쓴다."""
+    """관측 한 줄. 핀 곳이 적으면 이름과 날짜를, 많아지면 개수와 최근 변화를 씀."""
     if not status.in_service:
         return NOT_STARTED_TEXT
     events = []   # (날짜 또는 None, 군락지, 단계)
@@ -300,7 +300,7 @@ def _grouped(days: list[tuple[str, dt.date]]) -> str:
 
 
 def week_line(outlook: Outlook | None, start: dt.date, end: dt.date) -> str:
-    """그 주에 개화가 예상된 도시. 없으면 다음에 필 곳을 미리 알린다."""
+    """그 주에 개화가 예상된 도시. 없으면 다음에 필 곳을 미리 알림."""
     if outlook is None or not outlook.expected:
         return NOT_PUBLISHED_TEXT
     week = [(c, d) for c, d in outlook.expected.items() if start <= d <= end]
@@ -314,7 +314,7 @@ def week_line(outlook: Outlook | None, start: dt.date, end: dt.date) -> str:
 
 
 def year_line(outlook: Outlook | None) -> str:
-    """올해가 평년보다 이른지 늦은지. 올해 예상이 없으면 평년 개화일을 알린다."""
+    """올해가 평년보다 이른지 늦은지. 올해 예상이 없으면 평년 개화일을 알림."""
     if outlook is None or not outlook.normal:
         return ""
     seoul_normal = outlook.normal.get("서울")

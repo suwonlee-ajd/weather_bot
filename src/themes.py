@@ -1,14 +1,14 @@
 """철마다 주간 게시에 붙이는 소식(테마).
 
-테마 하나는 «다루는 기간» 과 «덩어리(paragraph.Block)를 조립하는 함수» 의 짝이다.
-게시물에 넣고 슬랙 글로 옮기는 일은 post.py 와 paragraph.py 가 맡는다.
+테마 하나는 «다루는 기간» 과 «덩어리(paragraph.Block)를 조립하는 함수» 의 짝.
+게시물에 넣고 슬랙 글로 옮기는 일은 post.py 와 paragraph.py 가 맡음.
 
-자료로만 조립하고 모델에 맡기지 않는다 — 개화일·단풍일을 지어내면 그럴듯해 보여서
-알아채기 어렵다. 못 만들어도 날씨 게시는 그대로 나간다. 테마는 덤이고, 날씨가 빠지면
-게시물의 이유가 없어진다.
+자료로만 조립하고 모델에 맡기지 않음 — 개화일·단풍일을 지어내면 그럴듯해 보여서
+알아채기 어려움. 못 만들어도 날씨 게시는 그대로 나감. 테마는 덤이고, 날씨가 빠지면
+게시물의 이유가 없어짐.
 
   단풍  9월 둘째 주 ~ 11월 둘째 주      관측 기상청 · 예상 웨더아이 + 지도
-  벚꽃  2월 마지막 주 ~ 3월 마지막 주   관측 기상청 · 예상 웨더아이  (문단 구성은 2027 시즌 전에 다시 본다)
+  벚꽃  2월 마지막 주 ~ 3월 마지막 주   관측 기상청 · 예상 웨더아이  (문단 구성은 2027 시즌 전에 다시 봄)
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ log = logging.getLogger(__name__)
 
 
 def foliage_block(week_start: dt.date, today: dt.date, scale: int) -> Block | None:
-    """단풍 — 관측 · 이번 주 예상 두 줄과 지도. 지도를 못 그려도 글은 남는다."""
+    """단풍 — 관측 · 이번 주 예상 두 줄과 지도. 지도를 못 그려도 글은 남음."""
     try:
         snap = foliage.fetch_snapshot(today)
     except Exception:
@@ -43,13 +43,13 @@ def foliage_block(week_start: dt.date, today: dt.date, scale: int) -> Block | No
         log.info("단풍 지도 %s bytes", f"{len(png):,}")
     except Exception:
         log.warning("단풍 지도를 만들지 못해 글로만 붙입니다", exc_info=True)
-    # 출처는 실린 것에 맞춘다 — 예상을 못 읽었으면 글에도 지도에도 예상이 없다
+    # 출처는 실린 것에 맞춤 — 예상을 못 읽었으면 글에도 지도에도 예상이 없음
     credit = f"{'단풍 지도' if attachment else '단풍'} · {render_foliage.sources(snap)}"
     return Block(paragraph, credit, attachment)
 
 
 def blossom_block(week_start: dt.date, today: dt.date, scale: int) -> Block | None:
-    """벚꽃 — 관측 · 이번 주 예상 · 올해(평년) 세 줄. 관측과 예상은 따로 받아, 받은 쪽 줄만 넣는다."""
+    """벚꽃 — 관측 · 이번 주 예상 · 올해(평년) 세 줄. 관측과 예상은 따로 받아, 받은 쪽 줄만 넣음."""
     status = outlook = None
     try:
         status = blossom.fetch_status(today)
@@ -67,7 +67,7 @@ def blossom_block(week_start: dt.date, today: dt.date, scale: int) -> Block | No
     paragraph = Paragraph("이번 주 벚꽃", emoji=":cherry_blossom:")
     if status is not None:
         paragraph.add("관측", blossom.observed_line(status))
-    # 예상을 못 받았으면 줄을 뺀다 — "아직 나오지 않았습니다" 로 둘러대지 않는다
+    # 예상을 못 받았으면 줄을 뺌 — "아직 나오지 않았습니다" 로 둘러대지 않음
     if outlook is not None:
         paragraph.add("이번 주", blossom.week_line(outlook, week_start, week_end))
         paragraph.add("올해" if outlook.expected else "평년", blossom.year_line(outlook))
@@ -88,6 +88,6 @@ THEMES: tuple[Theme, ...] = (
 
 
 def blocks_for(week_start: dt.date, today: dt.date, scale: int) -> list[Block]:
-    """그 주(월요일 기준)에 든 철의 덩어리. 철이 아니면 자료도 부르지 않는다."""
+    """그 주(월요일 기준)에 든 철의 덩어리. 철이 아니면 자료도 부르지 않음."""
     return [block for theme in THEMES
             if theme.in_season(week_start) and (block := theme.build(week_start, today, scale))]

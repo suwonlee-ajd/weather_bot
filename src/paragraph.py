@@ -1,11 +1,11 @@
 """슬랙 게시물의 문단 — 조립해서 쓰는 부품.
 
 문단은 글자를 바로 이어 붙이지 않고 «제목 + 라벨 — 내용» 줄로 조립한 뒤, 슬랙 글로는
-to_slack() 에서만 옮긴다. 줄 모양(글머리표·구분자)이나 순서를 바꿀 때 자료를 만드는
-코드(foliage · blossom …)를 건드리지 않게 하려는 것이다.
+to_slack() 에서만 옮김. 줄 모양(글머리표·구분자)이나 순서를 바꿀 때 자료를 만드는
+코드(foliage · blossom …)를 건드리지 않게 하려는 것.
 
     p = Paragraph("이번 주 벚꽃", emoji=":cherry_blossom:")
-    p.add("관측", observed).add("이번 주", week).add("올해", "")     # 빈 내용은 건너뛴다
+    p.add("관측", observed).add("이번 주", week).add("올해", "")     # 빈 내용은 건너뜀
     msg = Message(body, credits=["지상일기도 · 기상청"])
     msg.add(Block(p, credit="벚꽃 · 관측 기상청 날씨누리"))
     msg.to_slack()      # 본문 → 문단들 → 출처 줄
@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 
 
 def bold(text: str) -> str:
-    """슬랙 mrkdwn 굵게. render_foliage 의 bold= 자리에도 이것을 넘긴다."""
+    """슬랙 mrkdwn 굵게. render_foliage 의 bold= 자리에도 이것을 넘김."""
     return f"*{text}*"
 
 
@@ -38,7 +38,7 @@ class Paragraph:
     rows: list[Row] = field(default_factory=list)
 
     def add(self, label: str, text: str | None) -> Paragraph:
-        """줄을 더한다. 내용이 비면 건너뛴다 — 받지 못한 자료의 줄을 빼려고 부르는 쪽마다 if 를 두지 않게."""
+        """줄을 더함. 내용이 비면 건너뜀 — 받지 못한 자료의 줄을 빼려고 부르는 쪽마다 if 를 두지 않게."""
         if text:
             self.rows.append(Row(label, text))
         return self
@@ -56,8 +56,8 @@ class Paragraph:
 class Attachment:
     """문단에 딸린 그림.
 
-    slug 는 파일 이름 앞부분이자 보존 정리 패턴이다 — 'foliage' 면 foliage-20261005.png 로
-    올라가고, dry-run 산출물은 foliage-*.png 로 치운다(bin/cleanup.py 와 같은 패턴).
+    slug 는 파일 이름 앞부분이자 보존 정리 패턴임 — 'foliage' 면 foliage-20261005.png 로
+    올라가고, dry-run 산출물은 foliage-*.png 로 치움(bin/cleanup.py 와 같은 패턴).
     """
     slug: str
     png: bytes
@@ -81,7 +81,7 @@ class Message:
     blocks: list[Block] = field(default_factory=list)
 
     def add(self, block: Block) -> Message:
-        """덩어리를 더한다. 줄이 하나도 없는 문단은 넣지 않는다 — 제목만 남는다."""
+        """덩어리를 더함. 줄이 하나도 없는 문단은 넣지 않음 — 제목만 남음."""
         if not block.paragraph.empty:
             self.blocks.append(block)
         return self

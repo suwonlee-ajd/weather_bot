@@ -1,8 +1,8 @@
 # 보존 기간이 지난 산출물·로그 정리 (타이머가 부르는 일회성 실행)
 #
-# dry-run 을 안 돌리는 서버에서 data/ 를 치우는 몫을 이 유닛이 맡는다.
+# dry-run 을 안 돌리는 서버에서 data/ 를 치우는 몫을 이 유닛이 맡음.
 # 평소에는 dry-run 이 data/ 를, loguru 가 logs/ 를 치우지만, 실제 게시는 파일을
-# 남기지 않아 dry-run 이 없으면 data/ 를 치우는 주체가 없다.
+# 남기지 않아 dry-run 이 없으면 data/ 를 치우는 주체가 없음.
 [Unit]
 Description=Weather bot - prune aged artifacts and logs
 After=network-online.target

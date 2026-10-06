@@ -11,24 +11,24 @@ classifiers = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    # 기상청 페이지 수집 — API 키도 결제도 필요 없다
+    # 기상청 페이지 수집 — API 키도 결제도 필요 없음
     "requests>=2.32",
     "beautifulsoup4>=4.12",
     "lxml>=5.0",
-    # 슬랙 (Socket Mode 라 인바운드 포트·TLS 가 필요 없다)
+    # 슬랙 (Socket Mode 라 인바운드 포트·TLS 가 필요 없음)
     "slack_sdk>=3.33",
     "slack_bolt>=1.30",
-    # 카드 이미지 렌더링 — src/render_card.py 가 헤드리스 크로뮴을 띄운다.
-    #   설치 후 `python -m playwright install chromium` 이 한 번 더 필요하다
+    # 카드 이미지 렌더링 — src/render_card.py 가 헤드리스 크로뮴을 띄움.
+    #   설치 후 `python -m playwright install chromium` 이 한 번 더 필요함
     "playwright>=1.49",
     # 로깅
     "loguru>=0.7",
-    # 단풍 예상일 — 웨더아이가 해마다 9월 첫 주에 올리는 PDF 의 표를 읽는다 (src/foliage.py)
+    # 단풍 예상일 — 웨더아이가 해마다 9월 첫 주에 올리는 PDF 의 표를 읽음 (src/foliage.py)
     "pypdf>=5.0",
 ]
 
 [project.optional-dependencies]
-# WRITER=claude 일 때만 쓴다. 기본값(gemini)과 규칙 기반(none)은 이것 없이 돈다.
+# WRITER=claude 일 때만 씀. 기본값(gemini)과 규칙 기반(none)은 이것 없이 동작함.
 claude = ["anthropic>=1.0"]
 
 [project.scripts]

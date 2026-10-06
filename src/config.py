@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 KST = ZoneInfo("Asia/Seoul")
 UTC = ZoneInfo("UTC")
 
-# 기상청·웨더아이에 보내는 User-Agent. 누가 부르는지 밝혀 둔다.
+# 기상청·웨더아이에 보내는 User-Agent. 누가 부르는지 밝혀 둠.
 UA = "weather-bot/1.0 (+Slack bot)"
 
 
@@ -28,7 +28,7 @@ class Config:
     # --- 예보: 기상청 공개 페이지 스크래핑 (API 키·결제 불필요) ---
     # 전국 · 수도권 · 강원 · 충남 · 충북 · 전남 · 전북 · 경남 · 경북 · 제주
     region: str = field(default_factory=lambda: _env("REGION", "전국"))
-    # 비워두면 지역의 정식 이름을 그대로 쓴다 (예: "부산·울산·경남")
+    # 비워두면 지역의 정식 이름을 그대로 씀 (예: "부산·울산·경남")
     area_label: str = field(default_factory=lambda: _env("AREA_LABEL", ""))
 
     # --- 일기도 (인증 불필요한 공개 PNG) ---
@@ -46,15 +46,15 @@ class Config:
     writer_timeout_sec: int = field(default_factory=lambda: int(_env("WRITER_TIMEOUT_SEC", "90")))
 
     # --- 산출물 보존 ---
-    # 이미지는 data/img/ 한 자리에 모으고, 보존 기간은 파일명 패턴별로 준다(src/post.py 의
-    # save_specs). 파일명이 weekly-weather-* 와 surf_* 로 이미 갈려 디렉터리까지 나눌 이유가 없다.
+    # 이미지는 data/img/ 한 자리에 모으고, 보존 기간은 파일명 패턴별로 줌(src/post.py 의
+    # save_specs). 파일명이 weekly-weather-* 와 surf_* 로 이미 갈려 디렉터리까지 나눌 이유가 없음.
     data_dir: str = field(default_factory=lambda: _env("DATA_DIR", "data"))
     img_dir: str = field(default_factory=lambda: _env("IMG_DIR", "img"))
 
-    # 며칠 뒤 지울지. 0 이면 지우지 않는다.
-    # logs/ 는 loguru 가 따로 관리한다(src/logsetup.py).
+    # 며칠 뒤 지울지. 0 이면 지우지 않음.
+    # logs/ 는 loguru 가 따로 관리함(src/logsetup.py).
     card_keep_days: int = field(default_factory=lambda: int(_env("CARD_KEEP_DAYS", "14")))
-    # 일기도는 카드보다 길게 둔다 — 기상청이 2일치만 보관해 지나면 다시 받을 수 없다.
+    # 일기도는 카드보다 길게 둠 — 기상청이 2일치만 보관해 지나면 다시 받을 수 없음.
     chart_keep_days: int = field(default_factory=lambda: int(_env("CHART_KEEP_DAYS", "30")))
 
     # --- 실행 ---

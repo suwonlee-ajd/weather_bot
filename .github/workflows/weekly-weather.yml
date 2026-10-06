@@ -1,15 +1,15 @@
 name: weekly-weather
 
-# schedule: 을 두지 않는다 — 주간 게시는 서버의 systemd 타이머가 맡는다
+# schedule: 을 두지 않음 — 주간 게시는 서버의 systemd 타이머가 맡음
 # (deploy/weather-weekly.timer, 월 07:50 KST). 멘션 봇이 어차피 그 서버에
-# 상시로 떠 있고, 토큰도 한 곳에 모인다.
+# 상시로 떠 있고, 토큰도 한 곳에 모임.
 #
-# 크론은 서버 대신 Actions 로 옮길 때에만 넣고, 그때는 서버 타이머를 먼저 끈다 —
-# 둘이 겹치면 매주 두 번 올라간다. 자세한 내용은 deploy/DEPLOY.md §4.
+# 크론은 서버 대신 Actions 로 옮길 때에만 넣고, 그때는 서버 타이머를 먼저 끔 —
+# 둘이 겹치면 매주 두 번 올라감. 자세한 내용은 deploy/DEPLOY.md §4.
 #   systemctl --user disable --now weather-weekly.timer
 #
-# workflow_dispatch 는 남겨 둔다 — 손으로 한 번 돌리거나 dry-run 으로
-# 결과만 확인할 때 쓴다(게시는 나가지 않는다).
+# workflow_dispatch 는 남겨 둠 — 손으로 한 번 돌리거나 dry-run 으로
+# 결과만 확인할 때 씀(게시는 나가지 않음).
 on:
   workflow_dispatch:
     inputs:
@@ -23,7 +23,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # 로그 파일명과 자정 회전이 KST 를 따르게 한다 — 러너는 UTC 다.
+  # 로그 파일명과 자정 회전이 KST 를 따르게 함 — 러너는 UTC 임.
   TZ: Asia/Seoul
 
 jobs:
@@ -33,16 +33,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 러너도 uv.lock 대로 로컬과 같은 버전으로 돈다.
+      # 러너도 uv.lock 대로 로컬과 같은 버전으로 동작함.
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      # claude extra 를 함께 깐다 — WRITER=claude 인데 anthropic 이 없으면
-      # writer.py 가 규칙 기반으로 조용히 떨어져 매주 다른 글이 나간다.
+      # claude extra 를 함께 설치함 — WRITER=claude 인데 anthropic 이 없으면
+      # writer.py 가 규칙 기반으로 조용히 떨어져 매주 다른 글이 나감.
       - run: uv sync --frozen --extra claude
 
-      # 카드 이미지를 헤드리스 Chromium 으로 렌더링한다.
-      # fonts-noto-cjk 는 반드시 깐다 — 리눅스 러너에는 한글 글꼴이 없어 □□□ 로 나온다.
+      # 카드 이미지를 헤드리스 Chromium 으로 렌더링함.
+      # fonts-noto-cjk 는 반드시 설치함 — 리눅스 러너에는 한글 글꼴이 없어 □□□ 로 나옴.
       - name: Cache Playwright browsers
         uses: actions/cache@v4
         with:
@@ -60,7 +60,7 @@ jobs:
           SLACK_CHANNEL_ID: ${{ vars.SLACK_CHANNEL_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          # 광역 구역. 비워두면 config.py 기본값(전국)을 쓴다.
+          # 광역 구역. 비워두면 config.py 기본값(전국)을 씀.
           REGION: ${{ vars.REGION }}
           AREA_LABEL: ${{ vars.AREA_LABEL }}
           WRITER: ${{ vars.WRITER }}

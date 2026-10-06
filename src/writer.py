@@ -1,16 +1,16 @@
-"""기상청 원문과 수치를 받아 카드 문구와 슬랙 본문을 쓴다.
+"""기상청 원문과 수치를 받아 카드 문구와 슬랙 본문을 씀.
 
-모델을 한 번만 불러 네 가지를 한꺼번에 받는다 — 카드 리드 문장, 구간별 서술(초반/중후반/주말),
-특이사항, 그리고 슬랙 본문. 같은 자료를 두 번 넘기지 않아 싸고, 목소리도 일관된다.
+모델을 한 번만 불러 네 가지를 한꺼번에 받음 — 카드 리드 문장, 구간별 서술(초반/중후반/주말),
+특이사항, 그리고 슬랙 본문. 같은 자료를 두 번 넘기지 않아 싸고, 목소리도 일관됨.
 
-모델은 '옮겨 쓰기'만 한다 — 수치는 이미 기상청 원문이라 지어낼 여지가 없다.
+모델은 '옮겨 쓰기'만 함 — 수치는 이미 기상청 원문이라 지어낼 여지가 없음.
 
-백엔드는 두 가지다 (WRITER 환경변수).
-  gemini (기본) — **순수 생성은 무료 티어로 동작한다**(Google 검색 그라운딩과 다르다). 결제 불필요.
-                  3.5-flash 를 쓴다 — gemini-3.8-flash 는 이 작업에 90초가 지나도 응답이 없다.
-  claude        — ANTHROPIC_API_KEY 가 있을 때. 문장 품질이 가장 낫지만 선불 크레딧이 필요하다.
+백엔드는 두 가지 (WRITER 환경변수).
+  gemini (기본) — **순수 생성은 무료 티어로 동작함**(Google 검색 그라운딩과 다름). 결제 불필요.
+                  3.5-flash 를 씀 — gemini-3.8-flash 는 이 작업에 90초가 지나도 응답이 없음.
+  claude        — ANTHROPIC_API_KEY 가 있을 때. 문장 품질이 가장 낫지만 선불 크레딧이 필요함.
 
-어느 쪽도 못 쓰거나 호출이 실패하면 규칙 기반 문구로 폴백한다 — 주 1회뿐인 게시를 거르지 않기 위해서다.
+어느 쪽도 못 쓰거나 호출이 실패하면 규칙 기반 문구로 폴백함 — 주 1회뿐인 게시를 거르지 않기 위함.
 """
 from __future__ import annotations
 
@@ -93,7 +93,7 @@ def extract_json(raw: str) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# 규칙 기반 폴백 (Claude 없이도 게시는 된다)
+# 규칙 기반 폴백 (Claude 없이도 게시는 됨)
 # --------------------------------------------------------------------------- #
 
 def _rainy_days(week: WeekForecast):
@@ -105,7 +105,7 @@ def _rainy_days(week: WeekForecast):
 
 
 
-# 카드 불릿 최대 개수. 원본 캡처가 3개였고, 너무 많으면 캡처처럼 보이지 않는다.
+# 카드 불릿 최대 개수. 원본 캡처가 3개였고, 너무 많으면 캡처처럼 보이지 않음.
 MAX_SECTIONS = 5
 
 # 예보관 서술 한 줄. 예: "○ (기온) 이번 예보기간 아침 기온은 14~21℃, ..."
@@ -113,11 +113,11 @@ NARRATIVE_RE = re.compile(r"^[□○]\s*\(([^)]+)\)\s*(.+)$")
 
 
 def official_sections(week: WeekForecast) -> list[Section]:
-    """기상청 예보관이 쓴 문장을 그대로 카드 불릿으로 만든다.
+    """기상청 예보관이 쓴 문장을 그대로 카드 불릿으로 만듦.
 
-    모델에게 다시 쓰게 하는 것보다 낫다 — 사람이 쓴 정확한 문장이고, 비용이 들지 않으며,
-    지어낼 여지가 아예 없다. "(기온)", "(하늘상태)" 같은 괄호 머리말은 그대로 라벨로 쓴다 —
-    마침 원본 캡처의 "초반 (9월 1일~2일):" 형식과 같은 모양이다.
+    모델에게 다시 쓰게 하는 것보다 나음 — 사람이 쓴 정확한 문장이고, 비용이 들지 않으며,
+    지어낼 여지가 아예 없음. "(기온)", "(하늘상태)" 같은 괄호 머리말은 그대로 라벨로 씀 —
+    마침 원본 캡처의 "초반 (9월 1일~2일):" 형식과 같은 모양.
     """
     sections: list[Section] = []
     seen: set[str] = set()
@@ -130,11 +130,11 @@ def official_sections(week: WeekForecast) -> list[Section]:
             if not m:
                 continue
             head_text, text = m.group(1).strip(), m.group(2).strip()
-            # "종합"·"기온" 은 카드에서 뺀다 — 각각 본문 1문단과 카드 리드에 이미 들어간다.
+            # "종합"·"기온" 은 카드에서 뺌 — 각각 본문 1문단과 카드 리드에 이미 들어감.
             if head_text.startswith(("종합", "기온")) or text in seen:
                 continue
             seen.add(text)
-            # "오늘~그글피, 10~14일" 처럼 머리말에 기간이 붙어 오는 경우를 나눈다
+            # "오늘~그글피, 10~14일" 처럼 머리말에 기간이 붙어 오는 경우를 나눔
             label, _, period = head_text.partition(",")
             sections.append(Section(label.strip(), period.strip(), text, source))
     return sections[:MAX_SECTIONS]
@@ -153,7 +153,7 @@ def fallback(week: WeekForecast) -> Written:
 
     sections = official_sections(week)
     if not sections:
-        # 예보관 서술을 못 얻었을 때만 수치로 구간을 만든다
+        # 예보관 서술을 못 얻었을 때만 수치로 구간을 만듦
         for label, lo, hi in (("초반", 0, 2), ("중후반", 2, 5), ("주말 전망", 5, 7)):
             chunk = [d for d in week.days[lo:hi] if d.is_complete]
             if not chunk:
@@ -171,9 +171,9 @@ def fallback(week: WeekForecast) -> Written:
             )
 
     # --- 본문: 1문단 날씨 / 2문단 테마 ---
-    # 여기서는 1문단을 문장으로 맺는다. 모델은 원본처럼 «~사오니» 로 열어 두고 2문단에서
+    # 여기서는 1문단을 문장으로 맺음. 모델은 원본처럼 «~사오니» 로 열어 두고 2문단에서
     # 이어받지만(SYSTEM), 규칙 기반 2문단은 «사실. 권하는 말.» 로 시작하는 조언이라
-    # 이어받지 못한다 — 열어 두면 글이 끊겨 읽힌다.
+    # 이어받지 못함 — 열어 두면 글이 끊겨 읽힘.
     spreads = [
         d.tmax_mid - d.tmin_mid for d in week.days if d.tmin_mid is not None and d.tmax_mid is not None
     ]
@@ -194,7 +194,7 @@ def fallback(week: WeekForecast) -> Written:
         "",
     )
     if headline:
-        # 통보문 (종합)은 인용으로 싣는다 — «…쌀쌀, 해상 높은 물결 유의» 같은 개조식이다.
+        # 통보문 (종합)은 인용으로 실음 — «…쌀쌀, 해상 높은 물결 유의» 같은 개조식.
         weather.append(f'기상청은 "*{headline}*"{quote_josa(headline)} 전하고 있습니다.')
     elif spreads and max(spreads) >= BIG_SPREAD:
         weather.append("낮과 아침의 기온차가 큰 한 주가 되겠습니다.")
@@ -211,31 +211,31 @@ def fallback(week: WeekForecast) -> Written:
 def quote_josa(text: str) -> str:
     """인용 조사. 끝 글자에 받침이 있으면 «이라고», 없으면 «라고» — «기온차 큼"이라고», «유의"라고».
 
-    괄호·숫자 같은 꼬리는 건너뛰고 마지막 한글로 고른다.
+    괄호·숫자 같은 꼬리는 건너뛰고 마지막 한글로 고름.
     """
     last = next((c for c in reversed(text) if "가" <= c <= "힣"), "")
     return "이라고" if last and (ord(last) - ord("가")) % 28 else "라고"
 
 
-_TEMP_ORDER = tuple(TEMP_STEMS)   # 앞선 조언의 권하는 말과 이모지를 쓴다
-THEME_SENTENCES = 2               # 2문단에 담는 조언 묶음 수. 많으면 잔소리가 된다.
+_TEMP_ORDER = tuple(TEMP_STEMS)   # 앞선 조언의 권하는 말과 이모지를 씀
+THEME_SENTENCES = 2               # 2문단에 담는 조언 묶음 수. 많으면 잔소리가 됨.
 
 
 def theme_paragraph(tips: list[Advice]) -> str:
-    """조언을 한 문단으로 엮는다.
+    """조언을 한 문단으로 엮음.
 
-    날짜와 권하는 말이 겹치지 않게 묶는다 — 멘션은 한 줄에 하나씩이라 «*10/07* 일교차가 …» 의
-    날짜가 머리표로 읽히지만, 그냥 이어 붙이면 같은 날짜와 권하는 말(겉옷·껴입기)이 거듭 나온다.
-      * 기온 조언(advice.TEMP_STEMS)은 날이 달라도 한 문장으로 합치고, 날짜 순으로 적는다.
-        같은 날은 날짜를 한 번만 쓴다. 권하는 말은 앞선 조언의 것 하나만 남긴다.
+    날짜와 권하는 말이 겹치지 않게 묶음 — 멘션은 한 줄에 하나씩이라 «*10/07* 일교차가 …» 의
+    날짜가 머리표로 읽히지만, 그냥 이어 붙이면 같은 날짜와 권하는 말(겉옷·껴입기)이 거듭 나옴.
+      * 기온 조언(advice.TEMP_STEMS)은 날이 달라도 한 문장으로 합치고, 날짜 순으로 적음.
+        같은 날은 날짜를 한 번만 씀. 권하는 말은 앞선 조언의 것 하나만 남김.
         «*10/7(수)에는* 아침 최저 4도까지 내려가고 일교차가 14도 안팎으로 벌어지겠습니다.»
-      * 비는 권하는 말이 달라(우산) 따로 두되, 바로 앞과 같은 날이면 «같은 날은» 으로 받는다.
-      * 날짜 없는 조언(특이사항)은 원래 문장 그대로, 맨 앞에 둔다. 이모지가 같으면(풍랑·너울)
-        같은 종류라 앞선 하나만 — 두 자리를 다 차지하면 기온·비 조언이 밀려난다.
-      * 담을 묶음은 build_advice 의 우선순위로 고르고, 보이는 순서는 날짜 순이다.
-      * 이모지는 문단 끝에 하나만 — 가장 앞선 묶음의 것. 문장마다 붙이면 산만해진다.
-    굵게 표시는 조사까지 감싼다(*10/7(수)에는*) — 닫는 별표 바로 뒤에 글자가 붙으면
-    슬랙이 굵게로 읽지 않을 수 있다.
+      * 비는 권하는 말이 달라(우산) 따로 두되, 바로 앞과 같은 날이면 «같은 날은» 으로 받음.
+      * 날짜 없는 조언(특이사항)은 원래 문장 그대로, 맨 앞에 둠. 이모지가 같으면(풍랑·너울)
+        같은 종류라 앞선 하나만 — 두 자리를 다 차지하면 기온·비 조언이 밀려남.
+      * 담을 묶음은 build_advice 의 우선순위로 고르고, 보이는 순서는 날짜 순.
+      * 이모지는 문단 끝에 하나만 — 가장 앞선 묶음의 것. 문장마다 붙이면 산만해짐.
+    굵게 표시는 조사까지 감쌈(*10/7(수)에는*) — 닫는 별표 바로 뒤에 글자가 붙으면
+    슬랙이 굵게로 읽지 않을 수 있음.
     """
     groups: dict[object, list[Advice]] = {}
     for i, tip in enumerate(tips):
@@ -279,13 +279,13 @@ def theme_paragraph(tips: list[Advice]) -> str:
 # Claude
 # --------------------------------------------------------------------------- #
 
-# 닫는 콜론이 빠진 이모지 조각(:falling_leaf_ 같은)만 걸러낸다.
-# 앞의 (?<![\w:]) 가 "12:30" 의 :30 같은 시각 표기를 건드리지 않게 막아준다.
+# 닫는 콜론이 빠진 이모지 조각(:falling_leaf_ 같은)만 걸러냄.
+# 앞의 (?<![\w:]) 가 "12:30" 의 :30 같은 시각 표기를 건드리지 않게 막아줌.
 BROKEN_EMOJI_RE = re.compile(r"(?<![\w:]):[a-z][a-z0-9_+\-]*(?![a-z0-9_+\-]*:)")
 
 
 def sanitize(text: str) -> str:
-    """모델이 흘린 반쪽짜리 이모지 코드를 지운다. 슬랙에서 그대로 노출되면 지저분하다."""
+    """모델이 흘린 반쪽짜리 이모지 코드를 지움. 슬랙에서 그대로 노출되면 지저분함."""
     return re.sub(r"[ \t]{2,}", " ", BROKEN_EMOJI_RE.sub("", text)).strip()
 
 
@@ -324,7 +324,7 @@ def _write_gemini(week: WeekForecast, prompt: str, model: str, timeout_sec: int)
         api_key=os.environ.get("GEMINI_API_KEY") or None,
         http_options=types.HttpOptions(timeout=timeout_sec * 1000),
     )
-    # 검색 도구를 붙이지 않는다. 그라운딩은 무료 티어 할당량이 0 이고, 자료는 이미 기상청 원문이다.
+    # 검색 도구를 붙이지 않음. 그라운딩은 무료 티어 할당량이 0 이고, 자료는 이미 기상청 원문.
     interaction = client.interactions.create(model=model, input=f"{SYSTEM}\n\n---\n\n{prompt}")
     return _parse(interaction.output_text or "", week)
 
@@ -338,7 +338,7 @@ def _write_claude(week: WeekForecast, prompt: str, model: str) -> Written:
         system=SYSTEM,
         thinking={"type": "adaptive"},
         output_config={"effort": os.environ.get("ANTHROPIC_EFFORT", "low")},
-        # 안전 분류기 거절에 대비한 서버사이드 폴백 (날씨 글에서 걸릴 일은 사실상 없다)
+        # 안전 분류기 거절에 대비한 서버사이드 폴백 (날씨 글에서 걸릴 일은 사실상 없음)
         betas=["server-side-fallback-2026-07-01"],
         fallbacks="default",
         messages=[{"role": "user", "content": prompt}],
@@ -349,7 +349,7 @@ def _write_claude(week: WeekForecast, prompt: str, model: str) -> Written:
 
 
 def write(week: WeekForecast, cfg=None) -> Written:
-    """카드 문구와 슬랙 본문을 만든다. 무엇이 실패하든 규칙 기반 문구로는 반드시 돌아온다."""
+    """카드 문구와 슬랙 본문을 만듦. 무엇이 실패하든 규칙 기반 문구로는 반드시 돌아옴."""
     backend = (getattr(cfg, "writer", "") or os.environ.get("WRITER", "gemini")).lower()
     if backend == "none":
         return fallback(week)
@@ -374,6 +374,6 @@ def write(week: WeekForecast, cfg=None) -> Written:
         written = runner()
         log.info("문구 생성 완료 (%s / %s)", backend, model)
         return written
-    except Exception:  # 문구 생성 실패로 게시를 거르지 않는다
+    except Exception:  # 문구 생성 실패로 게시를 거르지 않음
         log.exception("%s 문구 생성 실패 - 규칙 기반 문구로 대체합니다.", backend)
         return fallback(week)

@@ -1,4 +1,4 @@
-"""자격증명 4종이 실제로 동작하는지 확인한다. 값 자체는 절대 출력하지 않는다.
+"""자격증명 4종이 실제로 동작하는지 확인함. 값 자체는 절대 출력하지 않음.
 
     set -a && . ./.env && set +a
     python -m tests.check_credentials
@@ -32,8 +32,8 @@ def check_slack() -> bool:
     if not token.startswith("xoxb-"):
         print(f"{FAIL} SLACK_BOT_TOKEN 이 봇 토큰(xoxb-)이 아닙니다. OAuth & Permissions 에서 Bot User OAuth Token 을 쓰세요.")
         return False
-    # auth_test 의 user 로 "이름이 안 바뀌었다" 고 판단하면 안 된다. 앱 생성 당시의
-    # 내부 식별자라 콘솔에서 바꾼 표시 이름이 반영되지 않는다.
+    # auth_test 의 user 로 "이름이 안 바뀌었다" 고 판단하면 안 됨. 앱 생성 당시의
+    # 내부 식별자라 콘솔에서 바꾼 표시 이름이 반영되지 않음.
     print(f"{OK} Slack: {res['team']} / 봇 {res['user_id']} (내부 식별자 {res['user']})")
     print(f"     채널 {channel or '(미설정)'} — 초대 여부는 아래 게시 확인으로 판정합니다")
     return bool(channel)
@@ -60,7 +60,7 @@ def check_kma_pages() -> bool:
 
 
 def check_writer() -> bool:
-    """문구 작성 백엔드가 실제로 응답하는지. 실패해도 규칙 기반 폴백은 남는다."""
+    """문구 작성 백엔드가 실제로 응답하는지. 실패해도 규칙 기반 폴백은 남음."""
     backend = os.environ.get("WRITER", "gemini").lower()
     if backend == "none":
         print(f"{SKIP} WRITER=none — 규칙 기반 문구만 사용합니다")
@@ -88,8 +88,8 @@ def check_writer() -> bool:
     from google import genai
 
     try:
-        # Client 를 변수에 붙들어 둬야 한다. 임시 객체로 쓰면 지연 페이저를 순회하기 전에
-        # GC 되면서 "Cannot send a request, as the client has been closed" 가 난다.
+        # Client 를 변수에 붙들어 둬야 함. 임시 객체로 쓰면 지연 페이저를 순회하기 전에
+        # GC 되면서 "Cannot send a request, as the client has been closed" 가 발생함.
         client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
         models = list(client.models.list())
     except Exception as exc:

@@ -1,22 +1,22 @@
 """단풍 — 기상청 현황과 웨더아이 예상일.
 
-«관측» 과 «예상» 은 어디서든 섞어 쓰지 않는다. 기상청은 단풍 시기를 예보하지 않고 산마다
-지금 단계를 관측해 알릴 뿐이며, 예상일은 민간 업체(웨더아이)가 해마다 9월 첫 주에 낸다.
+«관측» 과 «예상» 은 어디서든 섞어 쓰지 않음. 기상청은 단풍 시기를 예보하지 않고 산마다
+지금 단계를 관측해 알릴 뿐이며, 예상일은 민간 업체(웨더아이)가 해마다 9월 첫 주에 냄.
 
   현황  기상청 날씨누리 유명산 단풍현황 (21곳, 9/20 무렵 ~ 11월 중하순)
         https://www.kma.go.kr/kma/theme/maple_photojs.jsp?treeType=4&obsPlace=<산>
         JSONP `applyMapleData({...})`. places[] 에 21곳의 단계가, flower 에
-        obsPlace 로 고른 한 곳의 촬영일(bf 단풍전 / cf 첫단풍 / ff 절정)이 온다.
-        산마다 날짜를 보려면 한 번씩 따로 불러야 한다.
+        obsPlace 로 고른 한 곳의 촬영일(bf 단풍전 / cf 첫단풍 / ff 절정)이 옴.
+        산마다 날짜를 보려면 한 번씩 따로 불러야 함.
 
   예상  웨더아이 공지 「YYYY년 단풍 예상시기」 첨부 PDF 의 [첨부1] 표 (15곳)
         https://www.weatheri.co.kr/board/board03_list.php
-        2023~2026 네 해 모두 같은 표다. 날짜 표기만 '09.27'(~2024) → '10/3'(2025~) 로 바뀌었다.
+        2023~2026 네 해 모두 같은 표. 날짜 표기만 '09.27'(~2024) → '10/3'(2025~) 로 바뀌었음.
 
-첫단풍은 산 정상부터 20%, 절정은 80% 가량 물든 때다(양쪽 기준이 같다).
+첫단풍은 산 정상부터 20%, 절정은 80% 가량 물든 때(양쪽 기준이 같음).
 
-봇이 단풍을 다루는 기간은 9월 둘째 월요일 ~ 11월 둘째 월요일이 든 주까지다.
-웨더아이 예상이 9월 첫 주에 나오고, 남부 산의 절정이 11월 초~중순이라 그 사이를 덮는다.
+봇이 단풍을 다루는 기간은 9월 둘째 월요일 ~ 11월 둘째 월요일이 든 주까지.
+웨더아이 예상이 9월 첫 주에 나오고, 남부 산의 절정이 11월 초~중순이라 그 사이를 덮음.
 """
 from __future__ import annotations
 
@@ -51,20 +51,20 @@ SEASON_TEXT = "9월 둘째 주 ~ 11월 둘째 주"
 CRITERIA_TEXT = "첫단풍은 산 정상부터 20%, 절정은 80%가 물든 때"
 NOT_STARTED_TEXT = "기상청 단풍 관측이 아직 시작되지 않았습니다 (해마다 9월 하순부터)"
 
-# 현황은 관측 담당자가 사진을 올릴 때 바뀐다(하루 한두 번).
+# 현황은 관측 담당자가 사진을 올릴 때 바뀜(하루 한두 번).
 STATUS_TTL_SEC = 3600
-# 예상은 한 해 한 번, 9월 첫 주에 나온다. 다루는 기간(9월 둘째 주~) 안에는 늘 나와 있다.
+# 예상은 한 해 한 번, 9월 첫 주에 나옴. 다루는 기간(9월 둘째 주~) 안에는 늘 나와 있음.
 OUTLOOK_TTL_SEC = 24 * 3600
-# 산별 날짜는 한 시즌 내내 들고 있어도 된다. 단계가 바뀌지 않는 한 그대로이고,
-# 키에 단계가 들어 있어 바뀐 산만 다시 부른다.
+# 산별 날짜는 한 시즌 내내 들고 있어도 됨. 단계가 바뀌지 않는 한 그대로이고,
+# 키에 단계가 들어 있어 바뀐 산만 다시 부름.
 DETAIL_TTL_SEC = 120 * 24 * 3600
-# 예상 조회가 실패했거나 아직 안 올라왔을 때 다시 보기까지. 멘션마다 PDF 를 받으러 가지 않게 한다.
+# 예상 조회가 실패했거나 아직 안 올라왔을 때 다시 보기까지. 멘션마다 PDF 를 받으러 가지 않게 함.
 OUTLOOK_RETRY_SEC = 1800
-# 현황 조회가 실패했을 때 다시 보기까지. 실패를 기억하되 짧게 잡는다 — 단풍철엔 지역 날씨
+# 현황 조회가 실패했을 때 다시 보기까지. 실패를 기억하되 짧게 잡음 — 단풍철엔 지역 날씨
 # 답마다 현황을 붙여(mention) 기상청 점검 중이면 답마다 실패할 요청을 기다리게 되고,
-# 단풍을 직접 물은 사람에게는 «잠시 뒤 다시 불러 주세요» 라고 답한다.
+# 단풍을 직접 물은 사람에게는 «잠시 뒤 다시 불러 주세요» 라고 답함.
 STATUS_RETRY_SEC = 120
-# 산별 날짜를 동시에 몇 개까지 받을지. 늦가을엔 20곳 가까이 물들어 하나씩 받으면 길어진다.
+# 산별 날짜를 동시에 몇 개까지 받을지. 늦가을엔 20곳 가까이 물들어 하나씩 받으면 길어짐.
 DETAIL_WORKERS = 4
 
 
@@ -73,15 +73,15 @@ class FoliageError(RuntimeError):
 
 
 class _Incomplete(Exception):
-    """단계는 올랐는데 그 단계의 촬영일이 아직 없다. 캐시하지 않고 다음에 다시 본다.
+    """단계는 올랐는데 그 단계의 촬영일이 아직 없음. 캐시하지 않고 다음에 다시 봄.
 
-    목록과 상세가 따로 갱신되어, 목록이 먼저 첫단풍으로 바뀌고 촬영일은 나중에 올라오기도 한다.
-    이 상태를 한 시즌 캐시하면 그 산의 날짜가 다음 단계까지 비어 있게 된다.
+    목록과 상세가 따로 갱신되어, 목록이 먼저 첫단풍으로 바뀌고 촬영일은 나중에 올라오기도 함.
+    이 상태를 한 시즌 캐시하면 그 산의 날짜가 다음 단계까지 비어 있게 됨.
     """
 
 
 class _NotPublished(Exception):
-    """웨더아이 예상이 아직 안 올라왔다. 실패처럼 짧게만 기억한다."""
+    """웨더아이 예상이 아직 안 올라왔음. 실패처럼 짧게만 기억함."""
 
 
 # --- 기간 ------------------------------------------------------------------
@@ -139,7 +139,7 @@ def _stage_of(place: dict) -> int:
     text = place.get("status") or ""
     if text in STAGES:
         return STAGES.index(text)
-    # 글자가 바뀌어도 코드(1 단풍전 / 2 첫단풍 / 3 절정)는 남는다
+    # 글자가 바뀌어도 코드(1 단풍전 / 2 첫단풍 / 3 절정)는 남음
     try:
         return max(0, min(2, int(place.get("sts", "1")) - 1))
     except (TypeError, ValueError):       # "sts": null 이 와도 단풍전으로
@@ -147,7 +147,7 @@ def _stage_of(place: dict) -> int:
 
 
 def _date(raw: str | None, year: int) -> dt.date | None:
-    """촬영일. 올해 것이 아니면 버린다 — 서비스 전에는 지난해 기록이 그대로 내려온다."""
+    """촬영일. 올해 것이 아니면 버림 — 서비스 전에는 지난해 기록이 그대로 내려옴."""
     if not raw:
         return None
     try:
@@ -158,13 +158,13 @@ def _date(raw: str | None, year: int) -> dt.date | None:
 
 
 def parse_status(text: str, year: int) -> tuple[dict[str, int], bool, dict]:
-    """목록 응답에서 (산별 단계, 서비스 중인지, 고른 산의 상세) 를 뽑는다."""
+    """목록 응답에서 (산별 단계, 서비스 중인지, 고른 산의 상세) 를 뽑음."""
     data = _jsonp(text)
     places = data.get("places") or []
     if not places:
         raise FoliageError("기상청 단풍 응답에 관측 지점이 없습니다")
     in_service = bool(data.get("isService"))
-    # 서비스 기간 밖이면 단풍전으로 둔다 — 남아 있는 지난 시즌 단계를 올해 것으로 읽지 않게.
+    # 서비스 기간 밖이면 단풍전으로 둠 — 남아 있는 지난 시즌 단계를 올해 것으로 읽지 않게.
     stages = {p["obsPlace"]: (_stage_of(p) if in_service else 0) for p in places if p.get("obsPlace")}
     return stages, in_service, data.get("flower") or {}
 
@@ -193,7 +193,7 @@ def _dates(flower: dict, year: int) -> tuple[dt.date | None, dt.date | None]:
 
 
 def _detail(name: str, stage: int, year: int) -> tuple[dt.date | None, dt.date | None]:
-    """한 산의 (첫단풍, 절정) 관측일. 지금 단계의 날짜가 있어야만 캐시한다."""
+    """한 산의 (첫단풍, 절정) 관측일. 지금 단계의 날짜가 있어야만 캐시함."""
     def load():
         flower = _jsonp(_kma(name)).get("flower") or {}
         if flower.get("obsPlace") != name:
@@ -212,7 +212,7 @@ def _safe_detail(name: str, stage: int, year: int) -> tuple[dt.date | None, dt.d
     try:
         return _detail(name, stage, year)
     except (FoliageError, KeyError, TypeError, AttributeError) as exc:
-        # 날짜만 비워 둔다 — 한 산의 날짜를 못 받아도 단계는 맞다.
+        # 날짜만 비워 둠 — 한 산의 날짜를 못 받아도 단계는 맞음.
         log.warning("단풍 상세 실패 %s: %s", name, exc)
         return None, None
 
@@ -226,7 +226,7 @@ def fetch_status(today: dt.date) -> Status:
             raise FoliageError(f"기상청 단풍 응답 형식이 바뀌었습니다: {exc}") from exc
         status = Status(stages=stages, in_service=in_service)
         colored = [(name, stage) for name, stage in stages.items() if stage > 0]
-        # 목록 응답에 딸려 온 한 곳(기본 설악산)의 상세는 다시 부르지 않는다.
+        # 목록 응답에 딸려 온 한 곳(기본 설악산)의 상세는 다시 부르지 않음.
         known = {flower.get("obsPlace"): _dates(flower, today.year)}
 
         def dates_of(item):
@@ -260,15 +260,15 @@ class Outlook:
 _ROW = re.compile(
     r"^\s*([가-힣]{2,4}산)\s+[\d,]+\s+(\d{1,2})[/.](\d{1,2})\s+\S+\s+\S+\s+(\d{1,2})[/.](\d{1,2})"
 )
-# 표가 통째로 바뀌었는지 가려낼 문턱. 해마다 15곳이 나왔고, 그중 14곳이 기상청 목록과 겹친다.
+# 표가 통째로 바뀌었는지 가려낼 문턱. 해마다 15곳이 나왔고, 그중 14곳이 기상청 목록과 겹침.
 _MIN_KNOWN_ROWS = 10
 
 
 def parse_outlook_text(text: str, year: int) -> tuple[dict[str, dt.date], dict[str, dt.date]]:
-    """PDF 에서 뽑은 글자에서 산별 (첫단풍, 절정) 예상일. 기상청 목록에 없는 산(금강산)은 뺀다.
+    """PDF 에서 뽑은 글자에서 산별 (첫단풍, 절정) 예상일. 기상청 목록에 없는 산(금강산)은 뺌.
 
-    조금이라도 어긋나면 통째로 버리고 FoliageError 를 낸다. 잘못 읽은 날짜는 지도에서
-    그럴듯해 보여 알아채기 어려우니, 예상 없이 현황만 그리는 편이 낫다.
+    조금이라도 어긋나면 통째로 버리고 FoliageError 를 냄. 잘못 읽은 날짜는 지도에서
+    그럴듯해 보여 알아채기 어려우니, 예상 없이 현황만 그리는 편이 나음.
     """
     first: dict[str, dt.date] = {}
     peak: dict[str, dt.date] = {}
@@ -293,12 +293,12 @@ def parse_outlook_text(text: str, year: int) -> tuple[dict[str, dt.date], dict[s
 def _pdf_text(blob: bytes) -> str:
     try:
         from pypdf import PdfReader
-    except ImportError as exc:            # 현황만으로라도 답한다 — 서버에서 uv sync 를 빠뜨린 경우
+    except ImportError as exc:            # 현황만으로라도 답함 — 서버에서 uv sync 를 빠뜨린 경우
         raise FoliageError("pypdf 가 설치되지 않아 웨더아이 예상을 읽지 못합니다") from exc
     try:
         reader = PdfReader(io.BytesIO(blob))
         return "\n".join(p.extract_text(extraction_mode="layout") for p in reader.pages)
-    except Exception as exc:          # pypdf 는 깨진 파일마다 다른 예외를 낸다
+    except Exception as exc:          # pypdf 는 깨진 파일마다 다른 예외를 냄
         raise FoliageError(f"웨더아이 PDF 를 읽지 못했습니다: {exc}") from exc
 
 
@@ -308,10 +308,10 @@ def _find_post(list_html: str, year: int) -> str | None:
 
 
 def posted_on(post_html: str, year: int) -> dt.date | None:
-    """웨더아이 게시물의 게시일. 머리 표의 날짜 칸에 있다 — 벚꽃 게시물도 같은 판이다.
+    """웨더아이 게시물의 게시일. 머리 표의 날짜 칸에 있음 — 벚꽃 게시물도 같은 판.
 
-    날짜 칸은 글자색으로 집는다. 페이지 맨 위 특보 띠에도 오늘 날짜가 흘러가고,
-    작성자 칸이 비어 있는 해(2026 벚꽃)가 있어 '관리자' 뒤를 찾으면 놓친다.
+    날짜 칸은 글자색으로 집음. 페이지 맨 위 특보 띠에도 오늘 날짜가 흘러가고,
+    작성자 칸이 비어 있는 해(2026 벚꽃)가 있어 '관리자' 뒤를 찾으면 놓침.
     """
     m = re.search(rf"#124c78\">\s*({year})-(\d{{2}})-(\d{{2}})", post_html)
     return dt.date(*map(int, m.groups())) if m else None
@@ -320,7 +320,7 @@ def posted_on(post_html: str, year: int) -> dt.date | None:
 def fetch_outlook(year: int) -> Outlook | None:
     """올해 웨더아이 예상. 아직 안 올라왔으면 None, 읽다 실패하면 FoliageError.
 
-    받은 예상은 하루 들고 있고, 실패와 «아직 없음» 은 30분만 기억한다 — 단풍을 물을 때마다
+    받은 예상은 하루 들고 있고, 실패와 «아직 없음» 은 30분만 기억함 — 단풍을 물을 때마다
     PDF 를 다시 받으러 가지 않되, 늦게 올라와도 반나절씩 놓치지 않게.
     """
     try:
@@ -342,7 +342,7 @@ def _load_outlook(year: int) -> Outlook:
     pdf = re.search(r"https?://[^\"'\s<>]+\.pdf", post.text, re.I)
     if not pdf:
         raise FoliageError(f"웨더아이 {year}년 단풍 게시물에 PDF 가 없습니다: {post_url}")
-    # 파일명에 대괄호가 들어 있다 ([Weatheri]2026_maple.pdf)
+    # 파일명에 대괄호가 들어 있음 ([Weatheri]2026_maple.pdf)
     pdf_url = urllib.parse.quote(pdf.group(0), safe=":/?&=%")
     first, peak = parse_outlook_text(_pdf_text(_get(pdf_url, timeout=30).content), year)
     published = posted_on(post.text, year)
@@ -354,7 +354,7 @@ def _load_outlook(year: int) -> Outlook:
 
 @dataclass
 class Snapshot:
-    """한 시점의 현황과 예상. 지도와 멘션 답이 같은 값을 쓰게 묶어 둔다."""
+    """한 시점의 현황과 예상. 지도와 멘션 답이 같은 값을 쓰게 묶어 둠."""
     status: Status
     outlook: Outlook | None
     outlook_error: str = ""
@@ -370,7 +370,7 @@ class Snapshot:
         """(날짜, 관측인지). 관측이 있으면 관측, 없으면 예상.
 
         이미 그 단계에 들었는데 촬영일이 안 올라왔으면 (None, True) — 지난 단계의 예상일을
-        보여주면 "지금 첫단풍" 옆에 "첫단풍 예상이었지만 아직" 이 붙어 앞뒤가 어긋난다.
+        보여주면 "지금 첫단풍" 옆에 "첫단풍 예상이었지만 아직" 이 붙어 앞뒤가 어긋남.
         """
         observed = getattr(self.status, kind).get(name)
         if observed:
@@ -380,7 +380,7 @@ class Snapshot:
         return self.predicted(kind, name), False
 
     def signature(self) -> tuple:
-        """내용이 같으면 같은 값. 그린 지도를 캐시할 때 글과 그림이 어긋나지 않게 키로 쓴다."""
+        """내용이 같으면 같은 값. 그린 지도를 캐시할 때 글과 그림이 어긋나지 않게 키로 씀."""
         s, o = self.status, self.outlook
         return (tuple(sorted(s.stages.items())), tuple(sorted(s.first.items())),
                 tuple(sorted(s.peak.items())), s.in_service,
@@ -388,7 +388,7 @@ class Snapshot:
 
 
 def fetch_snapshot(today: dt.date) -> Snapshot:
-    """현황은 꼭, 예상은 있으면. 예상을 못 받아도 현황만으로 답한다."""
+    """현황은 꼭, 예상은 있으면. 예상을 못 받아도 현황만으로 답함."""
     status = fetch_status(today)
     try:
         outlook, error = fetch_outlook(today.year), ""

@@ -1,10 +1,10 @@
 # 멘션 응답 봇 (Socket Mode, 상시 실행)
-# 서버에 이미 떠 있는 다른 서비스를 전혀 건드리지 않는다 — 인바운드 포트도
-# 리버스 프록시도 없이, 나가는 WebSocket 연결 하나뿐이다.
+# 서버에 이미 떠 있는 다른 서비스를 전혀 건드리지 않음 — 인바운드 포트도
+# 리버스 프록시도 없이, 나가는 WebSocket 연결 하나뿐임.
 #
-# User= 를 두지 않는다 — 운영 계정의 systemd --user 로 돌리는 것이 기본이다(deploy/DEPLOY.md §3-A).
+# User= 를 두지 않음 — 운영 계정의 systemd --user 로 돌리는 것이 기본임(deploy/DEPLOY.md §3-A).
 # 유닛을 등록한 계정으로 실행되고 경로의 %h 도 그 계정의 홈으로 풀려,
-# 계정을 옮겨도 유닛은 고칠 필요가 없다.
+# 계정을 옮겨도 유닛은 고칠 필요가 없음.
 [Unit]
 Description=Weekly Weather - Slack mention bot (Socket Mode)
 After=network-online.target
@@ -18,7 +18,7 @@ Environment=TZ=Asia/Seoul
 ExecStart=%h/workspace/weather_bot/deploy/run-mention.sh
 Restart=always
 RestartSec=10
-# 프로세스가 죽으면 systemd 가 되살린다 — 슬랙 연결 끊김은 Bolt 가 재연결한다
+# 프로세스가 죽으면 systemd 가 되살림 — 슬랙 연결 끊김은 Bolt 가 재연결함
 StandardOutput=journal
 StandardError=journal
 

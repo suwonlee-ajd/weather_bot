@@ -1,6 +1,6 @@
-"""브리핑을 원본 캡처와 같은 모양의 카드 이미지(PNG)로 렌더링한다.
+"""브리핑을 원본 캡처와 같은 모양의 카드 이미지(PNG)로 렌더링함.
 
-원본 게시물의 첫 번째 첨부(AI 검색 결과 화면 캡처)와 같은 세 가지만 그린다.
+원본 게시물의 첫 번째 첨부(AI 검색 결과 화면 캡처)와 같은 세 가지만 그림.
 
     [하이라이트된 리드 문장] [출처 칩]
     기온 전망 및 날씨 흐름
@@ -8,12 +8,12 @@
       • 중후반 (…): … [출처 칩]
       • 주말 전망 (…): … [출처 칩]
 
-제목·표·특이사항 박스를 더하면 캡처처럼 보이지 않는다. 태풍 같은 특이사항은 카드가
-아니라 슬랙 본문(src/summarize.py)에서 다룬다.
+제목·표·특이사항 박스를 더하면 캡처처럼 보이지 않음. 태풍 같은 특이사항은 카드가
+아니라 슬랙 본문(src/summarize.py)에서 다룸.
 
-HTML/CSS 로 만들고 헤드리스 Chromium(Playwright)으로 요소 스크린샷을 찍는다.
+HTML/CSS 로 만들고 헤드리스 Chromium(Playwright)으로 요소 스크린샷을 찍음.
 한글 폰트: macOS 는 Apple SD Gothic Neo 기본 탑재. 리눅스(CI)에서는
-`apt-get install -y fonts-noto-cjk` 가 필요하다 (워크플로에 포함되어 있다).
+`apt-get install -y fonts-noto-cjk` 가 필요함 (워크플로에 포함되어 있음).
 """
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ li b { font-weight: 700; }
 
 
 def _chip(sources: list[Source]) -> str:
-    """원본처럼 대표 출처 하나 + '+N' 으로 접어 보여준다."""
+    """원본처럼 대표 출처 하나 + '+N' 으로 접어 보여줌."""
     if not sources:
         return ""
     more = f'<span class="more">+{len(sources) - 1}</span>' if len(sources) > 1 else ""
@@ -104,9 +104,9 @@ def build_html(week: WeekForecast) -> str:
 
 
 def capture(markup: str, *, width: int = CARD_WIDTH, scale: int = 2) -> bytes:
-    """HTML 의 #card 요소를 헤드리스 Chromium으로 캡처해 PNG 바이트로 돌려준다.
+    """HTML 의 #card 요소를 헤드리스 Chromium으로 캡처해 PNG 바이트로 돌려줌.
 
-    단풍 지도(src/render_foliage.py)도 같은 방식으로 찍는다.
+    단풍 지도(src/render_foliage.py)도 같은 방식으로 찍음.
     """
     from playwright.sync_api import sync_playwright
 
@@ -125,5 +125,5 @@ def capture(markup: str, *, width: int = CARD_WIDTH, scale: int = 2) -> bytes:
 
 
 def render_png(week: WeekForecast, *, scale: int = 2) -> bytes:
-    """카드 HTML을 헤드리스 Chromium으로 캡처해 PNG 바이트로 돌려준다."""
+    """카드 HTML을 헤드리스 Chromium으로 캡처해 PNG 바이트로 돌려줌."""
     return capture(build_html(week), scale=scale)

@@ -1,15 +1,15 @@
 #!/bin/bash
-# 날씨 봇을 켠다 — 멘션 봇(상시)과 타이머(주간 게시 · 정리).
+# 날씨 봇을 켬 — 멘션 봇(상시)과 타이머(주간 게시 · 정리).
 #
 #   bin/start.sh              전부
 #   bin/start.sh mention      멘션 봇만
 #   bin/start.sh timers       타이머만
-#   bin/start.sh -r           이미 떠 있는 멘션 봇도 다시 띄운다 — 코드를 갱신한 뒤 반영할 때
+#   bin/start.sh -r           이미 떠 있는 멘션 봇도 다시 띄움 — 코드를 갱신한 뒤 반영할 때
 #
-# systemd 유닛이 등록된 서버면 그 유닛을 켜고, 없으면 멘션 봇을 백그라운드로 직접 띄운다
-# (bin/_service.sh). 직접 띄운 봇은 죽어도 되살아나지 않고, 타이머도 없다.
-# disable 해 둔 타이머는 켜지 않는다 — 주간 게시를 GitHub Actions 가 맡는 서버에서
-# weather-weekly.timer 까지 켜면 같은 주에 두 번 올라간다(deploy/DEPLOY.md §4).
+# systemd 유닛이 등록된 서버면 그 유닛을 켜고, 없으면 멘션 봇을 백그라운드로 직접 띄움
+# (bin/_service.sh). 직접 띄운 봇은 죽어도 되살아나지 않고, 타이머도 없음.
+# disable 해 둔 타이머는 켜지 않음 — 주간 게시를 GitHub Actions 가 맡는 서버에서
+# weather-weekly.timer 까지 켜면 같은 주에 두 번 올라감(deploy/DEPLOY.md §4).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -54,7 +54,7 @@ for unit in "${UNITS[@]}"; do
   fi
 done
 
-# 멘션 봇을 잠깐 지켜본다 — 떠 있다가 곧바로 죽을 수 있다(.env 누락, venv 경로).
+# 멘션 봇을 잠깐 지켜봄 — 떠 있다가 곧바로 죽을 수 있음(.env 누락, venv 경로).
 if wants_mention; then
   sleep 3
   if ! "${SCTL[@]}" is-active --quiet "$MENTION_UNIT"; then

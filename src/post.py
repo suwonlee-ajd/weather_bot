@@ -184,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
         err = exc.response.get("error")
         if err in ("not_in_channel", "channel_not_found"):
             log.error(
-                "봇이 채널(%s)에 없습니다. 해당 채널에서 `/invite @주간 날씨` 를 실행하세요. "
+                "봇이 채널(%s)에 없습니다. 해당 채널에서 `/invite @날씨 알리미` 를 실행하세요. "
                 "(비공개 채널은 초대 전까지 채널 자체가 보이지 않아 channel_not_found 로 나옵니다)",
                 cfg.slack_channel_id,
             )

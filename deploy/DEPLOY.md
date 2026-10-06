@@ -270,7 +270,7 @@ systemctl --user start weather-weekly.service    # 게시를 지금 한 번 (월
 
 1. `journalctl --user -u weather-weekly --since "1 week ago"` — 유닛이 뜨긴 했나
 2. 떴는데 실패했다면 `logs/.../weekly-weather.error.*.log` 에 이유가 있음
-3. `봇이 채널에 없습니다` → 해당 채널에서 `/invite @<봇 이름>`
+3. `봇이 채널에 없습니다` → 해당 채널에서 `/invite @날씨 알리미`
 4. `기온을 얻지 못해` → 기상청 페이지 구조가 바뀌었을 수 있음.
    `LOG_LEVEL=DEBUG` 로 한 번 돌려 응답 크기를 봄(정상은 수십 KB)
 

@@ -1,4 +1,4 @@
-"""`@주간 날씨 부산` 처럼 멘션으로 지역 날씨를 물어보는 봇. (Socket Mode)
+"""`@날씨 알리미 부산` 처럼 멘션으로 지역 날씨를 물어보는 봇. (Socket Mode)
 
 Socket Mode 를 씀 — 나가는 WebSocket 연결 하나뿐이라 인바운드 포트·리버스 프록시·TLS 인증서·
 Signing Secret 이 필요 없고, 서버에 이미 떠 있는 다른 서비스의 ingress 를 건드리지 않음.

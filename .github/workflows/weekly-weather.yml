@@ -37,9 +37,9 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      # claude extra 를 함께 설치함 — WRITER=claude 인데 anthropic 이 없으면
-      # writer.py 가 규칙 기반으로 조용히 떨어져 매주 다른 글이 나감.
-      - run: uv sync --frozen --extra claude
+      # claude · gemini extra 를 함께 설치함 — WRITER 에 고른 모델의 패키지가 없으면
+      # writer.py 가 규칙 기반으로 떨어져 매주 다른 글이 나감.
+      - run: uv sync --frozen --extra claude --extra gemini
 
       # 카드 이미지를 헤드리스 Chromium 으로 렌더링함.
       # fonts-noto-cjk 는 반드시 설치함 — 리눅스 러너에는 한글 글꼴이 없어 □□□ 로 나옴.

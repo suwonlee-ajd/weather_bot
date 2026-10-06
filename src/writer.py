@@ -5,12 +5,15 @@
 
 모델은 '옮겨 쓰기'만 함 — 수치는 이미 기상청 원문이라 지어낼 여지가 없음.
 
-백엔드는 두 가지 (WRITER 환경변수).
-  gemini (기본) — **순수 생성은 무료 티어로 동작함**(Google 검색 그라운딩과 다름). 결제 불필요.
-                  3.5-flash 를 씀 — gemini-3.8-flash 는 이 작업에 90초가 지나도 응답이 없음.
-  claude        — ANTHROPIC_API_KEY 가 있을 때. 문장 품질이 가장 낫지만 선불 크레딧이 필요함.
+백엔드는 WRITER 환경변수로 고름. 기본은 none(규칙 기반, 모델 없음).
+  gemini — GEMINI_API_KEY 와 `uv sync --extra gemini`(google-genai). **순수 생성은 무료 티어로
+           동작함**(Google 검색 그라운딩과 다름). 3.5-flash 를 씀 — gemini-3.8-flash 는 이 작업에
+           90초가 지나도 응답이 없음.
+  claude — ANTHROPIC_API_KEY 와 `uv sync --extra claude`(anthropic). 문장 품질이 가장 낫지만 선불
+           크레딧이 필요함.
+  그 밖  — 규칙 기반. 모르는 값이면 경고를 남김.
 
-어느 쪽도 못 쓰거나 호출이 실패하면 규칙 기반 문구로 폴백함 — 주 1회뿐인 게시를 거르지 않기 위함.
+모델을 못 쓰거나 호출이 실패하면 규칙 기반 문구로 폴백함 — 주 1회뿐인 게시를 거르지 않기 위함.
 """
 from __future__ import annotations
 
@@ -350,8 +353,10 @@ def _write_claude(week: WeekForecast, prompt: str, model: str) -> Written:
 
 def write(week: WeekForecast, cfg=None) -> Written:
     """카드 문구와 슬랙 본문을 만듦. 무엇이 실패하든 규칙 기반 문구로는 반드시 돌아옴."""
-    backend = (getattr(cfg, "writer", "") or os.environ.get("WRITER", "gemini")).lower()
-    if backend == "none":
+    backend = (getattr(cfg, "writer", "") or os.environ.get("WRITER", "none")).lower()
+    if backend not in ("claude", "gemini"):
+        if backend != "none":
+            log.warning("WRITER=%s 는 모르는 값 - 규칙 기반 문구를 사용합니다 (none · claude · gemini).", backend)
         return fallback(week)
 
     prompt = "다음 기상청 자료로 카드 문구와 슬랙 본문을 써줘.\n\n" + week.as_digest()
@@ -374,6 +379,9 @@ def write(week: WeekForecast, cfg=None) -> Written:
         written = runner()
         log.info("문구 생성 완료 (%s / %s)", backend, model)
         return written
+    except ImportError as exc:  # 선택 설치 묶음을 빠뜨림 — 매주 같은 실패라 추적 대신 고칠 방법을 남김
+        log.error("%s 패키지가 없어 규칙 기반 문구로 대체합니다 (uv sync --extra %s): %s", backend, backend, exc)
+        return fallback(week)
     except Exception:  # 문구 생성 실패로 게시를 거르지 않음
         log.exception("%s 문구 생성 실패 - 규칙 기반 문구로 대체합니다.", backend)
         return fallback(week)

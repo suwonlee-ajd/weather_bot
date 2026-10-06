@@ -40,7 +40,7 @@ class Config:
 
     # --- 문구 작성 ---
     # gemini: 무료 티어로 동작 (검색 없이 글쓰기만 하므로) / claude: 선불 크레딧 필요 / none: 규칙 기반
-    writer: str = field(default_factory=lambda: _env("WRITER", "gemini"))
+    writer: str = field(default_factory=lambda: _env("WRITER", "none"))
     gemini_model: str = field(default_factory=lambda: _env("GEMINI_MODEL", "gemini-3.5-flash"))
     anthropic_model: str = field(default_factory=lambda: _env("ANTHROPIC_MODEL", "claude-opus-5"))
     writer_timeout_sec: int = field(default_factory=lambda: int(_env("WRITER_TIMEOUT_SEC", "90")))

@@ -61,16 +61,20 @@ def check_kma_pages() -> bool:
 
 def check_writer() -> bool:
     """문구 작성 백엔드가 실제로 응답하는지. 실패해도 규칙 기반 폴백은 남음."""
-    backend = os.environ.get("WRITER", "gemini").lower()
-    if backend == "none":
-        print(f"{SKIP} WRITER=none — 규칙 기반 문구만 사용합니다")
+    backend = os.environ.get("WRITER", "none").lower()
+    if backend not in ("claude", "gemini"):
+        print(f"{SKIP} WRITER={backend} — 규칙 기반 문구만 사용합니다")
         return True
 
     if backend == "claude":
         if not os.environ.get("ANTHROPIC_API_KEY"):
             print(f"{SKIP} WRITER=claude 인데 ANTHROPIC_API_KEY 미설정 — 규칙 기반으로 대체됩니다")
             return True
-        import anthropic
+        try:
+            import anthropic
+        except ImportError:
+            print(f"{FAIL} WRITER=claude 인데 anthropic 미설치 — uv sync --extra claude")
+            return False
 
         try:
             client = anthropic.Anthropic()
@@ -85,7 +89,11 @@ def check_writer() -> bool:
     if not os.environ.get("GEMINI_API_KEY"):
         print(f"{SKIP} WRITER=gemini 인데 GEMINI_API_KEY 미설정 — 규칙 기반으로 대체됩니다")
         return True
-    from google import genai
+    try:
+        from google import genai
+    except ImportError:
+        print(f"{FAIL} WRITER=gemini 인데 google-genai 미설치 — uv sync --extra gemini")
+        return False
 
     try:
         # Client 를 변수에 붙들어 둬야 함. 임시 객체로 쓰면 지연 페이저를 순회하기 전에

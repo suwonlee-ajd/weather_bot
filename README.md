@@ -99,7 +99,7 @@ set -a && . ./.env && set +a
 | `AREA_LABEL` | 구역 정식명 | 카드·본문에 쓸 지역 이름 |
 | `POST_AT` | `08:00` | 게시 시각(KST). `09:10` 이면 당일 09시 판 일기도를 씀 |
 | `CHART_PRODUCT` | `surf` | `surf`=지상일기도, `ghmd_s24`=24시간 예상일기도 |
-| `WRITER` | `gemini` | 문장을 쓸 모델. `gemini` · `claude` · 그 밖(`none` 등)은 규칙 기반. **키가 없으면 규칙 기반으로 떨어짐.** `.env.example` 은 `none` |
+| `WRITER` | `none` | 문장을 쓸 모델. `none`(규칙 기반) · `gemini` · `claude`. **키나 패키지가 없으면 규칙 기반으로 떨어짐** |
 | `CARD_SCALE` | `2` | 카드 PNG 배율 |
 | `MENTION_CACHE_TTL` | `3600` | 멘션 봇이 예보를 들고 있는 시간(초) |
 | `LOG_LEVEL` | `INFO` | `DEBUG` 면 요청 URL·응답 크기까지 남음 |
@@ -107,11 +107,13 @@ set -a && . ./.env && set +a
 
 ### 모델을 쓰고 싶다면
 
-| `WRITER` | 필요한 것 | 비고 |
-|---|---|---|
-| `gemini` | `GEMINI_API_KEY` | 검색 없이 생성만 하므로 무료 티어로 동작함 |
-| `claude` | `ANTHROPIC_API_KEY` | `uv sync --extra claude` 로 설치 |
-| 그 밖 | 없음 | 예보관 원문 + 규칙 기반 문장 (비용 0) |
+| `WRITER` | 설치 | 필요한 키 | 비고 |
+|---|---|---|---|
+| `none` (기본) | — | — | 예보관 원문 + 규칙 기반 문장 (비용 0) |
+| `gemini` | `uv sync --extra gemini` | `GEMINI_API_KEY` | 검색 없이 생성만 하므로 무료 티어로 동작함 |
+| `claude` | `uv sync --extra claude` | `ANTHROPIC_API_KEY` | 선불 크레딧 필요 |
+
+`tests.check_credentials` 가 고른 모델의 패키지와 키를 점검함.
 
 어느 모델이든 실패하면 규칙 기반 문장으로 게시함 — 주 1회뿐인 게시를 거르지 않음.
 

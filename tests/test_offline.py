@@ -692,6 +692,35 @@ def test_weekly_body() -> None:
     print("[ok] 주간 본문 — 문장으로 맺고, 같은 날 조언은 한 문장으로")
 
 
+def test_writer_backend() -> None:
+    """WRITER 고르기 — 기본은 규칙 기반, 모르는 값도 규칙 기반, 패키지가 없어도 게시는 됨."""
+    import src.writer as writer
+
+    calls: list[str] = []
+
+    def no_package(*_a, **_k):
+        calls.append("gemini")
+        raise ImportError("No module named 'google'")
+
+    saved = {k: os.environ.pop(k, None) for k in ("WRITER", "GEMINI_API_KEY")}
+    orig = writer._write_gemini
+    writer._write_gemini = no_package
+    try:
+        base = writer.fallback(fake_week()).body
+        assert writer.write(fake_week()).body == base and not calls          # 기본 none
+        os.environ["WRITER"], os.environ["GEMINI_API_KEY"] = "rules", "x"
+        assert writer.write(fake_week()).body == base and not calls          # 모르는 값 → 모델을 부르지 않음
+        os.environ["WRITER"] = "gemini"
+        assert writer.write(fake_week()).body == base and calls == ["gemini"]  # 패키지 없음 → 대체
+    finally:
+        writer._write_gemini = orig
+        for k, v in saved.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
+    print("[ok] WRITER — 기본 none, 모르는 값·패키지 없음은 규칙 기반")
+
+
 def test_chart_download() -> None:
     import requests
 
@@ -1422,6 +1451,7 @@ if __name__ == "__main__":
     test_card_render()
     test_message_template()
     test_weekly_body()
+    test_writer_backend()
     test_chart_download()
     test_footer_and_region_variation()
     test_foliage_season()

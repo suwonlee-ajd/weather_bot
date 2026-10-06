@@ -1,6 +1,6 @@
 name: weekly-weather
 
-# 주간 게시는 서버(prod-server)의 systemd 타이머가 맡는다 —
+# 주간 게시는 서버의 systemd 타이머가 맡는다 —
 # deploy/weather-weekly.timer, 월 07:50 KST. 멘션 봇이 어차피 그 서버에
 # 상시로 떠 있고, 토큰도 한 곳에 모이기 때문이다.
 #

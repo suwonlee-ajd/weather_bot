@@ -1,16 +1,16 @@
 # 서버 배포
 
-> **현재 운영 서버(prod-server) 배치**
+> **배치 방식은 둘이다.**
 >
-> | | 값 |
-> |---|---|
-> | 경로 | `/home/suwonlee/workspace/weather_bot` |
-> | 실행 계정 | `suwonlee` (전용 `weather` 계정 없음 · 2026-10-01 에 `ajung` 에서 옮김) |
-> | systemd | **`systemd --user`** — 켜고 끄는 데 sudo 가 필요 없다 |
-> | 파이썬 | 3.14 (`.python-version`, uv 가 받아서 씀) |
+> | | root 가 있는 서버 | sudo 가 없는 서버 |
+> |---|---|---|
+> | 경로 | `/opt/weather_bot` | 로그인 계정의 홈 (예: `~/workspace/weather_bot`) |
+> | 실행 계정 | 전용 `weather` 계정 | 로그인 계정 |
+> | systemd | 시스템 유닛 (§2 · §3) | **`systemd --user`** (§2-A · §3-A) — 켜고 끄는 데 sudo 가 필요 없다 |
+> | 파이썬 | `.python-version`, uv 가 받아서 씀 | 같음 |
 >
-> 아래 2·3 장은 root 가 있는 서버용 원본 절차다. 이 서버는
-> [§2-A](#2-a-권한-없는-서버-현재-prod-server) · [§3-A](#3-a-systemd---user-현재-prod-server) 를 본다.
+> 유닛 파일은 경로를 `%h`(유닛을 등록한 계정의 홈)로 적어 두었다. root 서버에서 `/opt` 에
+> 둔다면 `WorkingDirectory` · `EnvironmentFile` · `ExecStart` 의 경로와 `User=` 를 맞춘다.
 
 멘션 봇은 **Socket Mode** 라서 인바운드 포트·도메인·TLS·리버스 프록시가 전혀 필요 없다.
 나가는 WebSocket 연결 하나뿐이라, 서버에 이미 떠 있는 다른 서비스와 겹치지 않는다.
@@ -33,9 +33,9 @@ Socket Mode 가 켜져 있으면 Event Subscriptions 에 **Request URL 입력란
 # uv 가 파이썬까지 관리하므로 시스템 파이썬 버전을 맞출 필요가 없다
 curl -LsSf https://astral.sh/uv/install.sh | sudo env UV_INSTALL_DIR=/usr/local/bin sh
 
-sudo useradd -r -m -d /opt/slack_weather_bot weather
-sudo -u weather git clone <repo> /opt/slack_weather_bot
-cd /opt/slack_weather_bot
+sudo useradd -r -m -d /opt/weather_bot weather
+sudo -u weather git clone <repo> /opt/weather_bot
+cd /opt/weather_bot
 
 sudo -u weather uv sync --frozen               # uv.lock 그대로 — 로컬과 같은 버전
 sudo -u weather uv run python -m playwright install --with-deps chromium
@@ -52,21 +52,23 @@ sudo -u weather vi .env                          # SLACK_BOT_TOKEN, SLACK_APP_TO
 sudo -u weather bash -c 'set -a; . .env; set +a; .venv/bin/python -m tests.check_credentials'
 ```
 
-## 2-A. 권한 없는 서버 (현재 prod-server)
+## 2-A. 권한 없는 서버
 
 sudo 가 없으므로 전용 계정도 `/opt` 도 만들지 않는다. 로그인 계정의 홈에 두고
 그 계정으로 돌린다.
 
 ```bash
-cd /home/suwonlee/workspace/weather_bot
+git clone <repo> ~/workspace/weather_bot
+cd ~/workspace/weather_bot
 
-uv sync --frozen                                  # .python-version(3.14) 대로 받는다
+uv sync --frozen                                  # .python-version 대로 받는다
+cp .env.example .env                              # SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SLACK_CHANNEL_ID
 .venv/bin/python -m playwright install chromium   # --with-deps 는 sudo 가 필요해 뺀다
 chmod 600 .env                                    # 토큰이 들어 있다
 ```
 
 `--with-deps` 없이도 크로뮴이 뜨는지, 한글이 깨지지 않는지 확인한다
-(이 서버는 `fonts-noto-cjk` 가 이미 깔려 있어 둘 다 통과했다):
+(`fonts-noto-cjk` 가 이미 깔려 있는 서버라면 둘 다 통과한다):
 
 ```bash
 set -a; . ./.env; set +a
@@ -77,7 +79,7 @@ set -a; . ./.env; set +a
 > 크로뮴이 `error while loading shared libraries` 로 죽으면 그때는 라이브러리가
 > 모자란 것이라 관리자에게 `apt-get install` 을 요청해야 한다.
 
-## 3-A. systemd --user (현재 prod-server)
+## 3-A. systemd --user
 
 유닛 파일에 `User=` 를 두지 않는다 — 등록한 계정으로 돈다.
 
@@ -101,8 +103,8 @@ journalctl --user -u weather-mention -f
 **상시 실행인 멘션 봇에는 치명적이다.** 관리자에게 한 번만 요청한다:
 
 ```bash
-sudo loginctl enable-linger suwonlee
-loginctl show-user suwonlee -p Linger   # Linger=yes 여야 한다 (2026-10-01 확인: yes)
+sudo loginctl enable-linger <계정>
+loginctl show-user <계정> -p Linger   # Linger=yes 여야 한다
 ```
 
 이게 켜지기 전까지는 SSH 를 끊으면 봇이 멈춘다. 재부팅 후 자동 기동도 이 설정에 달려 있다.
@@ -137,33 +139,28 @@ sudo systemctl start weather-cleanup.service   # 정리도 같은 방식
 
 ## 4. 주간 게시는 한 곳에서만
 
-주간 게시를 돌릴 수 있는 자리가 둘이다 — 이 서버의 타이머와 GitHub Actions
-(`.github/workflows/weekly-weather.yml`, 일 22:35 UTC = 월 07:35 KST).
+주간 게시를 돌릴 수 있는 자리가 둘이다 — 서버의 타이머(`weather-weekly.timer`, 월 07:50 KST)와
+GitHub Actions(`.github/workflows/weekly-weather.yml`).
 **둘 다 살아 있으면 매주 두 번 올라간다.** 하나를 반드시 끈다.
 
-> **prod-server 현재 상태**: **서버 타이머로 운영한다.** 2026-09-14 에
-> `weather-weekly.timer` 를 켰고(월 07:50), 같은 날 워크플로의 `schedule:`
-> 블록을 지웠다. 그래서 게시가 나가는 자리는 서버 한 곳뿐이다.
->
-> 크론을 되살리면 그 순간부터 매주 두 번 올라간다. Actions 로 옮길 생각이면
-> 타이머를 먼저 끈다(`systemctl --user disable --now weather-weekly.timer`).
->
-> **2026-10-01 에 `ajung` 계정의 멘션 봇·주간 게시·정리 유닛을 모두 내리고 지웠다**
-> (`/home/ajung/.config/systemd/user/weather-*`). 같은 날 운영 계정을 `suwonlee` 로 옮겨
-> §3-A 대로 멘션 봇·주간 게시·정리 유닛을 모두 다시 올렸다. 게시는 여전히 서버 한 곳에서만 나간다.
+저장소의 워크플로에는 `schedule:` 이 없다 — 기본은 **서버 타이머로 게시**하고, 워크플로는
+손으로 한 번 돌리거나 dry-run 결과만 확인할 때(`workflow_dispatch`) 쓴다.
 
-서버로 운영한다면(권장 — 멘션 봇이 어차피 여기 있고, 토큰이 한 곳에 모인다):
+서버로 운영한다면(권장 — 멘션 봇이 어차피 여기 있고, 토큰이 한 곳에 모인다) 워크플로에
+`schedule:` 을 넣지 않는다.
+
+GitHub Actions 로 운영한다면 워크플로에 크론을 넣고, 서버 타이머를 먼저 끈다:
 
 ```bash
-# 워크플로의 schedule: 블록을 지우고 푸시한다. workflow_dispatch 는 남겨 두면
-# 수동 실행·dry-run 확인용으로 쓸 수 있다.
+systemctl --user disable --now weather-weekly.timer   # systemd --user
+# root 가 있는 서버라면: sudo systemctl disable --now weather-weekly.timer
 ```
 
-GitHub Actions 로 운영한다면:
-
-```bash
-systemctl --user disable --now weather-weekly.timer   # prod-server
-# root 가 있는 서버라면: sudo systemctl disable --now weather-weekly.timer
+```yaml
+on:
+  schedule:
+    - cron: "35 22 * * 0"     # 일 22:35 UTC = 월 07:35 KST. 크론은 늦게 뜰 수 있어 일찍 깨우고 POST_AT 까지 기다린다
+  workflow_dispatch:
 ```
 
 멘션 봇은 상시 WebSocket 연결이라 Actions 로 옮길 수 없다. 서버에만 둔다.
@@ -173,10 +170,10 @@ systemctl --user disable --now weather-weekly.timer   # prod-server
 
 ## 로그
 
-`logs/{연}/{연.월}/{앱}.{날짜}.log` — brifo · cs-auto-qa 와 같은 배치다.
+`logs/{연}/{연.월}/{앱}.{날짜}.log`
 
 ```bash
-cd /home/suwonlee/workspace/weather_bot      # prod-server 기준
+cd ~/workspace/weather_bot                   # 저장소 위치
 D=logs/$(date +%Y)/$(date +%Y.%m)
 tail -50 "$D"/weather-mention.error.$(date +%F).log   # 오류만 — 여기부터 본다
 tail -f  "$D"/weather-mention.$(date +%F).log         # 전체 흐름
@@ -188,7 +185,7 @@ tail -f  "$D"/weather-mention.$(date +%F).log         # 전체 흐름
 잡지 못하므로 journald 를 본다.
 
 ```bash
-journalctl --user -u weather-mention -n 50            # prod-server (systemd --user)
+journalctl --user -u weather-mention -n 50            # systemd --user (root 서버는 --user 없이)
 journalctl --user -u weather-weekly --since "1 week ago"
 ```
 
@@ -214,7 +211,7 @@ systemd 유닛이 등록돼 있으면(§3 · §3-A) 그 유닛을 켜고 끈다.
 ### 코드 갱신
 
 ```bash
-cd /home/suwonlee/workspace/weather_bot
+cd ~/workspace/weather_bot
 git pull
 uv sync --frozen                              # uv.lock 이 바뀌었을 때만 실제로 설치한다
 bin/start.sh -r mention                       # 멘션 봇은 상시라 다시 띄워야 반영된다
@@ -251,7 +248,7 @@ systemctl --user start weather-weekly.service    # 게시를 지금 한 번
 
 1. `journalctl --user -u weather-weekly --since "1 week ago"` — 유닛이 뜨긴 했나
 2. 떴는데 실패했다면 `logs/.../weekly-weather.error.*.log` 에 이유가 있다
-3. `봇이 채널에 없습니다` → 해당 채널에서 `/invite @날씨 알리미`
+3. `봇이 채널에 없습니다` → 해당 채널에서 `/invite @<봇 이름>`
 4. `기온을 얻지 못해` → 기상청 페이지 구조가 바뀌었을 수 있다.
    `LOG_LEVEL=DEBUG` 로 한 번 돌려 응답 크기를 본다(정상은 수십 KB)
 

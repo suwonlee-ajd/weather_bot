@@ -20,7 +20,7 @@ from dataclasses import dataclass
 
 import requests
 
-from .config import KST, UTC
+from .config import KST, UA, UTC
 
 BASE = "https://www.weather.go.kr/w/repositary/image/cht/img"
 REFERER = "https://www.weather.go.kr/w/image/chart/analysis.do"
@@ -72,7 +72,7 @@ def fetch_latest_chart(
     session = requests.Session()
     session.headers.update(
         {
-            "User-Agent": "ajd-weekly-weather-bot/1.0 (+internal Slack bot)",
+            "User-Agent": UA,
             "Referer": REFERER,
         }
     )

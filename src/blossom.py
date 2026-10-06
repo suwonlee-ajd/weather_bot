@@ -31,6 +31,9 @@ from dataclasses import dataclass, field
 import requests
 
 from .config import UA
+from .foliage import _date, posted_on      # 촬영일(올해 것만)·게시일 — 단풍과 같은 판이다
+from .forecast import short_date
+from .paragraph import bold
 
 log = logging.getLogger(__name__)
 
@@ -81,17 +84,6 @@ def _get(url: str, *, params: dict | None = None, timeout: float = 20.0, referer
     except requests.RequestException as exc:
         raise BlossomError(f"요청 실패 {url}: {exc}") from exc
     return resp
-
-
-def _date(raw: str | None, year: int) -> dt.date | None:
-    """촬영일. 올해 것이 아니면 버린다 — 서비스 전에는 지난해 기록이 그대로 내려온다."""
-    if not raw:
-        return None
-    try:
-        d = dt.date.fromisoformat(raw[:10])
-    except ValueError:
-        return None
-    return d if d.year == year else None
 
 
 # --- 기상청 관측 -------------------------------------------------------------
@@ -248,16 +240,6 @@ def _load_post(list_html: str, year: int) -> Outlook | None:
     return Outlook(expected=expected, normal=normal, published=posted_on(post.text, year), url=post_url)
 
 
-def posted_on(post_html: str, year: int) -> dt.date | None:
-    """게시일. 머리 표의 날짜 칸에 있다.
-
-    페이지 맨 위 특보 띠에도 오늘 날짜가 흘러가므로 칸의 글자색으로 집는다.
-    작성자 칸이 비어 있는 해(2026)가 있어 '관리자' 뒤를 찾으면 놓친다.
-    """
-    m = re.search(rf"#124c78\">\s*({year})-(\d{{2}})-(\d{{2}})", post_html)
-    return dt.date(*map(int, m.groups())) if m else None
-
-
 def fetch_outlook(year: int) -> Outlook:
     """올해 웨더아이 예상. 아직 없으면 지난해 표의 평년만, 그것도 없으면 빈 예상.
 
@@ -280,14 +262,6 @@ def fetch_outlook(year: int) -> Outlook:
 
 # --- 주간 게시 문구 -----------------------------------------------------------
 
-def _bold(text: str) -> str:
-    return f"*{text}*"
-
-
-def _md(d: dt.date) -> str:
-    return f"{d.month}/{d.day}"
-
-
 def observed_line(status: Status) -> str:
     """관측 한 줄. 핀 곳이 적으면 이름과 날짜를, 많아지면 개수와 최근 변화를 쓴다."""
     if not status.in_service:
@@ -302,7 +276,7 @@ def observed_line(status: Status) -> str:
 
     def text(e) -> str:
         day, name, stage = e
-        return f"{_bold(name)} {STAGES[stage]}" + (f" {_md(day)}" if day else "")
+        return f"{bold(name)} {STAGES[stage]}" + (f" {short_date(day)}" if day else "")
 
     def latest(e):
         return e[0] or dt.date.min
@@ -321,8 +295,8 @@ def _grouped(days: list[tuple[str, dt.date]]) -> str:
     """[(서귀포, 3/25), (부산, 3/25), (울산, 3/26)] → '*서귀포*·*부산* 3/25 · *울산* 3/26'."""
     by_day: dict[dt.date, list[str]] = {}
     for city, d in days:
-        by_day.setdefault(d, []).append(_bold(city))
-    return " · ".join(f"{'·'.join(cities)} {_md(d)}" for d, cities in sorted(by_day.items()))
+        by_day.setdefault(d, []).append(bold(city))
+    return " · ".join(f"{'·'.join(cities)} {short_date(d)}" for d, cities in sorted(by_day.items()))
 
 
 def week_line(outlook: Outlook | None, start: dt.date, end: dt.date) -> str:
@@ -346,8 +320,8 @@ def year_line(outlook: Outlook | None) -> str:
     seoul_normal = outlook.normal.get("서울")
     if not outlook.expected:
         first_city, first_day = min(outlook.normal.items(), key=lambda x: x[1])
-        line = f"{_bold(first_city)} {_md(first_day)} 무렵 시작해"
-        return line + (f" {_bold('서울')} {_md(seoul_normal)} 무렵 핍니다" if seoul_normal else " 북상합니다")
+        line = f"{bold(first_city)} {short_date(first_day)} 무렵 시작해"
+        return line + (f" {bold('서울')} {short_date(seoul_normal)} 무렵 핍니다" if seoul_normal else " 북상합니다")
     gap = outlook.gap_days()
     if gap is None:
         return ""
@@ -356,7 +330,7 @@ def year_line(outlook: Outlook | None) -> str:
              else f"평년보다 {days}일가량 {'이르겠습니다' if gap < 0 else '늦겠습니다'}")
     seoul = outlook.expected.get("서울")
     if seoul and seoul_normal:
-        trend += f" (서울 {_md(seoul)}, 평년 {_md(seoul_normal)})"
+        trend += f" (서울 {short_date(seoul)}, 평년 {short_date(seoul_normal)})"
     return trend
 
 
@@ -364,7 +338,7 @@ def sources(status: Status | None, outlook: Outlook | None) -> str:
     bits = ["관측 기상청 날씨누리"] if status is not None else []
     if outlook is not None:
         if outlook.expected:
-            bits.append(f"예상 {OUTLOOK_SOURCE}" + (f"({_md(outlook.published)} 발표)" if outlook.published else ""))
+            bits.append(f"예상 {OUTLOOK_SOURCE}" + (f"({short_date(outlook.published)} 발표)" if outlook.published else ""))
         else:
             bits.append(f"평년 {OUTLOOK_SOURCE}")
     return " · ".join(bits)

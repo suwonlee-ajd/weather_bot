@@ -18,13 +18,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from . import blossom, foliage, render_foliage
-from .paragraph import Attachment, Block, Paragraph
+from .paragraph import Attachment, Block, Paragraph, bold
 
 log = logging.getLogger(__name__)
-
-
-def _bold(text: str) -> str:
-    return f"*{text}*"
 
 
 def foliage_block(week_start: dt.date, today: dt.date, scale: int) -> Block | None:
@@ -36,8 +32,8 @@ def foliage_block(week_start: dt.date, today: dt.date, scale: int) -> Block | No
         return None
     week_end = week_start + dt.timedelta(days=6)
     paragraph = (Paragraph("이번 주 단풍", emoji=":maple_leaf:")
-                 .add("관측", render_foliage.observed_line(snap, _bold))
-                 .add("이번 주", render_foliage.week_line(snap, week_start, week_end, _bold,
+                 .add("관측", render_foliage.observed_line(snap, bold))
+                 .add("이번 주", render_foliage.week_line(snap, week_start, week_end, bold,
                                                          muted=lambda s: s)))
     attachment = None
     try:

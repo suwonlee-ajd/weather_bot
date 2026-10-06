@@ -34,6 +34,7 @@ from .foliage import (
 )
 from .mountains import MOUNTAINS, Mountain, find_mountain, in_region, in_zone, unknown_mountain
 from .outlook import OutlookError, fetch_outlook
+from .paragraph import bold
 from .render_foliage import gap_text, observed_line, sources, week_changes, week_line
 from .render_foliage import render_png as render_foliage_png
 from .kma_scrape import (
@@ -204,11 +205,13 @@ def _dong_advice(summary, region: str = "") -> list:
 
 
 def _dong_reply(zone: str, name: str, days: int = 4, start: dt.date | None = None,
-                *, quiet: bool = False) -> str:
+                *, quiet: bool = False, today: dt.date | None = None) -> str:
     """동·시도 단위 동네예보. 닿는 날까지만 보여주고, 더 필요하면 광역으로 안내한다.
 
     quiet 이면 실패하거나 그날 예보가 없을 때 안내문 대신 빈 문자열 — 다른 답(산 단풍)
     뒤에 덧붙일 때 도움말 전문이 끼어들지 않게.
+    today 를 주면 단풍철에 그 동네 산의 단풍 한 줄을 붙인다 — 예보를 보여 줬을 때만,
+    보여 준 날짜 범위로.
     """
     try:
         fc = fetch_dong(zone, name)
@@ -257,6 +260,8 @@ def _dong_reply(zone: str, name: str, days: int = 4, start: dt.date | None = Non
     if len(summary) >= DONG_MAX_DAYS:
         lines.append(f"_더 먼 날이 필요하시면 광역 구역으로 불러 주세요 (최대 10일). "
                      f"예: {self_mention()} 수도권_")
+    if today is not None:
+        lines += _foliage_note(in_zone(zone), summary[0][0], summary[-1][0], today)
     return "\n".join(lines)
 
 
@@ -398,10 +403,6 @@ class Reply:
     image: bytes | None = None
 
 
-def _slack_bold(text: str) -> str:
-    return f"*{text}*"
-
-
 def _stage_line(snap: Snapshot, kind: str, name: str, today: dt.date) -> str:
     label = STAGES[KINDS.index(kind) + 1]
     day, observed = snap.when(kind, name)
@@ -440,8 +441,8 @@ def _overview_text(snap: Snapshot, today: dt.date, unknown: str | None) -> str:
         ]
     lines += [
         f"*단풍 현황* ({short_date(today)} 기준)",
-        f"• 관측 — {observed_line(snap, _slack_bold)}",
-        f"• 앞으로 7일 — {week_line(snap, today, end, _slack_bold, muted=lambda s: s)}",
+        f"• 관측 — {observed_line(snap, bold)}",
+        f"• 앞으로 7일 — {week_line(snap, today, end, bold, muted=lambda s: s)}",
         f"_{sources(snap)} · 산 이름을 함께 불러 주시면 그 산만 자세히 알려드려요_",
     ]
     return "\n".join(lines)
@@ -531,11 +532,12 @@ def _foliage_brief(snap: Snapshot, mountains: tuple[Mountain, ...], start: dt.da
     if len(mountains) == len(MOUNTAINS):
         parts = []
         if any(snap.stage(m.name) for m in MOUNTAINS):
-            parts.append(observed_line(snap, _slack_bold))
+            parts.append(observed_line(snap, bold))
         if any(week_changes(snap, start, end).values()):
-            parts.append(week_line(snap, start, end, _slack_bold, muted=lambda s: s))
+            parts.append(week_line(snap, start, end, bold, muted=lambda s: s))
         return " / ".join(parts)
 
+    changes = week_changes(snap, start, end)
     bits = []
     for m in mountains:
         stage = snap.stage(m.name)
@@ -544,7 +546,7 @@ def _foliage_brief(snap: Snapshot, mountains: tuple[Mountain, ...], start: dt.da
             day, _ = snap.when(KINDS[stage - 1], m.name)
             steps.append(f"{STAGES[stage]} {short_date(day)}" if day else STAGES[stage])
         ahead = [f"{STAGES[i]} {short_date(d)}" for i, kind in enumerate(KINDS, start=1)
-                 if stage < i and (d := snap.predicted(kind, m.name)) and start <= d <= end]
+                 for name, d in changes[kind] if name == m.name]
         if ahead:
             steps.append(" · ".join(ahead) + " (예상)")
         if steps:
@@ -671,18 +673,15 @@ def build_reply(text: str, now: dt.datetime | None = None) -> str:
         if start > last:
             pass                      # 동네예보가 닿지 않는 날 — 아래 광역으로
         elif start + dt.timedelta(days=days - 1) <= last:
-            reply = _dong_reply(wide[0], wide[1], days, start)
+            reply = _dong_reply(wide[0], wide[1], days, start, today=now.date())
             # 예보 끝자락은 값이 모자라 거절로 끝난다(조각난 날은 버린다).
             # 광역이라면 답할 수 있으므로 여기서 막지 않고 넘긴다.
             if NO_EMOJI not in reply:
-                note = _foliage_note(in_zone(wide[0]), start,
-                                     start + dt.timedelta(days=days - 1), now.date())
-                return "\n".join([reply, *note])
+                return reply
         elif title.startswith("앞으로"):
             # 기간을 따로 말하지 않았다면 며칠인지보다 «부산 값» 인지가 중요하다.
             # 닿는 데까지 좁게 답하고, 더 필요하면 광역으로 안내한다.
-            reply = _dong_reply(wide[0], wide[1], (last - start).days + 1, start)
-            return "\n".join([reply, *_foliage_note(in_zone(wide[0]), start, last, now.date())])
+            return _dong_reply(wide[0], wide[1], (last - start).days + 1, start, today=now.date())
         # '이번 주'·'다음 주' 처럼 기간을 콕 집어 물었으면 그 기간을 채울 수 있는
         # 광역으로 간다. 이레를 물었는데 사흘만 주는 것이 더 불친절하다.
 
@@ -697,7 +696,7 @@ def build_reply(text: str, now: dt.datetime | None = None) -> str:
         # 광역에 없으면 동 단위인지 본다 (역삼동, 판교동, 행정동코드 …)
         hits = search_dong(query, limit=4)
         if len(hits) == 1 or (hits and hits[0].name.replace(' ', '') == query.replace(' ', '')):
-            return _dong_reply(hits[0].code, hits[0].full_name, days, start)
+            return _dong_reply(hits[0].code, hits[0].full_name, days, start, today=now.date())
         if hits:
             # 어느 곳인지 단정하지 않고 되묻는다 — 강릉에도 강남동이 있다
             listed = "\n".join(f"• {h.full_name}" for h in hits)
@@ -796,7 +795,7 @@ def build_reply(text: str, now: dt.datetime | None = None) -> str:
         lines.append(f"_{narrative.title} · {stamp} 발표_")
 
     mountains = MOUNTAINS if region is NATIONWIDE else in_region(region.key)
-    lines += _foliage_note(mountains, start, end, now.date())
+    lines += _foliage_note(mountains, start, shown_end, now.date())   # 보여 준 날까지만
     return "\n".join(lines)
 
 

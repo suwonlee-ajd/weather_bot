@@ -15,6 +15,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 
+def bold(text: str) -> str:
+    """슬랙 mrkdwn 굵게. render_foliage 의 bold= 자리에도 이것을 넘긴다."""
+    return f"*{text}*"
+
+
 @dataclass(frozen=True)
 class Row:
     """문단의 한 줄 — '관측', '이번 주' 같은 라벨과 슬랙 mrkdwn 내용."""

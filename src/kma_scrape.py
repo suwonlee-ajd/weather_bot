@@ -26,14 +26,13 @@ from dataclasses import dataclass, field
 import requests
 from bs4 import BeautifulSoup
 
-from .config import KST
+from .config import KST, UA
 
 log = logging.getLogger(__name__)
 
 BASE = "https://www.weather.go.kr"
 NOTICE_URL = f"{BASE}/w/forecast/notice.do"
 MID_URL = f"{BASE}/w/forecast/overall/mid-term.do"
-UA = "ajd-weekly-weather-bot/1.0 (+internal Slack bot)"
 
 RANGE_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*~\s*(-?\d+(?:\.\d+)?)")
 DOM_RE = re.compile(r"(\d{1,2})\s*일")

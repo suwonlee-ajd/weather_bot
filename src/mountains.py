@@ -16,6 +16,7 @@
 """
 from __future__ import annotations
 
+import itertools
 import re
 from dataclasses import dataclass
 
@@ -73,15 +74,26 @@ REGION_MOUNTAINS: dict[str, tuple[str, ...]] = {
     "제주": ("한라산",),
 }
 
-# 낱말 끝에 붙는 조사. '화악산은' 에서 '화악산' 을 얻으려고 뗀다.
-_PARTICLE = re.compile(r"(은|는|이|가|을|를|도|의|에서|에|쪽|근처)$")
-# 행정구역 이름. 산 이름이 들어 있어도 산이 아니다 — '설악면' 은 가평, '속리산면' 은 보은이다.
-_PLACE = re.compile(r"[가-힣]{2,}[동면읍리]")
+# 낱말 끝에 붙는 조사. '화악산은' 에서 '화악산' 을 얻으려고 뗀다. 겹쳐 붙은 것('에서는')과
+# '으로'·'까지' 도 뗀다 — 남겨 두면 '설악면으로' 가 행정구역으로 걸러지지 않고 설악산이 된다.
+# 산 이름·별칭은 이 글자들로 끝나지 않으므로 이름을 깎아 먹지 않는다.
+_PARTICLE = re.compile(r"(?:은|는|이|가|을|를|도|의|에서|에|쪽|근처|으로|로|까지|부터|만)+$")
+# 산 이름 바로 뒤에 붙어 낱말을 끝내면 행정구역이다 — '설악면' 은 가평, '속리산면' 은 보은이다.
+# '설악산이면'·'지리산가려면' 의 '면' 은 어미라 산 이름 바로 뒤가 아니다.
+_PLACE_SUFFIX = ("동", "면", "읍", "리")
 # '산' 앞에 붙어도 산 이름이 아닌 말 — "단풍 어느산이 좋아?" 에 "'어느산' 은 모릅니다" 라고 하면 엉뚱하다
 _NOT_NAME = re.compile(
     r"(어느|무슨|어떤|아무|다른|우리|동네|근교|근처|주변|인근|가까운|좋은|예쁜|이쁜|높은|낮은|"
     r"유명한|큰|작은|뒷|앞)산"
 )
+# 찾을 이름(이름·별칭, 띄어쓰기 없이)과 그 산. 목록 순서대로라 같은 자리면 앞선 산이 이긴다.
+_KEYED: tuple[tuple[str, Mountain], ...] = tuple(
+    (key.replace(" ", ""), m) for m in MOUNTAINS for key in (m.name, *m.aliases))
+_KEYS = tuple(key for key, _ in _KEYED)
+# '설악'·'한라' 처럼 이름에서 '산' 만 뗀 줄임말. 다른 말의 앞머리이기도 해서('한라대'·'치악체육관'·
+# '무등경기장') 낱말 하나로 섰을 때만 산으로 본다. 산 이름을 단풍 말 없이 물어도 산 날씨로 가므로
+# 도시의 학교·경기장을 물은 질문이 산으로 새면 안 된다.
+_SHORT = frozenset(a for m in MOUNTAINS for a in m.aliases if m.name.startswith(a))
 
 
 def find_mountain(text: str) -> Mountain | None:
@@ -91,13 +103,16 @@ def find_mountain(text: str) -> Mountain | None:
     '설악면' 처럼 행정구역 이름에 든 산 이름은 건너뛴다 — 산 날씨가 엉뚱한 동네로 나간다.
     """
     words = (_PARTICLE.sub("", w) for w in re.split(r"[\s,.?!~]+", text))
-    flat = "".join(w for w in words if not _PLACE.fullmatch(w))
+    kept = [w for w in words if not (w.endswith(_PLACE_SUFFIX) and w[:-1].endswith(_KEYS))]
+    flat = "".join(kept)
+    starts: dict[str, int] = {}            # 낱말이 처음 나온 자리 — 줄임말은 낱말로만 찾는다
+    for w, at in zip(kept, itertools.accumulate((len(w) for w in kept), initial=0)):
+        starts.setdefault(w, at)
     best: tuple[int, Mountain] | None = None
-    for m in MOUNTAINS:
-        for key in (m.name, *m.aliases):
-            pos = flat.find(key.replace(" ", ""))
-            if pos >= 0 and (best is None or pos < best[0]):
-                best = (pos, m)
+    for key, m in _KEYED:
+        pos = starts.get(key, -1) if key in _SHORT else flat.find(key)
+        if pos >= 0 and (best is None or pos < best[0]):
+            best = (pos, m)
     return best[1] if best else None
 
 

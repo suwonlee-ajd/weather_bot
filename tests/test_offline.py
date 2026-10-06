@@ -318,7 +318,7 @@ def test_city_uses_dong_forecast() -> None:
 
     dong_calls: list = []
 
-    def fake_dong_reply(zone, name, days=4, start=None):
+    def fake_dong_reply(zone, name, days=4, start=None, **_):
         dong_calls.append((name, days, start))
         return f"*{name}* 동네예보"
 
@@ -854,9 +854,17 @@ def test_mountain_lookup() -> None:
               "가까운산 단풍", "근교산 추천"):
         assert unknown_mountain(q) is None, q
     # 산 이름이 든 행정구역은 산이 아니다 — 가평 설악면 날씨가 속초로 나가면 안 된다
-    for q in ("가평 설악면 날씨", "보은 속리산면은", "청송 주왕산면에서"):
+    for q in ("가평 설악면 날씨", "보은 속리산면은", "청송 주왕산면에서", "가평 설악면으로 가는데 날씨",
+              "속리산면에서는 어때"):
         assert find_mountain(q) is None, q
+    # 어미 '-면' 은 행정구역이 아니다
+    for q, name in (("설악산이면 어때", "설악산"), ("지리산가려면 뭐 입어", "지리산")):
+        assert (m := find_mountain(q)) and m.name == name, q
     assert find_mountain("설악산에서 하룻밤").name == "설악산"
+    # '산' 만 뗀 줄임말은 낱말로 섰을 때만 — 도시의 학교·경기장을 산으로 보내지 않는다
+    for q in ("내일 한라대 근처 날씨", "원주 치악체육관 날씨", "광주 무등경기장 날씨"):
+        assert find_mountain(q) is None, q
+    assert find_mountain("주말 설악 날씨").name == "설악산"
 
     from src.mountains import REGION_MOUNTAINS, in_region, in_zone
     from src.kma_scrape import REGIONS

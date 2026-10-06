@@ -61,6 +61,10 @@ OUTLOOK_TTL_SEC = 24 * 3600
 DETAIL_TTL_SEC = 120 * 24 * 3600
 # 예상 조회가 실패했거나 아직 안 올라왔을 때 다시 보기까지. 멘션마다 PDF 를 받으러 가지 않게 한다.
 OUTLOOK_RETRY_SEC = 1800
+# 현황 조회가 실패했을 때 다시 보기까지. 단풍철엔 지역 날씨 답마다 현황을 붙이므로(mention),
+# 기상청이 점검 중이면 날씨 답 하나하나가 실패할 요청을 기다리게 된다. 단풍을 직접 물은
+# 사람에게는 «잠시 뒤 다시 불러 주세요» 라고 답하므로 길게 잡지 않는다.
+STATUS_RETRY_SEC = 120
 # 산별 날짜를 동시에 몇 개까지 받을지. 늦가을엔 20곳 가까이 물들어 하나씩 받으면 길어진다.
 DETAIL_WORKERS = 4
 
@@ -239,7 +243,8 @@ def fetch_status(today: dt.date) -> Status:
                 if peak:
                     status.peak[name] = peak
         return status
-    return get_or_set(("foliage-status", today), STATUS_TTL_SEC, load)
+    return get_or_set(("foliage-status", today), STATUS_TTL_SEC, load,
+                      errors=(FoliageError,), error_ttl=STATUS_RETRY_SEC)
 
 
 # --- 웨더아이 예상 -----------------------------------------------------------
@@ -303,6 +308,16 @@ def _find_post(list_html: str, year: int) -> str | None:
     return urllib.parse.urljoin(WEATHERI_BASE, m.group(1)) if m else None
 
 
+def posted_on(post_html: str, year: int) -> dt.date | None:
+    """웨더아이 게시물의 게시일. 머리 표의 날짜 칸에 있다 — 벚꽃 게시물도 같은 판이다.
+
+    페이지 맨 위 특보 띠에도 오늘 날짜가 흘러가므로 칸의 글자색으로 집는다.
+    작성자 칸이 비어 있는 해(2026 벚꽃)가 있어 '관리자' 뒤를 찾으면 놓친다.
+    """
+    m = re.search(rf"#124c78\">\s*({year})-(\d{{2}})-(\d{{2}})", post_html)
+    return dt.date(*map(int, m.groups())) if m else None
+
+
 def fetch_outlook(year: int) -> Outlook | None:
     """올해 웨더아이 예상. 아직 안 올라왔으면 None, 읽다 실패하면 FoliageError.
 
@@ -331,10 +346,7 @@ def _load_outlook(year: int) -> Outlook:
     # 파일명에 대괄호가 들어 있다 ([Weatheri]2026_maple.pdf)
     pdf_url = urllib.parse.quote(pdf.group(0), safe=":/?&=%")
     first, peak = parse_outlook_text(_pdf_text(_get(pdf_url, timeout=30).content), year)
-    # 게시일은 작성자(관리자) 바로 뒤에 있다. 페이지 맨 위 특보 띠에도 날짜가 흘러가므로
-    # 처음 나오는 날짜를 잡으면 오늘 날짜가 걸린다.
-    posted = re.search(rf"관리자.{{0,300}}?({year})-(\d{{2}})-(\d{{2}})", post.text, re.S)
-    published = dt.date(*map(int, posted.groups())) if posted else None
+    published = posted_on(post.text, year)
     log.info("웨더아이 %d년 단풍 예상 %d곳 (%s 발표)", year, len(first), published)
     return Outlook(first=first, peak=peak, published=published, url=post_url)
 

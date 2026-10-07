@@ -1,3 +1,7 @@
+# Claude Code 설정
+.claude
+CLAUDE.md
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -226,5 +230,21 @@ data/
 # 로그 — loguru 가 자정에 회전·압축함
 logs/
 
-# Claude Code 로컬 설정·스킬 — 개발 편의용, 봇 동작과 무관. 문체 기준은 docs/writing-style.md
-.claude/
+# 데이터 파일
+data/
+
+# 임시, 백업 파일
+temp/
+tmp/
+bck/
+*.temp
+*.tmp
+*.bck
+
+# 보안 제어 (엑소스피어)
+*.exo
+
+# Security
+secrets/
+*.pem
+*.key

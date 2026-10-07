@@ -767,6 +767,26 @@ def test_footer_and_region_variation() -> None:
         mention.fetch_dong = lambda z, n: fake_fetch(z, n, mention.DONG_MAX_DAYS)
         full = mention._dong_reply("1100000000", "서울특별시", days=mention.DONG_MAX_DAYS)
         assert "더 먼 날이 필요" in full, full
+        # 오전·낮 발표는 4일치 — 일수가 아니라 «자료 끝까지» 로 재야 안내가 붙음
+        mention.fetch_dong = lambda z, n: fake_fetch(z, n, 4)
+        four = mention._dong_reply("1100000000", "서울특별시", days=mention.DONG_MAX_DAYS)
+        assert "더 먼 날이 필요" in four, four
+        part = mention._dong_reply("1100000000", "서울특별시", days=2)
+        assert "더 먼 날이 필요" not in part, part             # 끝까지 안 왔으면 붙이지 않음
+
+        # 오늘 줄은 남은 시간의 값 — «N시 이후» 를 붙이고 굵게(그 주 최저·최고)에서 뺌
+        late = fake_fetch("", "서울특별시", 3)
+        first = late.daily_summary()[0][0]
+        late.points = ([SimpleNamespace(when=dt.datetime.combine(first, dt.time(h))) for h in (21, 22, 23)]
+                       + [SimpleNamespace(when=dt.datetime.combine(first + dt.timedelta(days=1), dt.time(h)))
+                          for h in range(24)])
+        rows = late.daily_summary()
+        rows[0] = (first, 10.0, 12.0, "맑음", 0)             # 밤 몇 시간 값이 그 주 최저처럼 보이는 경우
+        late.daily_summary = lambda: rows
+        mention.fetch_dong = lambda z, n: late
+        tonight = mention._dong_reply("1100000000", "서울특별시", days=3)
+        assert f"`{mention.day_label(first)}` 21시 이후 10~12℃" in tonight, tonight   # 굵게 아님
+        assert "시 이후" not in tonight.split("\n")[2], tonight                       # 다음 날은 그대로
 
         # 같은 날·같은 수치라도 지역이 다르면 조언 문장이 갈림
         mention.fetch_dong = lambda z, n: fake_fetch(z, n, 3)

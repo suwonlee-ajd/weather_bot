@@ -25,9 +25,10 @@ from src.kma.scrape import (  # noqa: E402
     resolve_region,
 )
 from src.mention.bot import build_reply  # noqa: E402
+from src.weekly.body import fallback  # noqa: E402
 from src.weekly.card import render_png  # noqa: E402
 from src.weekly.forecast import DayForecast, WeekForecast  # noqa: E402
-from src.weekly.writer import extract_json, fallback  # noqa: E402
+from src.weekly.writer import extract_json  # noqa: E402
 
 # 본 실행과 같은 자리에 씀 — .gitignore 도 보존 기간 정리도 그쪽만 봄
 IMG = pathlib.Path("data/img")
@@ -648,7 +649,7 @@ def test_weekly_body() -> None:
 
     from src.advice.phrases import SPREAD_LINES
     from src.advice.rules import build_advice
-    from src.weekly.writer import quote_josa, theme_paragraph
+    from src.weekly.body import quote_josa, theme_paragraph
 
     first, second = fallback(fake_week()).body.split("\n\n")
     assert first.endswith("습니다."), first                   # 열어 두지 않음

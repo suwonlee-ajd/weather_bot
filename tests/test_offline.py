@@ -56,6 +56,19 @@ def fake_week() -> WeekForecast:
     return week
 
 
+def test_log_dir() -> None:
+    """LOG_DIR 이 없으면 저장소의 logs/ — 패키지를 옮겨도 src/ 아래로 새지 않음."""
+    from src.common.logsetup import log_dir
+
+    saved = os.environ.pop("LOG_DIR", None)
+    try:
+        assert log_dir() == pathlib.Path(__file__).resolve().parents[1] / "logs", log_dir()
+    finally:
+        if saved is not None:
+            os.environ["LOG_DIR"] = saved
+    print("[ok] 로그 위치 — 저장소의 logs/")
+
+
 def test_extract_json() -> None:
     assert extract_json('```json\n{"lead": "가"}\n```')["lead"] == "가"
     assert extract_json('설명입니다.\n{"lead": "나"}\n끝')["lead"] == "나"
@@ -194,8 +207,9 @@ def test_long_range_routing() -> None:
             url="https://example.invalid",
         )
 
-    orig = (region_reply.scrape_range, answer_mod.search_dong, answer_mod.fetch_outlook)
+    orig = (region_reply.scrape_range, answer_mod.search_dong, answer_mod.fetch_outlook, answer_mod.find_wide)
     region_reply.scrape_range, answer_mod.search_dong = fake_scrape, lambda q, limit=5: []
+    answer_mod.find_wide = lambda q: None               # 행정구역 목록을 받으러 가지 않게
     answer_mod.fetch_outlook = fake_outlook
     now = dt.datetime(2026, 9, 14, 9, 0, tzinfo=KST)
     try:
@@ -234,7 +248,7 @@ def test_long_range_routing() -> None:
         assert calls == ["경남"], calls
         print("[ok] 장기 요청 분기 — 1개월 전망 / 먼 미래 거절 / 주간 정상")
     finally:
-        region_reply.scrape_range, answer_mod.search_dong, answer_mod.fetch_outlook = orig
+        region_reply.scrape_range, answer_mod.search_dong, answer_mod.fetch_outlook, answer_mod.find_wide = orig
         clear()
 
 
@@ -1551,6 +1565,7 @@ def test_weekly_themes() -> None:
 
 if __name__ == "__main__":
     test_extract_json()
+    test_log_dir()
     test_find_region()
     test_wide_areas()
     test_find_dong()

@@ -113,7 +113,7 @@ def log_dir() -> Path:
     env = os.environ.get("LOG_DIR")
     if env:
         return Path(env).expanduser()
-    return Path(__file__).resolve().parent.parent / "logs"
+    return Path(__file__).resolve().parents[2] / "logs"   # src/common/logsetup.py → 저장소
 
 
 def dated_sink_path(base: Path, app_name: str, suffix: str = ".log") -> str:

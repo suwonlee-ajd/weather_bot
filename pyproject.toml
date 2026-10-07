@@ -45,3 +45,6 @@ packages = ["src"]
 
 [dependency-groups]
 dev = ["ruff>=0.15,<0.16"]
+
+[tool.ruff.lint]
+extend-select = ["I"]   # import 정렬

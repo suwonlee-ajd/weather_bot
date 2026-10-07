@@ -27,9 +27,9 @@ import math
 from pathlib import Path
 
 from src.season.foliage import CRITERIA_TEXT, KINDS, NOT_STARTED_TEXT, OUTLOOK_SOURCE, STAGES, Snapshot
-from src.weekly.forecast import day_label, short_date
+from src.common.text import day_label, short_date
 from src.season.mountains import MOUNTAINS, Mountain
-from src.weekly.card import CARD_WIDTH, capture
+from src.common.browser import CARD_WIDTH, capture
 
 ASSET = Path(__file__).parent / "assets" / "korea_provinces.json"
 

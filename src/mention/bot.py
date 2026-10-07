@@ -23,7 +23,7 @@ from dataclasses import dataclass, replace
 
 from src.common.cache import get_or_set
 from src.common.config import KST
-from src.weekly.forecast import day_label, range_text, short_date
+from src.common.text import bold, day_label, range_text, short_date
 from src.common.logsetup import setup
 from src.kma.dong import DongError, fetch_dong, find_wide, search_dong
 from src.season.foliage import KMA_PAGE as KMA_FOLIAGE_PAGE
@@ -33,7 +33,6 @@ from src.season.foliage import (
 )
 from src.season.mountains import MOUNTAINS, Mountain, find_mountain, in_region, in_zone, unknown_mountain
 from src.kma.outlook import OutlookError, fetch_outlook
-from src.weekly.paragraph import bold
 from src.season.foliage_map import gap_text, observed_line, sources, week_changes, week_line
 from src.season.foliage_map import render_png as render_foliage_png
 from src.kma.scrape import (

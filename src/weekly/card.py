@@ -19,9 +19,9 @@ from __future__ import annotations
 
 import html
 
+from src.common.browser import CARD_WIDTH, capture
 from src.weekly.forecast import Section, Source, WeekForecast
 
-CARD_WIDTH = 700
 
 CSS = """
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -101,27 +101,6 @@ def build_html(week: WeekForecast) -> str:
         f"<style>{CSS}</style></head><body>"
         f"<div id='card'>{''.join(body)}</div></body></html>"
     )
-
-
-def capture(markup: str, *, width: int = CARD_WIDTH, scale: int = 2) -> bytes:
-    """HTML 의 #card 요소를 헤드리스 Chromium으로 캡처해 PNG 바이트로 돌려줌.
-
-    단풍 지도(src/render_foliage.py)도 같은 방식으로 찍음.
-    """
-    from playwright.sync_api import sync_playwright
-
-    with sync_playwright() as p:
-        browser = p.chromium.launch(args=["--force-color-profile=srgb", "--font-render-hinting=none"])
-        try:
-            page = browser.new_page(
-                viewport={"width": width, "height": 600},
-                device_scale_factor=scale,
-            )
-            page.set_content(markup, wait_until="load")
-            page.wait_for_timeout(150)  # 레이아웃 안정화
-            return page.locator("#card").screenshot(type="png")
-        finally:
-            browser.close()
 
 
 def render_png(week: WeekForecast, *, scale: int = 2) -> bytes:

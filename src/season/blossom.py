@@ -32,8 +32,7 @@ import requests
 
 from src.common.config import UA
 from src.season.foliage import _date, posted_on      # 촬영일(올해 것만)·게시일 — 단풍과 같은 판
-from src.weekly.forecast import short_date
-from src.weekly.paragraph import bold
+from src.common.text import bold, short_date
 
 log = logging.getLogger(__name__)
 

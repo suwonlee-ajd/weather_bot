@@ -14,35 +14,11 @@ import logging
 from dataclasses import dataclass, field
 
 from src.common.config import KST
+from src.common.text import WEEKDAY_KO, day_label, range_text
 from src.kma.scrape import Narrative, Region, ScrapeError, find_region, scrape_week
 
 log = logging.getLogger(__name__)
 
-WEEKDAY_KO = ("월", "화", "수", "목", "금", "토", "일")
-
-
-def day_label(date: dt.date) -> str:
-    """슬랙·카드·CLI 가 공유하는 날짜 표기. 예: "09/14(월)"."""
-    return f"{date:%m/%d}({WEEKDAY_KO[date.weekday()]})"
-
-
-def short_date(date: dt.date) -> str:
-    """요일 없이 짧게. 단풍처럼 날짜를 여러 개 늘어놓을 때 씀. 예: "9/28"."""
-    return f"{date.month}/{date.day}"
-
-
-def short_day_label(date: dt.date) -> str:
-    """요일을 붙인 짧은 표기. 문장 안에 날짜를 넣을 때 씀. 예: "10/7(수)"."""
-    return f"{short_date(date)}({WEEKDAY_KO[date.weekday()]})"
-
-
-def range_text(lo: float | None, hi: float | None) -> str | None:
-    """기온 범위 표기. lo == hi 면 한 값으로 접음. 둘 다 없으면 None."""
-    if lo is None and hi is None:
-        return None
-    if lo is None or hi is None or lo == hi:
-        return f"{(lo if lo is not None else hi):.0f}℃"
-    return f"{lo:.0f}~{hi:.0f}℃"
 TEMP_RANGE = (-35.0, 45.0)  # 한반도에서 물리적으로 가능한 범위
 MAX_BAD_DAYS = 3
 

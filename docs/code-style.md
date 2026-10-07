@@ -89,6 +89,7 @@ type: `feat` · `fix` · `refactor` · `chore` · `docs` · `test`
 
 - 본문은 heredoc 으로 작성 — single-line `-m` 금지
 - 본인이 수정한 파일만 stage — wildcard add 금지
+- `Co-Authored-By` 라인 넣지 않음
 
 ## 브랜치
 

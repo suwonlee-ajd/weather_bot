@@ -26,10 +26,17 @@ import json
 import math
 from pathlib import Path
 
-from src.season.foliage import CRITERIA_TEXT, KINDS, NOT_STARTED_TEXT, OUTLOOK_SOURCE, STAGES, Snapshot
-from src.common.text import day_label, short_date
-from src.season.mountains import MOUNTAINS, Mountain
 from src.common.browser import CARD_WIDTH, capture
+from src.common.text import day_label, short_date
+from src.season.foliage import (
+    CRITERIA_TEXT,
+    KINDS,
+    NOT_STARTED_TEXT,
+    OUTLOOK_SOURCE,
+    STAGES,
+    Snapshot,
+)
+from src.season.mountains import MOUNTAINS, Mountain
 
 ASSET = Path(__file__).parent / "assets" / "korea_provinces.json"
 

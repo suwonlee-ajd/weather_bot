@@ -22,14 +22,14 @@ import re
 import sys
 import time
 
-from src.weekly import themes
-from src.common.logsetup import setup
 from src.common.config import KST, Config
-from src.weekly.forecast import ForecastError, build_week
-from src.kma.chart import fetch_latest_chart
-from src.weekly.paragraph import Message
-from src.weekly.card import render_png
+from src.common.logsetup import setup
 from src.common.retention import sweep
+from src.kma.chart import fetch_latest_chart
+from src.weekly import themes
+from src.weekly.card import render_png
+from src.weekly.forecast import ForecastError, build_week
+from src.weekly.paragraph import Message
 from src.weekly.writer import write
 
 log = logging.getLogger("weekly-weather")

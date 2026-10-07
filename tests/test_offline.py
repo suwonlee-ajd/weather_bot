@@ -16,13 +16,17 @@ os.environ.setdefault("SLACK_BOT_TOKEN", "xoxb-test")
 os.environ.setdefault("SLACK_CHANNEL_ID", "C_TEST")
 
 from src.common.config import KST  # noqa: E402
-from src.weekly.forecast import DayForecast, WeekForecast  # noqa: E402
-from src.kma.scrape import (  # noqa: E402
-    Narrative, ScrapedDay, _resolve_date, find_region, resolve_region,
-)
 from src.kma.chart import PNG_MAGIC, fetch_latest_chart  # noqa: E402
-from src.weekly.card import render_png  # noqa: E402
+from src.kma.scrape import (  # noqa: E402
+    Narrative,
+    ScrapedDay,
+    _resolve_date,
+    find_region,
+    resolve_region,
+)
 from src.mention.bot import build_reply  # noqa: E402
+from src.weekly.card import render_png  # noqa: E402
+from src.weekly.forecast import DayForecast, WeekForecast  # noqa: E402
 from src.weekly.writer import extract_json, fallback  # noqa: E402
 
 # 본 실행과 같은 자리에 씀 — .gitignore 도 보존 기간 정리도 그쪽만 봄
@@ -239,6 +243,7 @@ def test_long_range_routing() -> None:
 def test_topic_advice() -> None:
     """활동·복장 질문에 맞춘 조언. 지역·날짜와 함께 와도 해석함."""
     from types import SimpleNamespace
+
     from src.advice.rules import detect_topic, topic_advice
     from src.kma.scrape import extract_region
 
@@ -419,7 +424,8 @@ def test_explicit_date() -> None:
 def test_phrase_rotation() -> None:
     """같은 조건이라도 날짜가 다르면 문구가 달라지고, 같은 날은 늘 같음."""
     import src.advice.rules as advice
-    from src.advice.rules import _pick, SPREAD_LINES
+    from src.advice.phrases import SPREAD_LINES
+    from src.advice.rules import _pick
 
     base = dt.date(2026, 9, 13)
     got = {_pick(SPREAD_LINES, base + dt.timedelta(days=i))
@@ -455,8 +461,9 @@ def test_phrase_rotation() -> None:
 
 def test_advice() -> None:
     """수치에서 조언을 뽑되, 근거가 없으면 말하지 않음."""
-    from src.advice.rules import build_advice
     from types import SimpleNamespace
+
+    from src.advice.rules import build_advice
 
     def day(d, lo, hi, sky=None, pop=None):
         return SimpleNamespace(date=d, tmin_lo=lo, tmin_hi=lo,
@@ -514,8 +521,8 @@ def test_resolve_date() -> None:
 def test_forecast_validation() -> None:
     """스크랩 값이 이상하면 바로잡거나 버림."""
     import src.kma.scrape as scrape_mod
-    from src.weekly.forecast import ForecastError, build_week
     from src.kma.scrape import Scrape
+    from src.weekly.forecast import ForecastError, build_week
 
     class Cfg:
         area_label = "전국"
@@ -638,7 +645,9 @@ def test_weekly_body() -> None:
     """
     import re
     from types import SimpleNamespace
-    from src.advice.rules import SPREAD_LINES, build_advice
+
+    from src.advice.phrases import SPREAD_LINES
+    from src.advice.rules import build_advice
     from src.weekly.writer import quote_josa, theme_paragraph
 
     first, second = fallback(fake_week()).body.split("\n\n")
@@ -743,8 +752,9 @@ def test_footer_and_region_variation() -> None:
     고정 꼬리말 두 줄이 화면의 절반이고 조언 문구를 날짜만 보고 고르면, 서울과 부산을
     잇달아 물었을 때 본문이 달라도 두 답이 같은 메시지로 읽힘(실제로 그랬음).
     """
-    import src.mention.bot as mention
     from types import SimpleNamespace
+
+    import src.mention.bot as mention
 
     def fake_fetch(zone, name, days_n):
         base = dt.date(2026, 9, 16)
@@ -897,8 +907,8 @@ def test_foliage_parse() -> None:
 
 
 def test_mountain_lookup() -> None:
-    from src.season.mountains import MOUNTAINS, find_mountain, unknown_mountain
     from src.season.foliage_map import LAT0, LAT1, LON0, LON1
+    from src.season.mountains import MOUNTAINS, find_mountain, unknown_mountain
 
     assert len(MOUNTAINS) == 21 and len({m.zone for m in MOUNTAINS}) == 21
     assert all(LON0 < m.lon < LON1 and LAT0 < m.lat < LAT1 for m in MOUNTAINS), "지도 밖 좌표"
@@ -924,8 +934,8 @@ def test_mountain_lookup() -> None:
         assert find_mountain(q) is None, q
     assert find_mountain("주말 설악 날씨").name == "설악산"
 
-    from src.season.mountains import REGION_MOUNTAINS, in_region, in_zone
     from src.kma.scrape import REGIONS
+    from src.season.mountains import REGION_MOUNTAINS, in_region, in_zone
 
     names = {m.name for m in MOUNTAINS}
     assert set(REGION_MOUNTAINS) <= {r.key for r in REGIONS}, "없는 구역 이름"
@@ -940,8 +950,9 @@ def test_mountain_lookup() -> None:
 
 def test_foliage_routing() -> None:
     """단풍·꽃 질문의 갈래. 과거·1개월 전망으로 새지 않음."""
-    import src.mention.bot as mention
     from types import SimpleNamespace
+
+    import src.mention.bot as mention
 
     snap = fake_snapshot({"설악산": 1}, first={"설악산": dt.date(2026, 9, 28)})
     dong_calls: list = []
@@ -1051,12 +1062,12 @@ def test_foliage_routing() -> None:
 
 def test_foliage_in_weather() -> None:
     """단풍 말 없이 물어도 — 산 이름이면 산 날씨와 그 산의 단풍, 지역 날씨면 그 지역 산의 한 줄."""
-    import src.mention.bot as mention
     from types import SimpleNamespace
 
+    import src.mention.bot as mention
     from src.common.cache import clear
-    from src.season.foliage import FoliageError
     from src.kma.scrape import Scrape, ScrapedDay
+    from src.season.foliage import FoliageError
 
     now = dt.datetime(2026, 10, 1, 15, 0, tzinfo=KST)        # 단풍철, 목요일
     snaps = [fake_snapshot({"설악산": 1}, first={"설악산": dt.date(2026, 9, 28)})]
@@ -1245,7 +1256,8 @@ def test_cache_failures() -> None:
 
 def test_foliage_render() -> None:
     from src.season.foliage import STAGES
-    from src.season.foliage_map import build_html, observed_line, render_png as render_map
+    from src.season.foliage_map import build_html, observed_line
+    from src.season.foliage_map import render_png as render_map
 
     d = dt.date
     early = fake_snapshot({"설악산": 1}, first={"설악산": d(2026, 9, 28)})
@@ -1323,7 +1335,12 @@ def test_blossom_parse() -> None:
     """기상청 JSONP 와 웨더아이 표. 해마다 바뀐 날짜 표기, 군락지·평균 줄, 깨진 표."""
     import json
 
-    from src.season.blossom import BlossomError, parse_outlook_text, parse_status, posted_on
+    from src.season.blossom import (
+        BlossomError,
+        parse_outlook_text,
+        parse_status,
+        posted_on,
+    )
 
     def jsonp(service: bool) -> str:
         places = [{"obsPlace": n, "status": s, "sts": str(["개화 전", "개화", "만발"].index(s) + 1)}
@@ -1368,7 +1385,14 @@ def test_blossom_parse() -> None:
 
 def test_blossom_text() -> None:
     """벚꽃 줄 문구. 예상 전엔 평년, 이번 주가 비면 다음 개화, 출처는 받은 쪽만."""
-    from src.season.blossom import Outlook, Status, observed_line, sources, week_line, year_line
+    from src.season.blossom import (
+        Outlook,
+        Status,
+        observed_line,
+        sources,
+        week_line,
+        year_line,
+    )
 
     d = dt.date
     normal = {"서귀포": d(2026, 3, 24), "부산": d(2026, 3, 28), "서울": d(2026, 4, 8)}
@@ -1401,9 +1425,9 @@ def test_weekly_themes() -> None:
     import src.season.blossom as blossom
     import src.season.foliage as foliage
     import src.season.foliage_map as render_foliage
-    from src.weekly import themes
     from src.season.blossom import BlossomError, Outlook, Status
     from src.season.foliage import FoliageError
+    from src.weekly import themes
 
     d = dt.date
     renders: list = []

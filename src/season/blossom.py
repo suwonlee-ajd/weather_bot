@@ -31,8 +31,11 @@ from dataclasses import dataclass, field
 import requests
 
 from src.common.config import UA
-from src.season.foliage import _date, posted_on      # 촬영일(올해 것만)·게시일 — 단풍과 같은 판
 from src.common.text import bold, short_date
+from src.season.foliage import (  # 촬영일(올해 것만)·게시일 — 단풍과 같은 판
+    _date,
+    posted_on,
+)
 
 log = logging.getLogger(__name__)
 

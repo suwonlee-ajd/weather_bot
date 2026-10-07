@@ -17,15 +17,23 @@ import os
 import sys
 
 from src.common.config import KST
-from src.season.foliage import (
-    CRITERIA_TEXT, KINDS, NOT_STARTED_TEXT, OUTLOOK_SOURCE, SEASON_TEXT, STAGES,
-    FoliageError, fetch_snapshot, in_season, next_season,
-)
+from src.common.logsetup import setup
 from src.common.text import WEEKDAY_KO, day_label, range_text, short_date
 from src.kma.scrape import REGION_HELP, ScrapeError, find_region, scrape_week
-from src.common.logsetup import setup
-from src.season.mountains import MOUNTAINS, find_mountain
+from src.season.foliage import (
+    CRITERIA_TEXT,
+    KINDS,
+    NOT_STARTED_TEXT,
+    OUTLOOK_SOURCE,
+    SEASON_TEXT,
+    STAGES,
+    FoliageError,
+    fetch_snapshot,
+    in_season,
+    next_season,
+)
 from src.season.foliage_map import sources
+from src.season.mountains import MOUNTAINS, find_mountain
 
 
 def _foliage(name: str, as_json: bool) -> int:

@@ -22,7 +22,6 @@ import html
 from src.common.browser import CARD_WIDTH, capture
 from src.weekly.forecast import Section, Source, WeekForecast
 
-
 CSS = """
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { background: #ffffff; }

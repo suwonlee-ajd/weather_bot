@@ -32,12 +32,7 @@ from src.season.foliage import (
     next_season,
 )
 from src.season.foliage import KMA_PAGE as KMA_FOLIAGE_PAGE
-from src.season.foliage_map import (
-    gap_text,
-    observed_line,
-    sources,
-    week_line,
-)
+from src.season.foliage_text import gap_text, observed_line, sources, week_line
 from src.season.mountains import (
     MOUNTAINS,
     Mountain,

@@ -13,12 +13,7 @@ from src.season.foliage import (
     Snapshot,
     in_season,
 )
-from src.season.foliage_map import (
-    observed_line,
-    sources,
-    week_changes,
-    week_line,
-)
+from src.season.foliage_text import observed_line, sources, week_changes, week_line
 from src.season.mountains import (
     MOUNTAINS,
     Mountain,

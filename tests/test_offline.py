@@ -1258,8 +1258,9 @@ def test_cache_failures() -> None:
 
 def test_foliage_render() -> None:
     from src.season.foliage import STAGES
-    from src.season.foliage_map import build_html, observed_line
+    from src.season.foliage_map import build_html
     from src.season.foliage_map import render_png as render_map
+    from src.season.foliage_text import observed_line
 
     d = dt.date
     early = fake_snapshot({"설악산": 1}, first={"설악산": d(2026, 9, 28)})
@@ -1422,7 +1423,7 @@ def test_weekly_themes() -> None:
     """주간 게시의 철 소식. 단풍은 글과 지도, 벚꽃은 글. 못 만들어도 날씨 게시는 나감."""
     import src.season.blossom as blossom
     import src.season.foliage as foliage
-    import src.season.foliage_map as render_foliage
+    import src.season.foliage_map as foliage_map
     from src.season.blossom import BlossomError, Outlook, Status
     from src.season.foliage import FoliageError
     from src.weekly import themes
@@ -1440,9 +1441,9 @@ def test_weekly_themes() -> None:
     def labels(block):
         return [r.label for r in block.paragraph.rows]
 
-    orig = (foliage.fetch_snapshot, render_foliage.render_png, blossom.fetch_status, blossom.fetch_outlook)
+    orig = (foliage.fetch_snapshot, foliage_map.render_png, blossom.fetch_status, blossom.fetch_outlook)
     foliage.fetch_snapshot = lambda today: fake_snapshot({"설악산": 1}, first={"설악산": d(2026, 9, 28)})
-    render_foliage.render_png = fake_render
+    foliage_map.render_png = fake_render
     blossom.fetch_status = lambda today: Status(stages={"진해 여좌천": 0}, in_service=False)
     blossom.fetch_outlook = lambda year: Outlook(expected={"서귀포": d(2026, 3, 25)},
                                                 normal={"서귀포": d(2026, 3, 24)}, published=d(2026, 2, 26))
@@ -1479,7 +1480,7 @@ def test_weekly_themes() -> None:
         renders.clear()
         assert themes.blocks_for(d(2026, 6, 1), d(2026, 6, 1), 2) == [] and not renders
     finally:
-        foliage.fetch_snapshot, render_foliage.render_png, blossom.fetch_status, blossom.fetch_outlook = orig
+        foliage.fetch_snapshot, foliage_map.render_png, blossom.fetch_status, blossom.fetch_outlook = orig
     print("[ok] 철 소식 — 단풍 글·지도, 벚꽃 글, 실패해도 날씨는 나간다")
 
 

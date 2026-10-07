@@ -18,8 +18,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from src.common.text import bold
-from src.season import blossom, foliage
-from src.season import foliage_map as render_foliage
+from src.season import blossom, foliage, foliage_map, foliage_text
 from src.weekly.paragraph import Attachment, Block, Paragraph
 
 log = logging.getLogger(__name__)
@@ -34,19 +33,19 @@ def foliage_block(week_start: dt.date, today: dt.date, scale: int) -> Block | No
         return None
     week_end = week_start + dt.timedelta(days=6)
     paragraph = (Paragraph("이번 주 단풍", emoji=":maple_leaf:")
-                 .add("관측", render_foliage.observed_line(snap, bold))
-                 .add("이번 주", render_foliage.week_line(snap, week_start, week_end, bold,
+                 .add("관측", foliage_text.observed_line(snap, bold))
+                 .add("이번 주", foliage_text.week_line(snap, week_start, week_end, bold,
                                                          muted=lambda s: s)))
     attachment = None
     try:
-        png = render_foliage.render_png(snap, week_start, scale=scale)
+        png = foliage_map.render_png(snap, week_start, scale=scale)
         attachment = Attachment("foliage", png, "단풍 지도",
                                 "전국 21개 명산의 단풍 현황(기상청)과 예상 시기(웨더아이) 지도")
         log.info("단풍 지도 %s bytes", f"{len(png):,}")
     except Exception:
         log.warning("단풍 지도를 만들지 못해 글로만 붙입니다", exc_info=True)
     # 출처는 실린 것에 맞춤 — 예상을 못 읽었으면 글에도 지도에도 예상이 없음
-    credit = f"{'단풍 지도' if attachment else '단풍'} · {render_foliage.sources(snap)}"
+    credit = f"{'단풍 지도' if attachment else '단풍'} · {foliage_text.sources(snap)}"
     return Block(paragraph, credit, attachment)
 
 

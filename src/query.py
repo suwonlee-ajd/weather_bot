@@ -33,7 +33,7 @@ from src.season.foliage import (
     in_season,
     next_season,
 )
-from src.season.foliage_map import sources
+from src.season.foliage_text import sources
 from src.season.mountains import MOUNTAINS, find_mountain
 from src.season.sources import OUTLOOK_SOURCE
 

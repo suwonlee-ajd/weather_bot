@@ -19,7 +19,7 @@ from src.common.config import KST  # noqa: E402
 from src.kma.chart import PNG_MAGIC, fetch_latest_chart  # noqa: E402
 from src.kma.page import Narrative, ScrapedDay, _resolve_date
 from src.kma.regions import find_region, resolve_region
-from src.mention.bot import build_reply  # noqa: E402
+from src.mention.answer import build_reply  # noqa: E402
 from src.weekly.body import fallback  # noqa: E402
 from src.weekly.card import render_png  # noqa: E402
 from src.weekly.forecast import DayForecast, WeekForecast  # noqa: E402
@@ -127,7 +127,7 @@ def test_find_dong() -> None:
 
 def test_greeting() -> None:
     """인사·잡담은 자기소개로, 감사는 짧게. 지역이 섞이면 날씨가 우선."""
-    import src.mention.bot as mention
+    import src.mention.answer as answer_mod
 
     calls: list = []
 
@@ -138,9 +138,9 @@ def test_greeting() -> None:
 
     from src.common.cache import clear
 
-    orig_scrape, orig_dong = mention.scrape_range, mention.search_dong
-    mention.scrape_range = fake_scrape
-    mention.search_dong = lambda q, limit=5: []
+    orig_scrape, orig_dong = answer_mod.scrape_range, answer_mod.search_dong
+    answer_mod.scrape_range = fake_scrape
+    answer_mod.search_dong = lambda q, limit=5: []
     now = dt.datetime(2026, 9, 14, 9, 0, tzinfo=KST)
     try:
         for greeting in ("안녕?", "하이", "너 누구야", "뭐해"):
@@ -163,13 +163,13 @@ def test_greeting() -> None:
         assert calls == ["경남"], calls
         print("[ok] 인사 응답 — 자기소개/감사/도움말 구분, 지역 우선")
     finally:
-        mention.scrape_range, mention.search_dong = orig_scrape, orig_dong
+        answer_mod.scrape_range, answer_mod.search_dong = orig_scrape, orig_dong
         clear()
 
 
 def test_long_range_routing() -> None:
     """10일 너머 요청의 세 갈래: 1개월 전망 / 너무 먼 미래 / 정상 조회."""
-    import src.mention.bot as mention
+    import src.mention.answer as answer_mod
     from src.common.cache import clear
     from src.kma.page import Scrape
 
@@ -192,9 +192,9 @@ def test_long_range_routing() -> None:
             url="https://example.invalid",
         )
 
-    orig = (mention.scrape_range, mention.search_dong, mention.fetch_outlook)
-    mention.scrape_range, mention.search_dong = fake_scrape, lambda q, limit=5: []
-    mention.fetch_outlook = fake_outlook
+    orig = (answer_mod.scrape_range, answer_mod.search_dong, answer_mod.fetch_outlook)
+    answer_mod.scrape_range, answer_mod.search_dong = fake_scrape, lambda q, limit=5: []
+    answer_mod.fetch_outlook = fake_outlook
     now = dt.datetime(2026, 9, 14, 9, 0, tzinfo=KST)
     try:
         # 1개월 전망으로 답함 — 계절 표현 포함
@@ -232,7 +232,7 @@ def test_long_range_routing() -> None:
         assert calls == ["경남"], calls
         print("[ok] 장기 요청 분기 — 1개월 전망 / 먼 미래 거절 / 주간 정상")
     finally:
-        mention.scrape_range, mention.search_dong, mention.fetch_outlook = orig
+        answer_mod.scrape_range, answer_mod.search_dong, answer_mod.fetch_outlook = orig
         clear()
 
 
@@ -270,7 +270,7 @@ def test_topic_advice() -> None:
 
 def test_cache_shared_across_spans() -> None:
     """지역 캐시 하나를 «이번 주»·«다음 주»·«기본» 이 나눠 써도 날이 빠지지 않음."""
-    import src.mention.bot as mention
+    import src.mention.answer as answer_mod
     from src.common.cache import clear
     from src.kma.page import Narrative, Scrape, ScrapedDay
 
@@ -285,18 +285,18 @@ def test_cache_shared_across_spans() -> None:
         return Scrape(days={d: v for d, v in full.items() if d in window},
                       narratives=[Narrative("통보문", "", None, [])])
 
-    orig = mention.scrape_range
-    mention.scrape_range = fake_scrape
+    orig = answer_mod.scrape_range
+    answer_mod.scrape_range = fake_scrape
     try:
         now = dt.datetime(2026, 9, 12, 9, 0, tzinfo=KST)   # 토요일
         clear()
         # 광역 캐시가 기간을 가로채지 않는지 봄 — «다음 주» 로 캐시를 채운 뒤
         # «기본(오늘부터 7일)» 을 물음.
         # 구역명으로 부름 — '부산' 은 시도 동네예보로 빠짐(find_wide).
-        mention.build_reply("<@U123> 경남 다음주", now)
-        reply = mention.build_reply("<@U123> 경남 날씨", now)
+        answer_mod.build_reply("<@U123> 경남 다음주", now)
+        reply = answer_mod.build_reply("<@U123> 경남 날씨", now)
     finally:
-        mention.scrape_range = orig
+        answer_mod.scrape_range = orig
         clear()
 
     # 오늘·내일이 빠지면 안 됨 — 캐시에 다음 주만 담겨 통째로 사라진 적이 있음
@@ -307,7 +307,7 @@ def test_cache_shared_across_spans() -> None:
 
 def test_city_uses_dong_forecast() -> None:
     """'부산' 은 구역이 아니라 부산광역시 값으로 답함 — 기간이 닿는 한."""
-    import src.mention.bot as mention
+    import src.mention.answer as answer_mod
     from src.common.cache import clear
     from src.kma.page import Scrape
 
@@ -323,37 +323,38 @@ def test_city_uses_dong_forecast() -> None:
         dong_calls.append((name, days, start))
         return f"*{name}* 동네예보"
 
-    orig = (mention.scrape_range, mention._dong_reply, mention.find_wide)
-    mention.scrape_range = fake_scrape
-    mention._dong_reply = fake_dong_reply
-    mention.find_wide = lambda q: ("2600000000", "부산광역시") if "부산" in q else None
+    orig = (answer_mod.scrape_range, answer_mod._dong_reply, answer_mod.find_wide)
+    answer_mod.scrape_range = fake_scrape
+    answer_mod._dong_reply = fake_dong_reply
+    answer_mod.find_wide = lambda q: ("2600000000", "부산광역시") if "부산" in q else None
     now = dt.datetime(2026, 9, 14, 9, 0, tzinfo=KST)   # 월요일
     try:
         clear()
-        mention.build_reply("<@U1> 부산 날씨", now)
+        answer_mod.build_reply("<@U1> 부산 날씨", now)
         assert dong_calls and not calls, (dong_calls, calls)
 
         # 주 단위는 광역으로 — 이레를 물었는데 동네예보(5일)로 사흘만 주지 않음
         dong_calls.clear()
         clear()
-        mention.build_reply("<@U1> 부산 이번주", now)
+        answer_mod.build_reply("<@U1> 부산 이번주", now)
         assert calls and not dong_calls, (dong_calls, calls)
 
         # 동네예보가 닿지 않는 먼 날도 광역으로
         dong_calls.clear()
         calls.clear()
         clear()
-        mention.build_reply("<@U1> 부산 다음주", now)
+        answer_mod.build_reply("<@U1> 부산 다음주", now)
         assert calls and not dong_calls, (dong_calls, calls)
     finally:
-        mention.scrape_range, mention._dong_reply, mention.find_wide = orig
+        answer_mod.scrape_range, answer_mod._dong_reply, answer_mod.find_wide = orig
         clear()
     print("[ok] 시도 조회 — 가까운 날은 시 단위, 주 단위는 광역")
 
 
 def test_partial_week_is_declared() -> None:
     """예보가 기간을 못 채우면 머리글이 실제 범위를 말하고, 왜 짧은지 밝힘."""
-    import src.mention.bot as mention
+    import src.mention.answer as answer_mod
+    import src.season.foliage as foliage_mod
     from src.common.cache import clear
     from src.kma.page import Narrative, Scrape, ScrapedDay
 
@@ -366,16 +367,16 @@ def test_partial_week_is_declared() -> None:
                 for i in range(span) if (d := start + dt.timedelta(days=i)) in horizon}
         return Scrape(days=days, narratives=[Narrative("중기예보", "", None, [])])
 
-    orig = (mention.scrape_range, mention.find_wide, mention.fetch_snapshot)
-    mention.scrape_range = fake_scrape
-    mention.find_wide = lambda q: None
-    mention.fetch_snapshot = lambda today: fake_snapshot(outlook=False)   # 기상청을 부르지 않게 — 단풍철임
+    orig = (answer_mod.scrape_range, answer_mod.find_wide, foliage_mod.fetch_snapshot)
+    answer_mod.scrape_range = fake_scrape
+    answer_mod.find_wide = lambda q: None
+    foliage_mod.fetch_snapshot = lambda today: fake_snapshot(outlook=False)   # 기상청을 부르지 않게 — 단풍철임
     now = dt.datetime(2026, 9, 14, 9, 0, tzinfo=KST)
     try:
         clear()
-        reply = mention.build_reply("<@U1> 다음주 날씨", now)
+        reply = answer_mod.build_reply("<@U1> 다음주 날씨", now)
     finally:
-        mention.scrape_range, mention.find_wide, mention.fetch_snapshot = orig
+        answer_mod.scrape_range, answer_mod.find_wide, foliage_mod.fetch_snapshot = orig
         clear()
 
     # 머리글이 09/27 까지라고 말하면 안 됨 — 자료는 09/23 까지임
@@ -389,7 +390,7 @@ def test_partial_week_is_declared() -> None:
 
 def test_explicit_date() -> None:
     """"9월 18일" 처럼 날짜를 콕 집으면 그 하루만 답함."""
-    from src.mention.bot import _explicit_date
+    from src.mention.parse import _explicit_date
 
     today = dt.date(2026, 9, 12)
     assert _explicit_date("9월 18일 부산 날씨", today) == dt.date(2026, 9, 18)
@@ -405,7 +406,7 @@ def test_explicit_date() -> None:
     # 요일 표기가 붙어도 같은 날로 읽고, 찌꺼기를 남기지 않음.
     # 봇 출력이 «09/16(수)» 형식이라 그대로 복사해 다시 묻는 사람이 많음.
     # 날짜만 맞고 «(금)» 이 남으면 그 뒤 지역 해석이 깨짐(역삼동이 안 잡혔음).
-    from src.mention.bot import EXPLICIT_DATE_RE
+    from src.mention.parse import EXPLICIT_DATE_RE
     for q in ("9/18(금)", "9월 18일(금)", "18일(금)", "9/18 (금)",
               "9월18일(금요일)", "09/18（금）"):
         assert _explicit_date(q, today) == _explicit_date("9/18", today), q
@@ -565,7 +566,7 @@ def test_forecast_validation() -> None:
 
 def test_mention_parsing() -> None:
     """멘션 문장에서 지역과 기간을 읽어내는지. (네트워크는 타지 않는 경로만 확인)"""
-    import src.mention.bot as mention
+    import src.mention.answer as answer_mod
     from src.common.cache import clear
     from src.kma.page import Scrape
 
@@ -575,8 +576,8 @@ def test_mention_parsing() -> None:
         calls.append((region.key, start, span))
         return Scrape(days={}, narratives=[])
 
-    orig = mention.scrape_range
-    mention.scrape_range = fake_scrape
+    orig = answer_mod.scrape_range
+    answer_mod.scrape_range = fake_scrape
     try:
         now = dt.datetime(2026, 9, 12, 9, 0, tzinfo=KST)   # 토요일
         # 광역 조회의 수집 범위를 봄 — 시도 이름('부산'·'제주')은 동네예보로
@@ -593,17 +594,17 @@ def test_mention_parsing() -> None:
         # 광역에도 동에도 없는 말이면 긁지 않고 안내함 (동 검색은 격리)
         import src.kma.dong_zone as dong_mod
         orig = dong_mod.search_dong
-        mention.search_dong = lambda q, limit=5: []
+        answer_mod.search_dong = lambda q, limit=5: []
         try:
             before = len(calls)
             reply = build_reply("<@U123> 존재하지않는지명", now)
             assert len(calls) == before, "모르는 지역인데 수집을 시도했습니다"
             assert "아는 지역이 아닙니다" in reply
         finally:
-            mention.search_dong = orig
+            answer_mod.search_dong = orig
         print("[ok] 멘션 파싱 — 기본 '오늘부터 7일', 이번주/다음주 인식, 미지원 지역 거절")
     finally:
-        mention.scrape_range = orig
+        answer_mod.scrape_range = orig
         clear()
 
 
@@ -750,7 +751,7 @@ def test_footer_and_region_variation() -> None:
     """
     from types import SimpleNamespace
 
-    import src.mention.bot as mention
+    import src.mention.dong_reply as dong_reply
 
     def fake_fetch(zone, name, days_n):
         base = dt.date(2026, 9, 16)
@@ -761,23 +762,23 @@ def test_footer_and_region_variation() -> None:
             daily_summary=lambda: rows,
         )
 
-    orig = mention.fetch_dong
+    orig = dong_reply.fetch_dong
     try:
         # 하루만 물으면 광역 안내를 달지 않음 — 쓸모가 없는데 자리만 차지함
-        mention.fetch_dong = lambda z, n: fake_fetch(z, n, 1)
-        one = mention._dong_reply("1100000000", "서울특별시", days=1)
+        dong_reply.fetch_dong = lambda z, n: fake_fetch(z, n, 1)
+        one = dong_reply._dong_reply("1100000000", "서울특별시", days=1)
         assert "더 먼 날이 필요" not in one, one
         assert "발표" in one, one            # 출처는 남음
 
         # 동네예보 끝까지 물었으면 안내를 붙임 — 그때는 쓸모 있음
-        mention.fetch_dong = lambda z, n: fake_fetch(z, n, mention.DONG_MAX_DAYS)
-        full = mention._dong_reply("1100000000", "서울특별시", days=mention.DONG_MAX_DAYS)
+        dong_reply.fetch_dong = lambda z, n: fake_fetch(z, n, dong_reply.DONG_MAX_DAYS)
+        full = dong_reply._dong_reply("1100000000", "서울특별시", days=dong_reply.DONG_MAX_DAYS)
         assert "더 먼 날이 필요" in full, full
         # 오전·낮 발표는 4일치 — 일수가 아니라 «자료 끝까지» 로 재야 안내가 붙음
-        mention.fetch_dong = lambda z, n: fake_fetch(z, n, 4)
-        four = mention._dong_reply("1100000000", "서울특별시", days=mention.DONG_MAX_DAYS)
+        dong_reply.fetch_dong = lambda z, n: fake_fetch(z, n, 4)
+        four = dong_reply._dong_reply("1100000000", "서울특별시", days=dong_reply.DONG_MAX_DAYS)
         assert "더 먼 날이 필요" in four, four
-        part = mention._dong_reply("1100000000", "서울특별시", days=2)
+        part = dong_reply._dong_reply("1100000000", "서울특별시", days=2)
         assert "더 먼 날이 필요" not in part, part             # 끝까지 안 왔으면 붙이지 않음
 
         # 오늘 줄은 남은 시간의 값 — «N시 이후» 를 붙이고 굵게(그 주 최저·최고)에서 뺌
@@ -789,31 +790,31 @@ def test_footer_and_region_variation() -> None:
         rows = late.daily_summary()
         rows[0] = (first, 10.0, 12.0, "맑음", 0)             # 밤 몇 시간 값이 그 주 최저처럼 보이는 경우
         late.daily_summary = lambda: rows
-        mention.fetch_dong = lambda z, n: late
-        tonight = mention._dong_reply("1100000000", "서울특별시", days=3)
-        assert f"`{mention.day_label(first)}` 21시 이후 10~12℃" in tonight, tonight   # 굵게 아님
+        dong_reply.fetch_dong = lambda z, n: late
+        tonight = dong_reply._dong_reply("1100000000", "서울특별시", days=3)
+        assert f"`{dong_reply.day_label(first)}` 21시 이후 10~12℃" in tonight, tonight   # 굵게 아님
         assert "시 이후" not in tonight.split("\n")[2], tonight                       # 다음 날은 그대로
         # 오늘 줄의 밤 기온은 조언에도 쓰지 않음 — «아침 최저 2도» 처럼 읽히면 안 됨
         rows[0] = (first, 2.0, 4.0, "맑음", 0)
-        cold_night = mention._dong_reply("1100000000", "서울특별시", days=3)
+        cold_night = dong_reply._dong_reply("1100000000", "서울특별시", days=3)
         assert ":cold_face:" not in cold_night and "아침 최저" not in cold_night, cold_night
 
         # 산 답(quiet)에는 광역 안내를 붙이지 않음 — 4일치 발표를 끝까지 보여 줘도
-        mention.fetch_dong = lambda z, n: fake_fetch(z, n, 4)
-        mountain = mention._dong_reply("5121060000", "설악산 아래 속초시 대포동", 4,
+        dong_reply.fetch_dong = lambda z, n: fake_fetch(z, n, 4)
+        mountain = dong_reply._dong_reply("5121060000", "설악산 아래 속초시 대포동", 4,
                                        dt.date(2026, 9, 16), quiet=True)
         assert mountain and "더 먼 날이 필요" not in mountain, mountain
 
         # 같은 날·같은 수치라도 지역이 다르면 조언 문장이 갈림
-        mention.fetch_dong = lambda z, n: fake_fetch(z, n, 3)
-        seoul = mention._dong_reply("1100000000", "서울특별시", days=3)
-        busan = mention._dong_reply("2600000000", "부산광역시", days=3)
+        dong_reply.fetch_dong = lambda z, n: fake_fetch(z, n, 3)
+        seoul = dong_reply._dong_reply("1100000000", "서울특별시", days=3)
+        busan = dong_reply._dong_reply("2600000000", "부산광역시", days=3)
         def tip(r):
             return [ln for ln in r.split("\n") if ln.startswith(":")]
         assert tip(seoul) and tip(busan), (seoul, busan)
         assert tip(seoul) != tip(busan), (tip(seoul), tip(busan))
     finally:
-        mention.fetch_dong = orig
+        dong_reply.fetch_dong = orig
     print("[ok] 꼬리말은 필요할 때만, 조언은 지역마다 다르게")
 
 
@@ -948,7 +949,9 @@ def test_foliage_routing() -> None:
     """단풍·꽃 질문의 갈래. 과거·1개월 전망으로 새지 않음."""
     from types import SimpleNamespace
 
-    import src.mention.bot as mention
+    import src.mention.answer as answer_mod
+    import src.mention.dong_reply as dong_reply
+    import src.season.foliage as foliage_mod
 
     snap = fake_snapshot({"설악산": 1}, first={"설악산": dt.date(2026, 9, 28)})
     dong_calls: list = []
@@ -973,24 +976,24 @@ def test_foliage_routing() -> None:
         scraped.append(region.key)
         return Scrape(days={}, narratives=[])
 
-    orig = (mention.fetch_snapshot, mention.fetch_dong, mention.render_foliage_png, mention.scrape_range)
-    mention.fetch_snapshot = lambda today: snap
-    mention.fetch_dong = fake_dong
-    mention.render_foliage_png = fake_render          # Chromium 없이
-    mention.scrape_range = fake_scrape
+    orig = (foliage_mod.fetch_snapshot, dong_reply.fetch_dong, answer_mod.render_foliage_png, answer_mod.scrape_range)
+    foliage_mod.fetch_snapshot = lambda today: snap
+    dong_reply.fetch_dong = fake_dong
+    answer_mod.render_foliage_png = fake_render          # Chromium 없이
+    answer_mod.scrape_range = fake_scrape
     now = dt.datetime(2026, 10, 1, 15, 0, tzinfo=KST)
     clear()
     try:
         def ask(q, when=now):
-            return mention.answer(f"<@U1> {q}", when).text
+            return answer_mod.answer(f"<@U1> {q}", when).text
 
-        res = mention.answer("<@U1> 단풍 어디까지 왔어", now)
+        res = answer_mod.answer("<@U1> 단풍 어디까지 왔어", now)
         overview = res.text
         assert "단풍 현황" in overview and "*설악산* 첫단풍 9/28" in overview, overview
         assert "예상보다 5일 빠름" in overview, overview
         assert res.image == b"PNG", "전체 현황인데 지도가 없습니다"
-        assert mention.answer("<@U1> 설악산 단풍", now).image is None, "산 하나에는 글로만 답한다"
-        mention.answer("<@U1> 단풍 어때", now)
+        assert answer_mod.answer("<@U1> 설악산 단풍", now).image is None, "산 하나에는 글로만 답한다"
+        answer_mod.answer("<@U1> 단풍 어때", now)
         assert len(renders) == 1, f"같은 현황인데 지도를 {len(renders)}번 그렸습니다"
 
         # '었나' 는 과거로, '가을' 은 1개월 전망으로 새지 않음 (예전엔 샜음)
@@ -1036,22 +1039,22 @@ def test_foliage_routing() -> None:
             assert "동네예보" not in ask(q), q
         assert not dong_calls, dong_calls
         # 동네예보를 못 받으면 도움말 대신 한 줄로 알림
-        mention.fetch_dong = lambda z, n: (_ for _ in ()).throw(mention.DongError("점검"))
+        dong_reply.fetch_dong = lambda z, n: (_ for _ in ()).throw(dong_reply.DongError("점검"))
         failed = ask("주말 설악산 단풍")
         assert "가져오지 못했습니다" in failed and "광역" not in failed, failed
-        mention.fetch_dong = fake_dong
+        dong_reply.fetch_dong = fake_dong
         # '다음 주 주말' 은 이번 주말이 아님 — 10/10 은 동네예보(5일) 밖이라 안내만 나감
         next_weekend = ask("다음 주 주말 설악산 단풍")
         assert "10/03" not in next_weekend and "5일까지" in next_weekend, next_weekend
 
         # 물들었는데 촬영일이 아직 없으면 — 지난 단계의 예상일을 꺼내지 않음
-        mention.fetch_snapshot = lambda today: fake_snapshot({"설악산": 1})
+        foliage_mod.fetch_snapshot = lambda today: fake_snapshot({"설악산": 1})
         bare = ask("설악산 단풍")
         assert "*관측* (촬영일은" in bare and "예상이었지만" not in bare, bare
         assert ask("단풍 어디까지").count("*설악산* 첫단풍") == 1
     finally:
-        (mention.fetch_snapshot, mention.fetch_dong, mention.render_foliage_png,
-         mention.scrape_range) = orig
+        (foliage_mod.fetch_snapshot, dong_reply.fetch_dong, answer_mod.render_foliage_png,
+         answer_mod.scrape_range) = orig
         clear()
     print("[ok] 단풍 멘션 — 현황 · 산별 · 산 날씨 · 목록 밖 산 · 꽃/기간 밖 거절")
 
@@ -1060,7 +1063,9 @@ def test_foliage_in_weather() -> None:
     """단풍 말 없이 물어도 — 산 이름이면 산 날씨와 그 산의 단풍, 지역 날씨면 그 지역 산의 한 줄."""
     from types import SimpleNamespace
 
-    import src.mention.bot as mention
+    import src.mention.answer as answer_mod
+    import src.mention.dong_reply as dong_reply
+    import src.season.foliage as foliage_mod
     from src.common.cache import clear
     from src.kma.page import Scrape, ScrapedDay
     from src.season.foliage import FoliageError
@@ -1088,15 +1093,15 @@ def test_foliage_in_weather() -> None:
 
     wide = {"제주": ("5000000000", "제주특별자치도"), "서울": ("1100000000", "서울특별시")}
     snaps_base = [now.date()]
-    orig = (mention.fetch_snapshot, mention.fetch_dong, mention.scrape_range, mention.find_wide)
-    mention.fetch_snapshot = fake_snap
-    mention.fetch_dong = fake_dong
-    mention.scrape_range = fake_scrape
-    mention.find_wide = lambda q: wide.get(q.strip())
+    orig = (foliage_mod.fetch_snapshot, dong_reply.fetch_dong, answer_mod.scrape_range, answer_mod.find_wide)
+    foliage_mod.fetch_snapshot = fake_snap
+    dong_reply.fetch_dong = fake_dong
+    answer_mod.scrape_range = fake_scrape
+    answer_mod.find_wide = lambda q: wide.get(q.strip())
     try:
         def ask(q, when=now):
             clear()
-            return mention.answer(f"<@U1> {q}", when).text
+            return answer_mod.answer(f"<@U1> {q}", when).text
 
         # 산 이름만 — 예전에는 "아는 지역이 아닙니다" 였음
         for q in ("설악산", "설악산 날씨"):
@@ -1140,13 +1145,13 @@ def test_foliage_in_weather() -> None:
         assert "설악산 아래" in ask("설악산") and "단풍 —" not in ask("설악산")
         assert ":maple_leaf:" not in ask("강원 날씨", dt.datetime(2026, 12, 1, 9, 0, tzinfo=KST))
     finally:
-        mention.fetch_snapshot, mention.fetch_dong, mention.scrape_range, mention.find_wide = orig
+        foliage_mod.fetch_snapshot, dong_reply.fetch_dong, answer_mod.scrape_range, answer_mod.find_wide = orig
         clear()
     print("[ok] 날씨 속 단풍 — 산 이름은 산 날씨와 단풍, 지역 날씨는 그 지역 산 한 줄")
 
 
 def test_period_next_weekend() -> None:
-    from src.mention.bot import _period
+    from src.mention.parse import _period
 
     thu = dt.datetime(2026, 10, 1, 9, 0, tzinfo=KST)
     assert _period("주말 설악산", thu)[:2] == (dt.date(2026, 10, 3), 2)

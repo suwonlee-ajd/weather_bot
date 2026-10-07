@@ -733,6 +733,63 @@ def test_writer_backend() -> None:
     print("[ok] WRITER — 기본 none, 모르는 값·패키지 없음은 규칙 기반")
 
 
+def test_mention_delivery() -> None:
+    """멘션 답 보내기 — 바로 답, 느리면 로딩 메시지를 결과로 교체, 지도는 글과 함께, 실패하면 글로."""
+    import time
+
+    import src.mention.bot as bot
+    from src.mention.answer import Reply
+
+    class FakeClient:
+        def __init__(self, upload_fails=False):
+            self.calls, self.upload_fails = [], upload_fails
+
+        def chat_postMessage(self, **kw):
+            self.calls.append(("post", kw["text"]))
+            return {"ts": "L1"}
+
+        def chat_update(self, **kw):
+            self.calls.append(("update", kw["ts"], kw["text"]))
+
+        def chat_delete(self, **kw):
+            self.calls.append(("delete", kw["ts"]))
+
+        def files_upload_v2(self, **kw):
+            if self.upload_fails:
+                raise TimeoutError("업로드 시간 초과")
+            self.calls.append(("upload", kw["initial_comment"]))
+
+    def run(reply, *, slow=False, upload_fails=False):
+        client, said = FakeClient(upload_fails), []
+
+        def fake_answer(text):
+            if slow:
+                time.sleep(0.15)
+            if isinstance(reply, Exception):
+                raise reply
+            return reply
+
+        bot.answer = fake_answer
+        bot.handle_mention({"text": "<@U1> 부산", "channel": "C1", "ts": "1.0", "user": "U2"},
+                           lambda **kw: said.append(kw["text"]), client, ":loading:")
+        return client.calls, said
+
+    orig = (bot.answer, bot.SLOW_REPLY_SEC)
+    bot.SLOW_REPLY_SEC = 0.05
+    try:
+        assert run(Reply("맑음")) == ([], ["맑음"])                                   # 바로 답
+        calls, said = run(Reply("맑음"), slow=True)                                  # 느리면 로딩 → 교체
+        assert calls == [("post", ":loading: 기상청 자료를 받아오는 중이에요…"), ("update", "L1", "맑음")] and not said
+        calls, said = run(Reply("단풍", image=b"png"), slow=True)                    # 지도: 올리고 로딩은 지움
+        assert ("upload", "단풍") in calls and ("delete", "L1") in calls and not said, calls
+        assert run(Reply("단풍", image=b"png"), upload_fails=True) == ([], ["단풍"])  # 지도 실패 → 글로
+        calls, said = run(RuntimeError("파서 고장"))
+        assert said == ["예보를 정리하는 중에 문제가 생겼습니다. 잠시 뒤 다시 불러 주세요."], said
+    finally:
+        bot.answer, bot.SLOW_REPLY_SEC = orig
+    print("[ok] 멘션 답 보내기 — 로딩 교체 · 지도 · 실패 시 글로")
+
+
 def test_chart_download() -> None:
     import requests
 
@@ -1513,6 +1570,7 @@ if __name__ == "__main__":
     test_message_template()
     test_weekly_body()
     test_writer_backend()
+    test_mention_delivery()
     test_chart_download()
     test_footer_and_region_variation()
     test_foliage_season()

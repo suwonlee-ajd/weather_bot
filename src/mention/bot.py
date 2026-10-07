@@ -16,6 +16,9 @@ import os
 import sys
 import threading
 import time
+from dataclasses import dataclass
+
+from slack_sdk.errors import SlackApiError
 
 from src.common.config import KST
 from src.common.logsetup import setup
@@ -55,9 +58,16 @@ def resolve_loading_emoji(client) -> str:
     return LOADING_FALLBACK
 
 
+@dataclass(frozen=True)
+class Thread:
+    """답할 자리. ctx 는 로그용 — 질문을 재현할 수 있게 사용자·채널·스레드를 함께 남김."""
+    channel: str
+    ts: str
+    ctx: str
+
+
 def main() -> int:
     setup("weather-mention")
-
     bot_token, app_token = os.environ.get("SLACK_BOT_TOKEN"), os.environ.get("SLACK_APP_TOKEN")
     missing = [k for k, v in (("SLACK_BOT_TOKEN", bot_token), ("SLACK_APP_TOKEN", app_token)) if not v]
     if missing:
@@ -71,104 +81,107 @@ def main() -> int:
 
     from slack_bolt import App
     from slack_bolt.adapter.socket_mode import SocketModeHandler
-    from slack_sdk.errors import SlackApiError
 
-    # Socket Mode 는 서명 검증이 필요 없음 (Slack 과의 인증된 WebSocket 위로만 이벤트가 옴)
-    app = App(token=bot_token)
-    # Bolt 는 App 로거 수준을 루트(INFO)로 덮어씀 — logsetup 의 WARNING 상한을 다시 걸어 연결 잡담을 누름.
-    # 그래서 멘션 처리 줄은 Bolt 가 넘기는 logger 가 아니라 weather-mention 로거(log)로 남김.
+    app = App(token=bot_token)   # Socket Mode 라 서명 검증이 필요 없음
+    # Bolt 가 App 로거를 루트 수준(INFO)으로 되돌림 — 연결 잡담을 다시 누름. 멘션 처리는 log 로 남김
     app.logger.setLevel(logging.WARNING)
     loading = resolve_loading_emoji(app.client)
     log.info("로딩 표시: %s", loading)
-
-    # 안내문 예시가 실제 봇을 가리키게 함. <@U…> 는 슬랙이 표시 이름으로 렌더링하므로
-    # 콘솔에서 이름을 바꿔도 문구를 고칠 필요가 없음.
     try:
+        # 안내문 예시가 실제 봇을 가리키게 — <@U…> 는 슬랙이 표시 이름으로 바꿔 보여줌
         _SELF["mention"] = f"<@{app.client.auth_test()['user_id']}>"
     except Exception:
         log.info("봇 user_id 를 얻지 못해 기본 표기를 씁니다")
 
     @app.event("app_mention")
     def on_mention(event, say, client):
-        text = event.get("text", "")
-        thread_ts = event.get("thread_ts") or event.get("ts")
-        channel = event["channel"]
-        # 질문 원문과 어느 스레드였는지를 함께 남김 — 실패했을 때 재현할 수 있어야 함.
-        ctx = f"user={event.get('user')} ch={channel} ts={thread_ts}"
-        started = time.monotonic()
-        log.info("멘션 수신 %s query=%r", ctx, text[:200])
-
-        # 로딩 메시지는 느릴 때만 띄우고 지움. 동 단위 첫 조회는 전국 목록을 받느라 20초 가까이
-        # 걸려 반응이 없으면 죽은 줄 알지만, 캐시가 맞으면 0.3초면 끝남.
-        holder = {"ts": None}
-        def show_loading():
-            try:
-                res = client.chat_postMessage(
-                    channel=channel, thread_ts=thread_ts,
-                    text=f"{loading} 기상청 자료를 받아오는 중이에요…",
-                )
-                holder["ts"] = res["ts"]
-            except Exception:
-                log.debug("로딩 메시지 실패", exc_info=True)
-
-        timer = threading.Timer(SLOW_REPLY_SEC, show_loading)
-        timer.start()
-        try:
-            res = answer(text)
-            reply = res.text
-            log.info("응답 완료 %s %.1fs %d자%s", ctx, time.monotonic() - started, len(reply),
-                        f" + 지도 {len(res.image):,}B" if res.image else "")
-        except Exception:
-            # 질문을 같은 줄에 붙임 — 트레이스백만으로는 무엇을 물었는지 알 수 없음.
-            log.exception("응답 생성 실패 %s query=%r", ctx, text[:200])
-            reply = "예보를 정리하는 중에 문제가 생겼습니다. 잠시 뒤 다시 불러 주세요."
-            res = Reply(reply)
-        finally:
-            # 로딩 메시지를 올리는 중이었다면 끝날 때까지 기다림 — 아니면 그 메시지가
-            # 아래에서 holder 를 본 뒤에 올라와 지워지지도 바뀌지도 않고 남음.
-            timer.cancel()
-            timer.join()
-
-        # 지도가 있으면 글을 지도에 붙여 한 번에 올림. 로딩 메시지는 지움 —
-        # 파일 업로드는 기존 메시지를 고쳐서 붙일 수 없음.
-        if res.image:
-            try:
-                client.files_upload_v2(
-                    channel=channel, thread_ts=thread_ts, initial_comment=reply,
-                    file=res.image, filename=f"foliage-{dt.datetime.now(tz=KST):%Y%m%d}.png", title="단풍 지도",
-                )
-                if holder["ts"]:
-                    try:
-                        client.chat_delete(channel=channel, ts=holder["ts"])
-                    except Exception:
-                        log.debug("로딩 메시지 삭제 실패", exc_info=True)
-                return
-            except Exception as exc:
-                # 슬랙 오류든 네트워크 시간 초과든, 지도를 못 올리면 글로라도 답함
-                error = exc.response.get("error") if isinstance(exc, SlackApiError) else repr(exc)
-                log.warning("지도 업로드 실패 — 글로만 답합니다 %s error=%s", ctx, error)
-
-        # 로딩 메시지를 띄웠으면 그 자리를 결과로 바꿈 — 채널에 흔적을 남기지 않음
-        if holder["ts"]:
-            try:
-                client.chat_update(channel=channel, ts=holder["ts"], text=reply)
-                return
-            except Exception:
-                log.debug("로딩 메시지 교체 실패 — 새 메시지로 보냅니다", exc_info=True)
-        try:
-            say(text=reply, thread_ts=thread_ts)
-        except SlackApiError as exc:
-            # 원인 코드를 그대로 남김 — not_in_channel / missing_scope 는 코드가 아니라
-            # 슬랙 설정 문제라, 그 코드를 보면 콘솔에서 무엇을 고칠지 바로 앎.
-            log.error("슬랙 전송 실패 %s error=%s", ctx, exc.response.get("error"))
+        handle_mention(event, say, client, loading)
 
     @app.event("message")
     def ignore_messages():
-        """app_mention 과 함께 오는 message 이벤트를 조용히 흘려보냄."""
+        """app_mention 과 함께 오는 message 이벤트를 흘려보냄."""
 
     log.info("Socket Mode 연결 시작 (캐시 TTL %d초)", CACHE_TTL_SEC)
     SocketModeHandler(app, app_token).start()
     return 0
+
+
+def handle_mention(event: dict, say, client, loading: str) -> None:
+    """멘션 하나에 답함. 지도가 있으면 글과 함께 올리고, 못 올리면 글로만."""
+    text = event.get("text", "")
+    channel, ts = event["channel"], event.get("thread_ts") or event.get("ts")
+    where = Thread(channel, ts, f"user={event.get('user')} ch={channel} ts={ts}")
+    log.info("멘션 수신 %s query=%r", where.ctx, text[:200])
+    res, loading_ts = _answer_slowly(text, client, where, loading)
+    if res.image and _upload_map(client, where, res, loading_ts):
+        return
+    _reply_text(say, client, where, res.text, loading_ts)
+
+
+def _answer_slowly(text: str, client, where: Thread, loading: str) -> tuple[Reply, str | None]:
+    """답을 만듦. SLOW_REPLY_SEC 안에 못 끝내면 로딩 메시지를 띄우고 그 ts 를 돌려줌.
+
+    동 단위 첫 조회는 전국 목록을 받느라 20초 가까이 걸림 — 반응이 없으면 죽은 줄 앎.
+    """
+    started = time.monotonic()
+    holder: dict[str, str | None] = {"ts": None}
+
+    def show_loading():
+        try:
+            holder["ts"] = client.chat_postMessage(
+                channel=where.channel, thread_ts=where.ts, text=f"{loading} 기상청 자료를 받아오는 중이에요…",
+            )["ts"]
+        except Exception:
+            log.debug("로딩 메시지 실패", exc_info=True)
+
+    timer = threading.Timer(SLOW_REPLY_SEC, show_loading)
+    timer.start()
+    try:
+        res = answer(text)
+        log.info("응답 완료 %s %.1fs %d자%s", where.ctx, time.monotonic() - started, len(res.text),
+                 f" + 지도 {len(res.image):,}B" if res.image else "")
+    except Exception:
+        log.exception("응답 생성 실패 %s query=%r", where.ctx, text[:200])
+        res = Reply("예보를 정리하는 중에 문제가 생겼습니다. 잠시 뒤 다시 불러 주세요.")
+    finally:
+        # 로딩 메시지를 올리는 중이면 끝날 때까지 기다림 — 아니면 지워지지도 바뀌지도 않고 남음
+        timer.cancel()
+        timer.join()
+    return res, holder["ts"]
+
+
+def _upload_map(client, where: Thread, res: Reply, loading_ts: str | None) -> bool:
+    """글을 지도에 붙여 한 번에 올리고 로딩 메시지는 지움(파일은 기존 메시지에 붙일 수 없음). 실패하면 False."""
+    try:
+        client.files_upload_v2(
+            channel=where.channel, thread_ts=where.ts, initial_comment=res.text, file=res.image,
+            filename=f"foliage-{dt.datetime.now(tz=KST):%Y%m%d}.png", title="단풍 지도",
+        )
+    except Exception as exc:
+        error = exc.response.get("error") if isinstance(exc, SlackApiError) else repr(exc)
+        log.warning("지도 업로드 실패 — 글로만 답합니다 %s error=%s", where.ctx, error)
+        return False
+    if loading_ts:
+        try:
+            client.chat_delete(channel=where.channel, ts=loading_ts)
+        except Exception:
+            log.debug("로딩 메시지 삭제 실패", exc_info=True)
+    return True
+
+
+def _reply_text(say, client, where: Thread, reply: str, loading_ts: str | None) -> None:
+    """로딩 메시지를 띄웠으면 그 자리를 결과로 바꾸고, 아니면 새로 답함."""
+    if loading_ts:
+        try:
+            client.chat_update(channel=where.channel, ts=loading_ts, text=reply)
+            return
+        except Exception:
+            log.debug("로딩 메시지 교체 실패 — 새 메시지로 보냅니다", exc_info=True)
+    try:
+        say(text=reply, thread_ts=where.ts)
+    except SlackApiError as exc:
+        # 원인 코드를 남김 — not_in_channel · missing_scope 는 슬랙 설정 문제라 코드만 보면 고칠 곳을 앎
+        log.error("슬랙 전송 실패 %s error=%s", where.ctx, exc.response.get("error"))
 
 
 if __name__ == "__main__":

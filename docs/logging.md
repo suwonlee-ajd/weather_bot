@@ -54,7 +54,7 @@ Traceback (most recent call last):
 ```
 
 ```bash
-.venv/bin/python -c "from src.mention import answer; print(answer('역삼동 날씨').text)"
+.venv/bin/python -c "from src.mention.answer import answer; print(answer('역삼동 날씨').text)"
 ```
 
 `answer()` 가 멘션의 진입점임. `build_reply()` 는 단풍·꽃 갈래를 건너뛰어 그쪽 질문은
@@ -103,13 +103,13 @@ LOG_LEVEL=DEBUG .venv/bin/python -m src.query 부산
 - 슬랙 토큰·`.env` 값 — 어떤 수준에서도 로그에 넣지 않음.
 - 사용자 발화는 질문 원문 200자까지만. 재현에 필요한 최소량.
 - `slack_bolt`·`slack_sdk`·`urllib3`·`requests` 의 잡담은 WARNING 으로 눌러 뒀음. Bolt 는 앱을 만들 때
-  자기 로거를 루트 수준(INFO)으로 되돌리므로 `src/mention.py` 가 앱을 만든 뒤 다시 WARNING 으로 누름 —
+  자기 로거를 루트 수준(INFO)으로 되돌리므로 `src/mention/bot.py` 가 앱을 만든 뒤 다시 WARNING 으로 누름 —
   연결 줄(`A new session has been established` 등)은 남지 않고, 끊김·오류(WARNING 이상)만 남음.
 
 ## 산출물 보존 — `data/`
 
 로그 바깥에도 쌓이는 것이 있음. dry-run 을 돌릴 때마다 PNG 가 1MB 가까이
-남음. 여기는 loguru 가 관여하지 않으므로 `src/retention.py` 가 맡음.
+남음. 여기는 loguru 가 관여하지 않으므로 `src/common/retention.py` 가 맡음.
 
 ```
 data/img/weekly-weather-20260914.png   ← 우리가 만든 주간 카드
@@ -178,7 +178,7 @@ bin/cleanup.py --days 30 --include-logs   # 로그까지 함께
 (`logs/` 는 `*.log*`). 거기 따로 저장해 둔 파일은 아무리 오래돼도 건드리지 않음.
 
 > `data/` 는 **산출물** 자리. 행정동 목록처럼 계속 변하는 참조 자료의
-> 스냅샷은 여기 두지 않음 — 그건 매번 기상청에서 받아 옴(`src/dong.py`).
+> 스냅샷은 여기 두지 않음 — 그건 매번 기상청에서 받아 옴(`src/kma/dong_zone.py`).
 
 ## 시간대
 

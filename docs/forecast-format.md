@@ -23,7 +23,7 @@ API 키·결제 없이 동작하며, robots.txt 가 `User-Agent: * / Allow: /` �
 
 ## 자료형
 
-`ScrapedDay` (`src/kma_scrape.py`) → 검증 후 `DayForecast` (`src/forecast.py`)
+`ScrapedDay` (`src/kma/page.py`) → 검증 후 `DayForecast` (`src/weekly/forecast.py`)
 
 | 필드 | 의미 | 없을 수 있나 |
 |---|---|---|
@@ -78,11 +78,11 @@ XML 구조에 주의할 점이 셋 있음.
 
 | | 기상청 현황 | 웨더아이 예상 |
 |---|---|---|
-| 곳 | 21곳 (`src/mountains.py`) | 15곳 — 14곳이 겹치고 금강산은 뺌 |
+| 곳 | 21곳 (`src/season/mountains.py`) | 15곳 — 14곳이 겹치고 금강산은 뺌 |
 | 값 | 단풍전 · 첫단풍 · 절정, 관측일 | 첫단풍 · 절정 예상일 |
 | 기준 | 정상부터 20% 첫단풍, 80% 절정 | 같음 |
 
-**기상청 현황** (`src/foliage.py`) — `applyMapleData({...})` 꼴의 JSONP. `places[]` 에 21곳의
+**기상청 현황** (`src/season/foliage.py`) — `applyMapleData({...})` 꼴의 JSONP. `places[]` 에 21곳의
 단계(`status` 글자, `sts` 1~3)가, `flower` 에 `obsPlace` 로 고른 한 곳의 촬영일
 (`bfShotDate` 단풍전 / `cfShotDate` 첫단풍 / `ffShotDate` 절정)이 옴. 산마다 날짜를 보려면
 따로 불러야 해서, 물들기 시작한 산만 부르고 단계가 바뀌기 전까지 캐시함.
@@ -100,7 +100,7 @@ XML 구조에 주의할 점이 셋 있음.
 
 ## 벚꽃도 관측과 예상이 다른 곳에서 옴
 
-단풍과 같은 짜임(`src/blossom.py`). 주간 게시의 벚꽃 문단에만 씀.
+단풍과 같은 짜임(`src/season/blossom.py`). 주간 게시의 벚꽃 문단에만 씀.
 
 | | 기상청 관측 | 웨더아이 예상 |
 |---|---|---|
@@ -156,7 +156,7 @@ XML 구조에 주의할 점이 셋 있음.
 
 ## 검증과 실패 처리
 
-페이지 구조가 바뀌면 파싱이 조용히 틀어짐. 세 겹으로 막음 (`src/forecast.py`).
+페이지 구조가 바뀌면 파싱이 조용히 틀어짐. 세 겹으로 막음 (`src/weekly/forecast.py`).
 
 1. **범위 검증** — 기온 −35~45℃, 강수확률 0~100 밖은 버림. 아침·낮 범위 각각 `lo > hi` 면
    바로잡음.

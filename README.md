@@ -69,7 +69,7 @@ chmod 600 .env
 
 set -a && . ./.env && set +a
 .venv/bin/python -m tests.check_credentials     # 슬랙·기상청·Chromium 점검 (토큰 값은 출력하지 않음)
-.venv/bin/python -m src.post --dry-run          # 슬랙에 보내지 않고 본문 출력 + data/img/ 에 이미지 저장
+.venv/bin/python -m src.weekly --dry-run          # 슬랙에 보내지 않고 본문 출력 + data/img/ 에 이미지 저장
 ```
 
 리눅스에서는 한글 글꼴(`fonts-noto-cjk`)이 없으면 카드가 □□□ 로 그려짐.
@@ -77,8 +77,8 @@ set -a && . ./.env && set +a
 ### 3. 실행
 
 ```bash
-.venv/bin/python -m src.post              # POST_AT(기본 08:00 KST) 60분 전 안쪽이면 그때까지 기다렸다가 게시, 아니면 바로 게시
-.venv/bin/python -m src.post --no-wait    # 지금 바로 게시
+.venv/bin/python -m src.weekly              # POST_AT(기본 08:00 KST) 60분 전 안쪽이면 그때까지 기다렸다가 게시, 아니면 바로 게시
+.venv/bin/python -m src.weekly --no-wait    # 지금 바로 게시
 .venv/bin/python -m src.mention           # 멘션 봇 (Socket Mode, 상시 실행)
 ```
 
@@ -141,7 +141,7 @@ systemd timer (월 07:50 KST 기동) — 또는 크론을 넣은 GitHub Actions 
 - **월요일 아침에 돌면 월~일 7일이 빈틈없이 채워짐.** 통보문이 월~목, 중기예보가 금~다음 주를
   덮음. 주 중간에 돌리면 지난 요일은 빔(정상).
 - **페이지 구조가 바뀌면 게시를 포기함.** 값의 범위를 검증하고 월~일 7칸에 맞춰 놓은 뒤,
-  7일 중 4일 이상 기온이 비면 아무것도 올리지 않음(`src/forecast.py`).
+  7일 중 4일 이상 기온이 비면 아무것도 올리지 않음(`src/weekly/forecast.py`).
 - **일기도는 페이지를 렌더링하지 않고 PNG 를 직접 받음.** 없는 시각을 요청하면 404 가 아니라
   HTTP 200 + HTML 오류 페이지가 오므로 PNG 매직바이트로 검증하고, 12시간씩 거슬러 올라감.
   기상청은 이틀치만 보관해서 링크 대신 파일을 올림.
@@ -169,32 +169,24 @@ systemd timer (월 07:50 KST 기동) — 또는 크론을 넣은 GitHub Actions 
 
 ## 프로젝트 구조
 
+기능별 패키지. 의존은 `common` ← `kma` · `season` · `advice` ← `weekly` · `mention` 방향으로만.
+
 ```
-src/post.py                 주간 게시 진입점 (대기 → 본문 + 이미지 업로드)
-src/mention.py              멘션 봇 (Socket Mode)
-src/query.py                조회 CLI (게시 없이 결과만)
-src/kma_scrape.py           기상청 통보문·중기예보 수집·파싱
-src/forecast.py             월~일 7일 조립 + 검증 (실패 시 게시 포기)
-src/dong.py                 동 단위 동네예보 (행정동 검색 포함)
-src/outlook.py              1개월 전망 (10일 너머는 확률로)
-src/kma_chart.py            일기도 PNG 다운로드 (매직바이트 검증 + 시각 백트래킹)
-src/writer.py               본문·카드 문구 (모델 또는 규칙 기반)
-src/advice.py               수치에서 생활 조언 (일교차·한파·폭염·비·특이사항)
-src/render_card.py          카드 HTML → PNG
-src/foliage.py              단풍 현황(기상청) + 예상(웨더아이 PDF)
-src/blossom.py              벚꽃 관측(기상청) + 예상(웨더아이 PDF)
-src/mountains.py            단풍 관측 21개 명산 (좌표 · 별칭 · 산 아래 행정동)
-src/render_foliage.py       단풍 지도 HTML → PNG
-src/themes.py               철 소식(단풍 · 벚꽃) — 기간과 문단을 짝지어 등록
-src/paragraph.py            게시물 문단 부품 — 문단 · 줄 · 출처 · 첨부를 조립
-src/cache.py · config.py · logsetup.py · retention.py
-                            캐시 · 설정 · 로그 · 산출물 보존
-bin/start.sh · stop.sh      멘션 봇·타이머 켜고 끄기
-bin/cleanup.py              data/ · logs/ 정리 (--dry-run 먼저)
-deploy/                     systemd 유닛 · 실행 스크립트 · 배포 가이드
-docs/                       예보 자료 구조 · 로그 · 문체 기준
-tests/test_offline.py       토큰 없이 도는 검증
-tests/check_credentials.py  슬랙·기상청 페이지·Chromium 점검
+src/common/     설정 · 로그 · 캐시 · 산출물 보존 · 날짜·기온 표기 · HTML → PNG
+src/kma/        기상청 수집 — 광역 구역(regions) · 통보문(notice) · 중기예보(mid_term) · 합치기(scrape)
+                · 동네예보(dong_zone · dong_forecast) · 1개월 전망(outlook) · 일기도(chart)
+src/season/     철 소식 자료 — 단풍(foliage · foliage_text · foliage_map · mountains)
+                · 벚꽃(blossom) · 공통 수집(sources)
+src/advice/     수치에서 생활 조언 — 규칙(rules) · 문구 표(phrases)
+src/weekly/     주간 게시 — 진입점(post) · 7일 조립(forecast) · 본문(body · writer) · 카드(card)
+                · 문단(paragraph) · 철 소식(themes)
+src/mention/    멘션 봇 — 슬랙 연결(bot) · 답 고르기(answer) · 질문 해석(parse) · 광역 답(region_reply)
+                · 동네예보 답(dong_reply) · 단풍 답(foliage_reply · foliage_note) · 문구(texts)
+src/query.py    조회 CLI (게시 없이 결과만)
+bin/            멘션 봇·타이머 켜고 끄기(start.sh · stop.sh) · data/ · logs/ 정리(cleanup.py, --dry-run 먼저)
+deploy/         systemd 유닛 · 실행 스크립트 · 배포 가이드
+docs/           예보 자료 구조 · 로그 · 문체 기준 · 코드 스타일
+tests/          토큰 없이 도는 검증(test_offline.py) · 슬랙·기상청·Chromium 점검(check_credentials.py)
 ```
 
 ## 개발
@@ -212,17 +204,14 @@ uv run ruff check src tests bin
 
 ## 남은 작업
 
-2027년 벚꽃철(2월 22일 시작) 전에 함. 단풍철에 돌고 있는 `src/foliage.py` 를 건드리지 않으려고 미뤘음.
+2027년 벚꽃철(2월 22일 시작) 전에 함.
 
-- **벚꽃 수집 코드를 단풍 쪽과 합침.** `src/blossom.py` 의 기상청·웨더아이 수집부(`_get` · `_jsonp` ·
-  `_stage_of` · `parse_status` · `_kma` · `_pdf_text` · `_find_post` · `_load_post`)가 `src/foliage.py` 의
-  사본임(`_load_post` 의 짝은 `_load_outlook`) — 콜백 이름·`treeType`·게시물 제목·예외 클래스만 다름.
 - **군락지 상세를 동시에, 캐시해서 받음.** 지금은 13곳을 하나씩 불러 기상청이 느리면 최대 13×20초
-  걸리고, 목록 응답에 딸려 온 한 곳도 다시 부름. `foliage.fetch_status` 처럼 바꿈.
-- **관측 한 줄 함수를 합침.** `blossom.observed_line` 이 `render_foliage.observed_line` 의
+  걸리고, 목록 응답에 딸려 온 한 곳도 다시 부름. `src/season/foliage.py` 의 `fetch_status` 처럼 바꿈.
+- **관측 한 줄 함수를 합침.** `blossom.observed_line` 이 `foliage_text.observed_line` 의
   «둘 이하면 이름, 많으면 개수 + 최근» 규칙을 그대로 베꼈음.
 - **주간 벚꽃 문단 구성을 다시 봄.** 3줄이라 길고, 관측(군락지 13곳)과 예상(도시 19곳)의 장소가 섞여
-  읽힘. 줄 구성은 `src/themes.py`, 문단 모양은 `src/paragraph.py` 에 있음.
+  읽힘. 줄 구성은 `src/weekly/themes.py`, 문단 모양은 `src/weekly/paragraph.py` 에 있음.
 
 ## 데이터 출처
 

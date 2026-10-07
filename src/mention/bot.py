@@ -19,7 +19,8 @@ import time
 
 from src.common.config import KST
 from src.common.logsetup import setup
-from src.mention.answer import CACHE_TTL_SEC, Reply, answer
+from src.mention.answer import Reply, answer
+from src.mention.region_reply import CACHE_TTL_SEC
 from src.mention.texts import _SELF
 
 log = logging.getLogger("weather-mention")

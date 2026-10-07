@@ -128,6 +128,7 @@ def test_find_dong() -> None:
 def test_greeting() -> None:
     """인사·잡담은 자기소개로, 감사는 짧게. 지역이 섞이면 날씨가 우선."""
     import src.mention.answer as answer_mod
+    import src.mention.region_reply as region_reply
 
     calls: list = []
 
@@ -138,8 +139,8 @@ def test_greeting() -> None:
 
     from src.common.cache import clear
 
-    orig_scrape, orig_dong = answer_mod.scrape_range, answer_mod.search_dong
-    answer_mod.scrape_range = fake_scrape
+    orig_scrape, orig_dong = region_reply.scrape_range, answer_mod.search_dong
+    region_reply.scrape_range = fake_scrape
     answer_mod.search_dong = lambda q, limit=5: []
     now = dt.datetime(2026, 9, 14, 9, 0, tzinfo=KST)
     try:
@@ -163,13 +164,14 @@ def test_greeting() -> None:
         assert calls == ["경남"], calls
         print("[ok] 인사 응답 — 자기소개/감사/도움말 구분, 지역 우선")
     finally:
-        answer_mod.scrape_range, answer_mod.search_dong = orig_scrape, orig_dong
+        region_reply.scrape_range, answer_mod.search_dong = orig_scrape, orig_dong
         clear()
 
 
 def test_long_range_routing() -> None:
     """10일 너머 요청의 세 갈래: 1개월 전망 / 너무 먼 미래 / 정상 조회."""
     import src.mention.answer as answer_mod
+    import src.mention.region_reply as region_reply
     from src.common.cache import clear
     from src.kma.page import Scrape
 
@@ -192,8 +194,8 @@ def test_long_range_routing() -> None:
             url="https://example.invalid",
         )
 
-    orig = (answer_mod.scrape_range, answer_mod.search_dong, answer_mod.fetch_outlook)
-    answer_mod.scrape_range, answer_mod.search_dong = fake_scrape, lambda q, limit=5: []
+    orig = (region_reply.scrape_range, answer_mod.search_dong, answer_mod.fetch_outlook)
+    region_reply.scrape_range, answer_mod.search_dong = fake_scrape, lambda q, limit=5: []
     answer_mod.fetch_outlook = fake_outlook
     now = dt.datetime(2026, 9, 14, 9, 0, tzinfo=KST)
     try:
@@ -232,7 +234,7 @@ def test_long_range_routing() -> None:
         assert calls == ["경남"], calls
         print("[ok] 장기 요청 분기 — 1개월 전망 / 먼 미래 거절 / 주간 정상")
     finally:
-        answer_mod.scrape_range, answer_mod.search_dong, answer_mod.fetch_outlook = orig
+        region_reply.scrape_range, answer_mod.search_dong, answer_mod.fetch_outlook = orig
         clear()
 
 
@@ -271,6 +273,7 @@ def test_topic_advice() -> None:
 def test_cache_shared_across_spans() -> None:
     """지역 캐시 하나를 «이번 주»·«다음 주»·«기본» 이 나눠 써도 날이 빠지지 않음."""
     import src.mention.answer as answer_mod
+    import src.mention.region_reply as region_reply
     from src.common.cache import clear
     from src.kma.page import Narrative, Scrape, ScrapedDay
 
@@ -285,8 +288,8 @@ def test_cache_shared_across_spans() -> None:
         return Scrape(days={d: v for d, v in full.items() if d in window},
                       narratives=[Narrative("통보문", "", None, [])])
 
-    orig = answer_mod.scrape_range
-    answer_mod.scrape_range = fake_scrape
+    orig = region_reply.scrape_range
+    region_reply.scrape_range = fake_scrape
     try:
         now = dt.datetime(2026, 9, 12, 9, 0, tzinfo=KST)   # 토요일
         clear()
@@ -296,7 +299,7 @@ def test_cache_shared_across_spans() -> None:
         answer_mod.build_reply("<@U123> 경남 다음주", now)
         reply = answer_mod.build_reply("<@U123> 경남 날씨", now)
     finally:
-        answer_mod.scrape_range = orig
+        region_reply.scrape_range = orig
         clear()
 
     # 오늘·내일이 빠지면 안 됨 — 캐시에 다음 주만 담겨 통째로 사라진 적이 있음
@@ -308,6 +311,7 @@ def test_cache_shared_across_spans() -> None:
 def test_city_uses_dong_forecast() -> None:
     """'부산' 은 구역이 아니라 부산광역시 값으로 답함 — 기간이 닿는 한."""
     import src.mention.answer as answer_mod
+    import src.mention.region_reply as region_reply
     from src.common.cache import clear
     from src.kma.page import Scrape
 
@@ -323,8 +327,8 @@ def test_city_uses_dong_forecast() -> None:
         dong_calls.append((name, days, start))
         return f"*{name}* 동네예보"
 
-    orig = (answer_mod.scrape_range, answer_mod._dong_reply, answer_mod.find_wide)
-    answer_mod.scrape_range = fake_scrape
+    orig = (region_reply.scrape_range, answer_mod._dong_reply, answer_mod.find_wide)
+    region_reply.scrape_range = fake_scrape
     answer_mod._dong_reply = fake_dong_reply
     answer_mod.find_wide = lambda q: ("2600000000", "부산광역시") if "부산" in q else None
     now = dt.datetime(2026, 9, 14, 9, 0, tzinfo=KST)   # 월요일
@@ -346,7 +350,7 @@ def test_city_uses_dong_forecast() -> None:
         answer_mod.build_reply("<@U1> 부산 다음주", now)
         assert calls and not dong_calls, (dong_calls, calls)
     finally:
-        answer_mod.scrape_range, answer_mod._dong_reply, answer_mod.find_wide = orig
+        region_reply.scrape_range, answer_mod._dong_reply, answer_mod.find_wide = orig
         clear()
     print("[ok] 시도 조회 — 가까운 날은 시 단위, 주 단위는 광역")
 
@@ -354,6 +358,7 @@ def test_city_uses_dong_forecast() -> None:
 def test_partial_week_is_declared() -> None:
     """예보가 기간을 못 채우면 머리글이 실제 범위를 말하고, 왜 짧은지 밝힘."""
     import src.mention.answer as answer_mod
+    import src.mention.region_reply as region_reply
     import src.season.foliage as foliage_mod
     from src.common.cache import clear
     from src.kma.page import Narrative, Scrape, ScrapedDay
@@ -367,8 +372,8 @@ def test_partial_week_is_declared() -> None:
                 for i in range(span) if (d := start + dt.timedelta(days=i)) in horizon}
         return Scrape(days=days, narratives=[Narrative("중기예보", "", None, [])])
 
-    orig = (answer_mod.scrape_range, answer_mod.find_wide, foliage_mod.fetch_snapshot)
-    answer_mod.scrape_range = fake_scrape
+    orig = (region_reply.scrape_range, answer_mod.find_wide, foliage_mod.fetch_snapshot)
+    region_reply.scrape_range = fake_scrape
     answer_mod.find_wide = lambda q: None
     foliage_mod.fetch_snapshot = lambda today: fake_snapshot(outlook=False)   # 기상청을 부르지 않게 — 단풍철임
     now = dt.datetime(2026, 9, 14, 9, 0, tzinfo=KST)
@@ -376,7 +381,7 @@ def test_partial_week_is_declared() -> None:
         clear()
         reply = answer_mod.build_reply("<@U1> 다음주 날씨", now)
     finally:
-        answer_mod.scrape_range, answer_mod.find_wide, foliage_mod.fetch_snapshot = orig
+        region_reply.scrape_range, answer_mod.find_wide, foliage_mod.fetch_snapshot = orig
         clear()
 
     # 머리글이 09/27 까지라고 말하면 안 됨 — 자료는 09/23 까지임
@@ -567,6 +572,7 @@ def test_forecast_validation() -> None:
 def test_mention_parsing() -> None:
     """멘션 문장에서 지역과 기간을 읽어내는지. (네트워크는 타지 않는 경로만 확인)"""
     import src.mention.answer as answer_mod
+    import src.mention.region_reply as region_reply
     from src.common.cache import clear
     from src.kma.page import Scrape
 
@@ -576,8 +582,8 @@ def test_mention_parsing() -> None:
         calls.append((region.key, start, span))
         return Scrape(days={}, narratives=[])
 
-    orig = answer_mod.scrape_range
-    answer_mod.scrape_range = fake_scrape
+    orig = region_reply.scrape_range
+    region_reply.scrape_range = fake_scrape
     try:
         now = dt.datetime(2026, 9, 12, 9, 0, tzinfo=KST)   # 토요일
         # 광역 조회의 수집 범위를 봄 — 시도 이름('부산'·'제주')은 동네예보로
@@ -604,7 +610,7 @@ def test_mention_parsing() -> None:
             answer_mod.search_dong = orig
         print("[ok] 멘션 파싱 — 기본 '오늘부터 7일', 이번주/다음주 인식, 미지원 지역 거절")
     finally:
-        answer_mod.scrape_range = orig
+        region_reply.scrape_range = orig
         clear()
 
 
@@ -952,6 +958,7 @@ def test_foliage_routing() -> None:
 
     import src.mention.answer as answer_mod
     import src.mention.dong_reply as dong_reply
+    import src.mention.region_reply as region_reply
     import src.season.foliage as foliage_mod
 
     snap = fake_snapshot({"설악산": 1}, first={"설악산": dt.date(2026, 9, 28)})
@@ -977,11 +984,11 @@ def test_foliage_routing() -> None:
         scraped.append(region.key)
         return Scrape(days={}, narratives=[])
 
-    orig = (foliage_mod.fetch_snapshot, dong_reply.fetch_dong, answer_mod.render_foliage_png, answer_mod.scrape_range)
+    orig = (foliage_mod.fetch_snapshot, dong_reply.fetch_dong, answer_mod.render_foliage_png, region_reply.scrape_range)
     foliage_mod.fetch_snapshot = lambda today: snap
     dong_reply.fetch_dong = fake_dong
     answer_mod.render_foliage_png = fake_render          # Chromium 없이
-    answer_mod.scrape_range = fake_scrape
+    region_reply.scrape_range = fake_scrape
     now = dt.datetime(2026, 10, 1, 15, 0, tzinfo=KST)
     clear()
     try:
@@ -1055,7 +1062,7 @@ def test_foliage_routing() -> None:
         assert ask("단풍 어디까지").count("*설악산* 첫단풍") == 1
     finally:
         (foliage_mod.fetch_snapshot, dong_reply.fetch_dong, answer_mod.render_foliage_png,
-         answer_mod.scrape_range) = orig
+         region_reply.scrape_range) = orig
         clear()
     print("[ok] 단풍 멘션 — 현황 · 산별 · 산 날씨 · 목록 밖 산 · 꽃/기간 밖 거절")
 
@@ -1066,6 +1073,7 @@ def test_foliage_in_weather() -> None:
 
     import src.mention.answer as answer_mod
     import src.mention.dong_reply as dong_reply
+    import src.mention.region_reply as region_reply
     import src.season.foliage as foliage_mod
     from src.common.cache import clear
     from src.kma.page import Scrape, ScrapedDay
@@ -1094,10 +1102,10 @@ def test_foliage_in_weather() -> None:
 
     wide = {"제주": ("5000000000", "제주특별자치도"), "서울": ("1100000000", "서울특별시")}
     snaps_base = [now.date()]
-    orig = (foliage_mod.fetch_snapshot, dong_reply.fetch_dong, answer_mod.scrape_range, answer_mod.find_wide)
+    orig = (foliage_mod.fetch_snapshot, dong_reply.fetch_dong, region_reply.scrape_range, answer_mod.find_wide)
     foliage_mod.fetch_snapshot = fake_snap
     dong_reply.fetch_dong = fake_dong
-    answer_mod.scrape_range = fake_scrape
+    region_reply.scrape_range = fake_scrape
     answer_mod.find_wide = lambda q: wide.get(q.strip())
     try:
         def ask(q, when=now):
@@ -1146,7 +1154,7 @@ def test_foliage_in_weather() -> None:
         assert "설악산 아래" in ask("설악산") and "단풍 —" not in ask("설악산")
         assert ":maple_leaf:" not in ask("강원 날씨", dt.datetime(2026, 12, 1, 9, 0, tzinfo=KST))
     finally:
-        foliage_mod.fetch_snapshot, dong_reply.fetch_dong, answer_mod.scrape_range, answer_mod.find_wide = orig
+        foliage_mod.fetch_snapshot, dong_reply.fetch_dong, region_reply.scrape_range, answer_mod.find_wide = orig
         clear()
     print("[ok] 날씨 속 단풍 — 산 이름은 산 날씨와 단풍, 지역 날씨는 그 지역 산 한 줄")
 

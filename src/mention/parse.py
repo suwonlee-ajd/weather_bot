@@ -15,10 +15,10 @@ NEXT_WEEK_RE = re.compile(r"다음\s*주|담주|next", re.I)
 THIS_WEEK_RE = re.compile(r"이번\s*주|금주")
 
 
-# 인사·감사·잡담. 지역으로 오해해 "아는 지역이 아닙니다" 라고 답하면 무안함.
 THANKS_RE = re.compile(r"고마|감사|땡큐|thank|수고", re.I)
 
 
+# 인사·잡담 — 지역으로 읽어 «아는 지역이 아닙니다» 로 답하지 않게
 GREETING_RE = re.compile(
     r"안녕|하이|헬로|hello|hi\b|반가|좋은\s*아침|굿모닝|고마|감사|땡큐|thank|수고"
     r"|뭐해|누구|정체|소개|도움말|help|사용법|어떻게\s*써|잘\s*자|바이|잘\s*있어",
@@ -26,7 +26,7 @@ GREETING_RE = re.compile(
 )
 
 
-# 10일 예보 너머. 1개월 전망(주 단위 확률)으로 답할 수 있는 범위.
+# 10일 너머 ~ 1개월 — 주 단위 확률 전망으로 답함
 OUTLOOK_RE = re.compile(
     r"다음\s*달|한\s*달|1개월|한달|[0-9]+\s*주\s*뒤|앞으로\s*한\s*달"
     r"|(올|이번|내년|다음)?\s*(봄|여름|가을|겨울)"
@@ -35,14 +35,13 @@ OUTLOOK_RE = re.compile(
 )
 
 
-# 1개월 전망으로도 못 다루는 먼 미래. 확률조차 없음.
+# 1개월 전망도 없는 먼 미래
 TOO_FAR_RE = re.compile(
     r"[2-9]\s*개월|[0-9]{2,}\s*개월|내년|재작년|분기"
 )
 
 
-# 과거. 미래 분기보다 먼저 봄 — 계절 표현과 겹칠 수 있음('지난 해 여름').
-# 과거 관측 안내 링크. 최종 주소를 씀 — /obs-climate/ 경로는 여기로 리다이렉트됨.
+# 리다이렉트 뒤의 최종 주소 (/obs-climate/ 는 여기로 넘어감)
 PAST_OBS_URL = "https://www.weather.go.kr/w/weather/land/past-obs/obs-by-day.do"
 
 
@@ -63,12 +62,7 @@ TOMORROW_RE = re.compile(r"내일|명일|모레")
 WEEKEND_RE = re.compile(r"주말|토일|토요일|일요일")
 
 
-# "9월 18일", "18일", "9/18", "09-18" 처럼 날짜를 콕 집어 묻는 경우.
-# 월이 없으면 오늘 기준 가까운 쪽으로 해석함(_resolve_date).
-#
-# 뒤에 붙는 요일 표기 "(금)" · "(금요일)" 까지 한 덩어리로 삼음 — 요일만 남으면 지역 해석이
-# 그 찌꺼기를 지역 이름으로 읽어 «역삼동 9/18(금)» 이 "아는 지역이 아닙니다" 로 빠짐.
-# 봇의 답(«09/16(수)» 형식)을 복사해 다시 묻는 사람이 많음. 날짜 해석은 요일이 있든 없든 같음.
+# 요일 «(금)» 까지 한 덩어리 — 남으면 지역 이름으로 읽힘. 봇 답의 «09/16(수)» 를 복사해 묻는 일이 많음
 _WEEKDAY_SUFFIX = r"(?:\s*[(（]\s*[월화수목금토일](?:요일)?\s*[)）])?"
 
 
@@ -76,12 +70,11 @@ EXPLICIT_DATE_RE = re.compile(
     r"(?:"
     r"(?:(\d{1,2})\s*월\s*)?(\d{1,2})\s*일(?!\s*간)"      # 9월 18일 / 18일
     r"|(?:(\d{1,2})\s*[/-]\s*(\d{1,2}))(?!\d)"            # 9/18 · 09-18
-    r")" + _WEEKDAY_SUFFIX                                  # 양쪽 다 요일을 달 수 있음
+    r")" + _WEEKDAY_SUFFIX
 )
 
 
-# 지역 해석 전에 걷어낼 말. 조언 표현("뭐 입지", "우산 필요해")이 남으면
-# 지역으로 오해해 "아는 지역이 아닙니다" 로 빠짐.
+# 지역 해석 전에 걷어낼 말 — 조언 표현("뭐 입지", "우산 필요해")이 남으면 지역으로 읽힘
 NOISE_RE = re.compile(
     r"날씨|알려줘|어때|어떄|알려|좀|주세요|해줘|괜찮|될까|갈만|갈\s*만|필요"
     r"|뭐\s*입|입을|입지|입어|옷차림|복장|우산|등산|산행|캠핑|나들이|소풍|피크닉"
@@ -94,23 +87,16 @@ NOISE_RE = re.compile(
 FORWARD_DAYS = 7
 
 
-# 캐시에 담을 구간. 광역 예보의 상한(오늘~10일)이라 어떤 질문이든 이 안에 듦.
+# 광역 예보의 상한(오늘~10일) — 캐시에 이 구간을 통째로 담음
 MAX_FORECAST_DAYS = 10
 
 
-# 동네예보(시도·동 단위)가 닿는 범위. 그 너머는 광역 구역만 답할 수 있음.
+# 동네예보가 닿는 날수 — 그 너머는 광역만
 DONG_MAX_DAYS = 5
 
 
 def _explicit_date(query: str, today: dt.date) -> dt.date | None:
-    """"9월 18일" / "18일" / "9/18" 을 실제 날짜로. 없으면 None.
-
-    월을 안 적었으면 오늘 기준 가장 가까운 같은 일(日)로 봄 — 월말에 "2일"을
-    물으면 다음 달. _resolve_date 가 그 계산을 이미 갖고 있음.
-
-    예보가 없는 과거·먼 미래는 여기서 걸러내지 않음. 뒤에서 자료가 없으면
-    "예보 없음" 으로 답하므로, 날짜 해석만 하고 판단은 그쪽에 맡김.
-    """
+    """예보 범위 밖이어도 거르지 않음 — 자료가 없으면 뒤에서 «예보 없음» 으로 답함."""
     m = EXPLICIT_DATE_RE.search(query)
     if not m:
         return None
@@ -122,10 +108,10 @@ def _explicit_date(query: str, today: dt.date) -> dt.date | None:
     if not 1 <= day <= 31:
         return None
     if month is None:
-        return _resolve_date(day, today)          # 가까운 쪽으로
+        return _resolve_date(day, today)          # 가장 가까운 그 일(日) — 월말의 "2일" 은 다음 달
     if not 1 <= month <= 12:
         return None
-    # 월까지 적었으면 그 월로. 해가 바뀌는 경계(12월에 "1월 5일")를 살핌.
+    # 12월의 "1월 5일" 은 내년
     for year in (today.year, today.year + 1):
         try:
             cand = dt.date(year, month, day)
@@ -157,10 +143,9 @@ def _period(query: str, now: dt.datetime) -> tuple[dt.date, int, str]:
     else:
         start, title = today, f"앞으로 {FORWARD_DAYS}일"
 
-    # 주말을 물으면 토·일만 보여줌 — '주말 등산 괜찮아?' 에 한 주 전체를 보여주면 답이 묻힘.
+    # 주말은 토·일만 — 한 주 전체를 보이면 답이 묻힘
     if WEEKEND_RE.search(query):
         saturday = monday + dt.timedelta(days=5)
-        # '다음 주 주말' · '다음주 토요일' 은 다음 주의 토·일, 이미 지난 주말이어도 다음 주말
         if NEXT_WEEK_RE.search(query) or saturday < today:
             saturday += dt.timedelta(days=7)
         start, days, title = saturday, 2, "주말"
@@ -168,7 +153,6 @@ def _period(query: str, now: dt.datetime) -> tuple[dt.date, int, str]:
 
 
 # --- 단풍 ---------------------------------------------------------------------
-# 단풍은 9월 둘째 주 ~ 11월 둘째 주에만 답함(src/foliage.py). 꽃 개화는 다루지 않음.
 FOLIAGE_RE = re.compile(r"단풍|물들|물드")
 
 
@@ -177,12 +161,10 @@ FLOWER_RE = re.compile(
 )
 
 
-# 날씨를 묻는 말. 단풍·꽃 말이 섞여 있어도 이게 있으면 날씨 질문으로 봄
-# ("꽃구경 가는데 내일 서울 날씨", "단풍 구경 가는데 강원도 날씨 어때").
-# 산 이름과 함께면 산 아래 마을 날씨를 붙임. 활동·우산 같은 관심사(advice.TOPICS)는 따로 봄.
+# 단풍·꽃 말이 섞여도 이게 있으면 날씨 질문 ("꽃구경 가는데 내일 서울 날씨")
 WEATHER_ASK_RE = re.compile(r"날씨|기온|춥|추워|덥|더워|바람")
 
 
-# 산 단풍에 날씨를 붙이는 기간 표현. '지금'·'현재' 와 '10/25' 같은 날짜는 뺌 — 앞은 단풍 상태를
-# 묻는 말이고, 뒤는 대개 단풍 날짜를 되묻는 말임 ("설악산 단풍 절정 10/25 맞아?").
+# 산 단풍에 날씨를 붙이는 기간. '지금'·날짜는 뺌 — 단풍 상태나 날짜를 되묻는 말임
+# ("설악산 단풍 절정 10/25 맞아?")
 TRIP_SPANS = ("주말", "내일", "모레", "이번 주", "다음 주")

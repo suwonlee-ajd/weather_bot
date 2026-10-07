@@ -50,7 +50,6 @@ log = logging.getLogger("weather-mention")
 
 
 def _outlook_reply(region, query: str) -> str:
-    """1개월 전망. 값이 아니라 확률이라는 점을 분명히 해 둠."""
     try:
         o = fetch_outlook(region.key if region else "전국")
     except OutlookError as exc:
@@ -81,16 +80,14 @@ def _outlook_reply(region, query: str) -> str:
 
 @dataclass
 class Reply:
-    """멘션 답. 단풍 현황을 물으면 지도가 함께 감."""
     text: str
     image: bytes | None = None
 
 
 def answer(text: str, now: dt.datetime | None = None) -> Reply:
-    """멘션 진입점. 단풍·꽃은 여기서 먼저 가르고, 나머지 날씨 질문은 build_reply 로 보냄.
+    """멘션 진입점. 단풍·꽃을 먼저 가르고 나머지는 build_reply 로.
 
-    단풍은 인사·과거·전망보다 먼저 봐야 함 — "설악산 단풍 물들었나" 의 '었나' 는 과거로,
-    "올가을 단풍" 의 '가을' 은 1개월 전망으로, "안녕 단풍 어때" 는 자기소개로 빠짐.
+    단풍을 인사·과거·전망보다 먼저 봄 — '물들었나' 는 과거로, '올가을' 은 전망으로 샘.
     """
     now = now or dt.datetime.now(tz=KST)
     theme = _theme(MENTION_RE.sub(" ", text).strip(), now)
@@ -100,21 +97,19 @@ def answer(text: str, now: dt.datetime | None = None) -> Reply:
     if snap is None:
         return Reply(reply)
     try:
-        # 같은 현황이면 같은 그림 — 물을 때마다 Chromium 을 띄우지 않게. 키에 현황 내용을
-        # 넣음 — 글(방금 받은 현황)과 그림(캐시)이 어긋나지 않게.
+        # 현황이 같으면 그림 재사용(Chromium 렌더링이 느림). 키에 현황을 넣어 글과 어긋나지 않게 함
         image = get_or_set(
             ("foliage-map", now.date(), snap.signature()), CACHE_TTL_SEC,
             lambda: render_foliage_png(snap, now.date(), span_label="앞으로 7일"),
         )
         return Reply(reply, image)
     except Exception:
-        # 지도가 안 그려져도 글로는 답함
         log.warning("단풍 지도 렌더링 실패 — 글로만 답합니다", exc_info=True)
         return Reply(reply)
 
 
 def build_reply(text: str, now: dt.datetime | None = None) -> str:
-    """날씨 질문에 대한 답. 멘션 진입점은 answer() — 단풍·꽃은 거기서 먼저 가름."""
+    """단풍·꽃을 뺀 날씨 질문의 답. 진입점은 answer()."""
     now = now or dt.datetime.now(tz=KST)
     query = MENTION_RE.sub(" ", text).strip()
     if (reply := _small_talk(query)) is not None:
@@ -122,10 +117,9 @@ def build_reply(text: str, now: dt.datetime | None = None) -> str:
 
     start, days, title = _period(query, now)
     if mountain := find_mountain(query):
-        # 산은 지역 목록에 없음 — 산 아래 마을 예보로 답함
+        # 산은 지역 목록에 없음 — 산 아래 마을 예보로
         return _mountain_reply(mountain, start, days, title, now.date())
 
-    # 탐지에 쓴 바로 그 패턴으로 지움 — 목록이 두 군데로 갈라지지 않게
     for pattern in (EXPLICIT_DATE_RE, NEXT_WEEK_RE, THIS_WEEK_RE, TODAY_RE, TOMORROW_RE, NOISE_RE):
         query = pattern.sub(" ", query)
     query = query.strip()
@@ -141,8 +135,7 @@ def build_reply(text: str, now: dt.datetime | None = None) -> str:
 
 
 def _small_talk(query: str) -> str | None:
-    """날씨 예보가 아닌 답 — 인사·도움말·감사, 지난 날씨, 너무 먼 날, 1개월 전망."""
-    # 지역 없이 인사만 왔을 때만 — '부산 안녕' 은 날씨를 보여줌
+    # 인사만 왔을 때만 — '부산 안녕' 은 날씨로 답함
     if GREETING_RE.search(query):
         stripped = NOISE_RE.sub(" ", GREETING_RE.sub(" ", query)).strip()
         if not stripped or resolve_region(stripped)[0] is None:
@@ -175,33 +168,30 @@ def _small_talk(query: str) -> str | None:
 
 
 def _city_reply(query: str, start: dt.date, days: int, title: str, now: dt.datetime) -> str | None:
-    """'부산' 처럼 시도 하나를 물었으면 그 시도의 동네예보. 동네예보로 채울 수 없으면 None(→ 광역).
-
-    광역(부산·울산·경남)으로 답하면 경남내륙까지 아우른 분포라 부산 값이 아님. 긴 문장이면 낱말마다 찾음.
-    """
+    """시도를 물으면 동네예보로 답함(광역 '부산·울산·경남' 은 부산 값이 아님). 못 채우면 None → 광역."""
     wide = find_wide(query) or next(
         (w for tok in re.split(r"[\s,]+", query) if (w := find_wide(tok))), None)
     if not wide:
         return None
     last = now.date() + dt.timedelta(days=DONG_MAX_DAYS - 1)
     if start > last:
-        return None                    # 동네예보가 닿지 않는 날
+        return None
     if start + dt.timedelta(days=days - 1) <= last:
         reply = _dong_reply(wide[0], wide[1], days, start, today=now.date())
-        # 끝자락 거절(조각난 날은 버림)이면 광역으로 넘김 — 광역은 답할 수 있음
+        # NO_EMOJI 가 있으면 거절 답 — 광역으로 넘김
         return None if NO_EMOJI in reply else reply
     if title.startswith("앞으로"):
-        # 기간을 따로 말하지 않았으면 닿는 데까지 — 며칠인지보다 «부산 값» 인지가 중요함
+        # 기간을 안 말했으면 닿는 데까지만 — 일수보다 «부산 값» 이 중요함
         return _dong_reply(wide[0], wide[1], (last - start).days + 1, start, today=now.date())
-    return None                        # '이번 주'·'다음 주' 를 콕 집으면 그 기간을 채우는 광역으로
+    return None                        # '이번 주'·'다음 주' 는 기간을 채우는 광역으로
 
 
 def _find_region(query: str, text: str, topic: str | None, start: dt.date, days: int,
                  now: dt.datetime) -> tuple[Region, str] | str:
-    """(광역 구역, 바꿔 읽은 안내). 광역이 아니면 동 단위로 찾아 답(str)을 돌려줌."""
+    """광역이면 (구역, 바꿔 읽은 안내), 아니면 동 단위로 찾은 답(str)."""
     region, note = resolve_region(query)
     if region is None and topic:
-        # 조언 질문은 문장에서 지역을 집어냄 — 지우기로는 '무등산' 의 '등산' 까지 잘려 나감
+        # 조언 질문은 문장에서 지역을 집어냄 — NOISE 로 지우면 '무등산' 의 '등산' 이 잘림
         region, note = extract_region(text)
         if region is None:
             region, note = NATIONWIDE, ""

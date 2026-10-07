@@ -93,25 +93,25 @@ def _overview_text(snap: Snapshot, today: dt.date, unknown: str | None) -> str:
 
 
 def _theme(query: str, now: dt.datetime) -> tuple[str, Snapshot | None] | None:
-    """단풍·꽃 질문이면 (답, 지도로 그릴 현황), 아니면 None. 지도가 필요 없으면 현황은 None."""
+    """단풍·꽃 질문이면 (답, 지도로 그릴 현황 또는 None), 아니면 None."""
     today = now.date()
     asks_weather = bool(WEATHER_ASK_RE.search(query))
     if FLOWER_RE.search(query) and not FOLIAGE_RE.search(query):
         if asks_weather:
-            return None                   # 꽃구경 가는 날의 날씨 — 날씨로 답함
+            return None                   # 꽃구경 날의 날씨 — 날씨로 답함
         return (f"꽃 개화 소식은 다루지 않습니다. {NO_EMOJI}\n"
                 f"기상청 봄꽃 개화 현황(3월 초~5월 하순)에서 보실 수 있어요 — {FLOWER_URL}"), None
     if not FOLIAGE_RE.search(query):
         return None
 
     mountain = find_mountain(query)
-    # 산이 아니라 지역의 날씨를 물었으면 날씨 질문임 ("단풍 구경 가는데 강원도 날씨 어때")
+    # 산 없이 지역 날씨를 물으면 날씨 질문 ("단풍 구경 가는데 강원도 날씨 어때")
     if mountain is None and asks_weather and extract_region(query)[0] is not None:
         return None
 
     if not in_season(today):
         start, _ = next_season(today)
-        # 기간은 늘 월요일에 시작함 (9월 둘째 월요일)
+        # 단풍철은 늘 월요일(9월 둘째 월요일)에 시작
         when = (f"올해는 {short_date(start)}(월)부터입니다" if start.year == today.year
                 else f"다음은 {start.year}년 {short_date(start)}(월)부터입니다")
         return f"단풍 소식은 *{SEASON_TEXT}* 에만 전해드립니다. {NO_EMOJI}\n_{when}._", None
@@ -137,18 +137,13 @@ def _theme(query: str, now: dt.datetime) -> tuple[str, Snapshot | None] | None:
 
 
 def _mountain_weather(m: Mountain, start: dt.date, days: int) -> str:
-    """산 아래 마을 동네예보. 산 위가 아니라는 것을 밝혀 둠."""
     weather = _dong_reply(m.zone, f"{m.name} 아래 {m.zone_name}", days, start, quiet=True)
     return (f"{weather}\n_산 아래 마을 예보입니다. 산 위는 이보다 춥고 바람이 셉니다._" if weather
             else f"_산 아래 마을 날씨는 가져오지 못했습니다 (동네예보는 오늘부터 {DONG_MAX_DAYS}일까지)._")
 
 
 def _mountain_reply(m: Mountain, start: dt.date, days: int, title: str, today: dt.date) -> str:
-    """단풍 말 없이 산 이름으로 물은 답 ("설악산", "주말 지리산 등산").
-
-    산 아래 마을 예보가 먼저임 — 날씨를 물은 것. 단풍철이면 그 산의 단풍을 덧붙임.
-    기간을 콕 집지 않았으면 단풍 갈래의 산 날씨와 같은 기간을 보여줌.
-    """
+    """단풍 말 없이 산 이름으로 물은 답 ("설악산", "주말 지리산 등산") — 날씨가 먼저, 단풍은 덧붙임."""
     if title.startswith("앞으로"):
         start, days = today, DONG_MAX_DAYS - 1
     text = _mountain_weather(m, start, days)

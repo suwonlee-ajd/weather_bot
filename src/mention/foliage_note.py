@@ -23,10 +23,9 @@ log = logging.getLogger("weather-mention")
 
 
 def _snapshot_quietly(today: dt.date) -> Snapshot | None:
-    """날씨 답에 덧붙일 단풍 현황. 못 받으면 None — 덤 때문에 날씨 답까지 막지 않음."""
     try:
         return foliage.fetch_snapshot(today)
-    except FoliageError as exc:            # 점검·형식 변경 — 예상된 실패라 한 줄로
+    except FoliageError as exc:            # 점검·형식 변경 — 예상된 실패라 traceback 없이
         log.warning("단풍 현황 실패 — 날씨만 답합니다: %s", exc)
     except Exception:
         log.warning("단풍 현황 실패 — 날씨만 답합니다", exc_info=True)
@@ -34,10 +33,7 @@ def _snapshot_quietly(today: dt.date) -> Snapshot | None:
 
 
 def _foliage_brief(snap: Snapshot, mountains: tuple[Mountain, ...], start: dt.date, end: dt.date) -> str:
-    """물든 산과 그 기간에 예상된 변화. 둘 다 없으면 빈 문자열.
-
-    전국은 단풍 현황 답과 같은 요약을 씀 — 산마다 적으면 스무 곳이 넘음.
-    """
+    # 전국은 산마다 적지 않고 단풍 현황 답과 같은 요약 — 스무 곳이 넘음
     if len(mountains) == len(MOUNTAINS):
         parts = []
         if any(snap.stage(m.name) for m in MOUNTAINS):
@@ -65,10 +61,6 @@ def _foliage_brief(snap: Snapshot, mountains: tuple[Mountain, ...], start: dt.da
 
 def _foliage_note(mountains: tuple[Mountain, ...], start: dt.date, end: dt.date,
                   today: dt.date) -> list[str]:
-    """지역 날씨 끝에 붙이는 단풍 한 줄. 단풍철에, 그 지역에 말할 것이 있을 때만.
-
-    단풍을 못 받아 와도 날씨 답은 그대로 나감 — 날씨를 물은 사람에게 주는 덤.
-    """
     if not mountains or not in_season(today) or not (snap := _snapshot_quietly(today)):
         return []
     # 이미 지난 날의 예상은 꺼내지 않음 — 그날 물들었으면 관측으로 나옴

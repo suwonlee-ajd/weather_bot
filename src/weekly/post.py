@@ -1,13 +1,6 @@
-"""주간 날씨 브리핑을 슬랙 채널에 게시함. (엔트리포인트)
+"""주간 날씨 브리핑을 슬랙 채널에 게시함.
 
-메시지 구성:
-  본문   : 날씨 두 문단 — 체감·예보관 서술 + 복장·우산·태풍 등 권장 대응 (src/writer.py, 기본 규칙 기반)
-  첨부 1 : 주간 전망 카드 PNG (src/render_card.py)
-  첨부 2 : 기상청 지상일기도 PNG (인증 불필요한 공개 파일)
-  첨부 3 : 단풍 지도 PNG — 9월 둘째 주 ~ 11월 둘째 주에만 (src/render_foliage.py)
-
-본문은 paragraph.Message 로 조립함 — 날씨 두 문단 → 철마다의 소식 문단(src/themes.py) → 출처 줄.
-철 소식에 딸린 그림(단풍 지도)은 첨부로 함께 올라감.
+본문(날씨 두 문단 → 철 소식 → 출처 줄)에 카드·지상일기도·철 소식 그림을 붙임.
 
     python -m src.weekly.post              # 실제 게시
     python -m src.weekly.post --dry-run    # 슬랙 전송 없이 data/ 에 저장하고 본문만 출력
@@ -39,7 +32,7 @@ MAX_WAIT = dt.timedelta(minutes=60)
 
 
 def wait_until(post_at: str, now: dt.datetime) -> None:
-    """지정 시각(KST)까지 기다림 — GitHub Actions 등 크론 지연을 흡수함."""
+    """지정 시각(KST)까지 기다림 — 크론 지연을 흡수함."""
     if not post_at:
         return
     hour, minute = (int(x) for x in post_at.split(":"))
@@ -55,9 +48,7 @@ def wait_until(post_at: str, now: dt.datetime) -> None:
     time.sleep(delta.total_seconds())
 
 
-# 기상청 원문의 머릿기호를 마크다운 불릿로 바꿈. □(종합)은 1단계, ○(개별)은 2단계.
-# 콘솔에 찍기 직전에만 쓰고 원문 문자열은 그대로 둠 — writer.py 의
-# 서술 파싱(NARRATIVE_RE)이 □/○ 를 보고 갈라냄.
+# 콘솔에 찍을 때만 바꿈 — 원문의 □/○ 는 서술 파싱(NARRATIVE_RE)이 씀
 def _md_bullets(text: str) -> str:
     text = re.sub(r"^□\s*", "- ", text, flags=re.M)
     return re.sub(r"^○\s*", "  - ", text, flags=re.M)
@@ -65,7 +56,7 @@ def _md_bullets(text: str) -> str:
 
 @dataclass
 class Post:
-    """슬랙에 올릴 한 건. uploads 는 슬랙 API 페이로드 그대로, keep 은 그 순서대로 (보존일, 파일명 패턴)."""
+    """슬랙에 올릴 한 건. keep 은 uploads 와 같은 순서의 (보존일, 파일명 패턴)."""
     week: WeekForecast
     text: str
     uploads: list[dict] = field(default_factory=list)
@@ -78,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
     cfg = Config()
     dry_run = args.dry_run or cfg.dry_run
     if args.data_dir and not dry_run:
-        # 실제 게시는 디스크에 남기지 않음 — 조용히 무시하면 지정한 자리를 뒤지다 헤맴
+        # 조용히 무시하면 지정한 자리에서 파일을 찾다 헤맴
         parser.error("--data-dir 은 --dry-run 과 함께 써야 합니다 (실제 게시는 파일을 남기지 않습니다)")
 
     post = _compose(cfg, dt.datetime.now(tz=KST), args.week_offset)
@@ -107,7 +98,6 @@ def _parse_args(argv: list[str] | None) -> tuple[argparse.ArgumentParser, argpar
 
 
 def _compose(cfg: Config, now: dt.datetime, week_offset: int) -> Post | None:
-    """예보 수집 → 문구 → 카드·일기도·철 소식. 수집에 실패하면 None — 지어낸 날씨는 올리지 않음."""
     try:
         week = build_week(cfg, now, week_offset=week_offset)
     except ForecastError as exc:
@@ -147,7 +137,6 @@ def _compose(cfg: Config, now: dt.datetime, week_offset: int) -> Post | None:
 
 
 def _save_dry_run(post: Post, img_dir: pathlib.Path, channel: str) -> None:
-    """첨부를 img_dir 에 저장하고 본문을 출력. 지난 산출물은 이번 것을 쓰기 직전에 치움(우리 파일 패턴만)."""
     img_dir.mkdir(parents=True, exist_ok=True)
     saved = []
     for item, (keep_days, pattern) in zip(post.uploads, post.keep, strict=True):

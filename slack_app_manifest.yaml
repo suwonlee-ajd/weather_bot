@@ -1,12 +1,6 @@
 # Slack API > Your Apps > Create New App > From an app manifest 에 붙여넣기
-#
-# 이 봇은 두 가지 일을 함 — 매주 월요일 예약 게시와, 멘션에 답하기.
-# 멘션 쪽은 Socket Mode 라 인바운드 포트·도메인·TLS·리버스 프록시가 필요 없음.
-# 나가는 WebSocket 연결 하나뿐임.
-#
-# 설치 후 App-Level Token 을 직접 발급해 .env 의 SLACK_APP_TOKEN(xapp-...) 에 넣음 —
-# 없으면 멘션 봇이 뜨지 않음. 매니페스트로는 만들 수 없어
-# Basic Information > App-Level Tokens 에서 connections:write 스코프로 발급함.
+# 설치 후 App-Level Token 을 직접 발급해 SLACK_APP_TOKEN(xapp-...)에 넣음 — 없으면 멘션 봇이 안 뜸.
+# 발급: Basic Information > App-Level Tokens, 스코프 connections:write (매니페스트로는 못 만듦)
 display_information:
   name: 날씨 알리미
   description: 매주 월요일 아침 이번 주 날씨를 전하고, 불러 주시면 날씨를 알려드립니다.
@@ -14,23 +8,21 @@ display_information:
 features:
   bot_user:
     display_name: 날씨 알리미
-    # display_name 은 빼지 않음 — 스코프만 넣으면 설치 시
-    # '설치할 봇 사용자가 없습니다' 오류가 남.
+    # display_name 필수 — 빠지면 설치 시 '설치할 봇 사용자가 없습니다' 오류
     always_online: false
 oauth_config:
   scopes:
     bot:
       - chat:write        # 메시지 게시
       - files:write       # 카드·일기도 이미지 업로드
-      - app_mentions:read # 멘션 수신 — 이것이 없으면 불러도 답하지 않음
-      - emoji:read        # 로딩 표시에 쓸 커스텀 이모지가 있는지 확인 (없어도 동작)
-      # - commands        # /이번주날씨 같은 슬래시 커맨드를 붙일 때만 추가
+      - app_mentions:read # 멘션 수신 (없으면 답하지 않음)
+      - emoji:read        # 로딩 이모지 확인 (없어도 동작)
+      # - commands        # 슬래시 커맨드를 붙일 때만
 settings:
-  # 멘션에 답하려면 이벤트 구독이 있어야 함. Event Subscriptions 에 Request URL
-  # 입력란이 없는 것은 정상임 — Socket Mode 가 켜져 있으면 뜨지 않음.
+  # Event Subscriptions 에 Request URL 입력란이 없는 것은 정상 — Socket Mode 에선 안 뜸
   event_subscriptions:
     bot_events:
       - app_mention
   org_deploy_enabled: false
-  socket_mode_enabled: true    # 상시 연결로 멘션을 받음
+  socket_mode_enabled: true    # 인바운드 포트·도메인 없이 나가는 연결로 멘션을 받음
   token_rotation_enabled: false

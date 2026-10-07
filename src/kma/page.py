@@ -71,8 +71,7 @@ class Scrape:
 
 
 def _get_soup(url: str, timeout: float = 25.0) -> BeautifulSoup:
-    # 상태코드와 본문 크기를 로그에 남김 — 실패했을 때 기상청이 죽었는지 파서가
-    # 깨졌는지 로그만 보고 갈라야 함. 200 인데 4KB 면 페이지 구조가 바뀐 것.
+    # 기상청 장애와 파서 고장을 로그로 가르려 크기를 남김 — 200 인데 4KB 면 페이지 구조 변경임
     started = time.monotonic()
     try:
         resp = requests.get(url, headers={"User-Agent": UA}, timeout=timeout)
@@ -101,7 +100,7 @@ def _issued_at(soup: BeautifulSoup) -> dt.datetime | None:
 
 
 def _resolve_date(day_of_month: int, ref: dt.date) -> dt.date | None:
-    """'14일' 같은 표기를 기준일 근처의 실제 날짜로 되돌림 (월말/월초 넘어감 처리)."""
+    """'14일' 을 기준일 ±16일 안의 실제 날짜로 (월 경계 처리)."""
     for delta in range(-16, 17):
         cand = ref + dt.timedelta(days=delta)
         if cand.day == day_of_month:
@@ -110,7 +109,6 @@ def _resolve_date(day_of_month: int, ref: dt.date) -> dt.date | None:
 
 
 def _narrative_lines(soup: BeautifulSoup) -> list[str]:
-    """□ / ○ 로 시작하는 예보관 서술만 뽑음."""
     text = soup.get_text("\n", strip=True)
     lines: list[str] = []
     for raw in text.split("\n"):

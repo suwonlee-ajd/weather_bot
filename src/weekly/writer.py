@@ -1,19 +1,7 @@
-"""기상청 원문과 수치를 받아 카드 문구와 슬랙 본문을 씀.
+"""카드 문구와 슬랙 본문을 씀. 모델은 한 번만 불러 리드·구간 서술·특이사항·본문을 함께 받음.
 
-모델을 한 번만 불러 네 가지를 한꺼번에 받음 — 카드 리드 문장, 구간별 서술(초반/중후반/주말),
-특이사항, 그리고 슬랙 본문. 같은 자료를 두 번 넘기지 않아 싸고, 목소리도 일관됨.
-
-모델은 '옮겨 쓰기'만 함 — 수치는 이미 기상청 원문이라 지어낼 여지가 없음.
-
-백엔드는 WRITER 환경변수로 고름. 기본은 none(규칙 기반, 모델 없음).
-  gemini — GEMINI_API_KEY 와 `uv sync --extra gemini`(google-genai). **순수 생성은 무료 티어로
-           동작함**(Google 검색 그라운딩과 다름). 3.5-flash 를 씀 — gemini-3.8-flash 는 이 작업에
-           90초가 지나도 응답이 없음.
-  claude — ANTHROPIC_API_KEY 와 `uv sync --extra claude`(anthropic). 문장 품질이 가장 낫지만 선불
-           크레딧이 필요함.
-  그 밖  — 규칙 기반. 모르는 값이면 경고를 남김.
-
-모델을 못 쓰거나 호출이 실패하면 규칙 기반 문구로 폴백함 — 주 1회뿐인 게시를 거르지 않기 위함.
+WRITER 로 고름 — none(기본, 규칙 기반) · gemini · claude. claude 는 문장이 가장 낫지만 선불 크레딧이 필요함.
+gemini 는 순수 생성이면 무료 티어로 동작함. 3.8-flash 는 이 작업에 90초 넘게 무응답이라 3.5-flash 를 씀.
 """
 from __future__ import annotations
 
@@ -85,22 +73,12 @@ def extract_json(raw: str) -> dict:
     return json.loads(text[start : end + 1])
 
 
-# --------------------------------------------------------------------------- #
-# 규칙 기반 폴백 (Claude 없이도 게시는 됨)
-# --------------------------------------------------------------------------- #
-
-
-# --------------------------------------------------------------------------- #
-# Claude
-# --------------------------------------------------------------------------- #
-
-# 닫는 콜론이 빠진 이모지 조각(:falling_leaf_ 같은)만 걸러냄.
-# 앞의 (?<![\w:]) 가 "12:30" 의 :30 같은 시각 표기를 건드리지 않게 막아줌.
+# (?<![\w:]) 는 "12:30" 같은 시각 표기를 건드리지 않게 함
 BROKEN_EMOJI_RE = re.compile(r"(?<![\w:]):[a-z][a-z0-9_+\-]*(?![a-z0-9_+\-]*:)")
 
 
 def sanitize(text: str) -> str:
-    """모델이 흘린 반쪽짜리 이모지 코드를 지움. 슬랙에서 그대로 노출되면 지저분함."""
+    """모델이 흘린 반쪽짜리 이모지 코드(:falling_leaf_)를 지움."""
     return re.sub(r"[ \t]{2,}", " ", BROKEN_EMOJI_RE.sub("", text)).strip()
 
 
@@ -139,7 +117,7 @@ def _write_gemini(week: WeekForecast, prompt: str, model: str, timeout_sec: int)
         api_key=os.environ.get("GEMINI_API_KEY") or None,
         http_options=types.HttpOptions(timeout=timeout_sec * 1000),
     )
-    # 검색 도구를 붙이지 않음. 그라운딩은 무료 티어 할당량이 0 이고, 자료는 이미 기상청 원문.
+    # 검색 그라운딩은 붙이지 않음 — 무료 티어 할당량이 0 이고 자료는 이미 기상청 원문임
     interaction = client.interactions.create(model=model, input=f"{SYSTEM}\n\n---\n\n{prompt}")
     return _parse(interaction.output_text or "", week)
 
@@ -153,7 +131,7 @@ def _write_claude(week: WeekForecast, prompt: str, model: str) -> Written:
         system=SYSTEM,
         thinking={"type": "adaptive"},
         output_config={"effort": os.environ.get("ANTHROPIC_EFFORT", "low")},
-        # 안전 분류기 거절에 대비한 서버사이드 폴백 (날씨 글에서 걸릴 일은 사실상 없음)
+        # 안전 분류기 거절 대비
         betas=["server-side-fallback-2026-07-01"],
         fallbacks="default",
         messages=[{"role": "user", "content": prompt}],
@@ -164,7 +142,7 @@ def _write_claude(week: WeekForecast, prompt: str, model: str) -> Written:
 
 
 def write(week: WeekForecast, cfg=None) -> Written:
-    """카드 문구와 슬랙 본문을 만듦. 무엇이 실패하든 규칙 기반 문구로는 반드시 돌아옴."""
+    """무엇이 실패하든 규칙 기반 문구로는 돌아옴 — 주 1회 게시를 거르지 않게."""
     backend = (getattr(cfg, "writer", "") or os.environ.get("WRITER", "none")).lower()
     if backend not in ("claude", "gemini"):
         if backend != "none":
@@ -191,9 +169,9 @@ def write(week: WeekForecast, cfg=None) -> Written:
         written = runner()
         log.info("문구 생성 완료 (%s / %s)", backend, model)
         return written
-    except ImportError as exc:  # 선택 설치 묶음을 빠뜨림 — 매주 같은 실패라 추적 대신 고칠 방법을 남김
+    except ImportError as exc:  # extra 누락 — 매주 같은 실패라 추적 대신 고칠 방법을 남김
         log.error("%s 패키지가 없어 규칙 기반 문구로 대체합니다 (uv sync --extra %s): %s", backend, backend, exc)
         return fallback(week)
-    except Exception:  # 문구 생성 실패로 게시를 거르지 않음
+    except Exception:
         log.exception("%s 문구 생성 실패 - 규칙 기반 문구로 대체합니다.", backend)
         return fallback(week)

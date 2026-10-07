@@ -1,22 +1,6 @@
-"""벚꽃 — 기상청 군락지 관측과 웨더아이 개화 예상일. 주간 게시의 벚꽃 소식에 씀.
+"""벚꽃 — 기상청 군락지 관측(13곳)과 웨더아이 개화 예상일(19개 도시).
 
-단풍(src/foliage.py)과 같은 짜임으로, «관측» 과 «예상» 을 갈라 씀. 기상청은 개화를 관측할 뿐
-예보하지 않고, 예상일은 민간 업체(웨더아이)가 해마다 2월 말에 냄.
-
-  관측  기상청 날씨누리 봄꽃 현황 · 벚꽃 군락지 (13곳, 3월 ~ 4월)
-        https://www.kma.go.kr/kma/theme/flower_photojs.jsp?treeType=1&obsPlace=<군락지>
-        JSONP `applyFlowerData({...})`. places[] 에 13곳의 단계(1 개화 전 / 2 개화 / 3 만발)가,
-        flower 에 obsPlace 로 고른 한 곳의 촬영일(cf 개화 / ff 만발)이 옴.
-
-  예상  웨더아이 공지 「YYYY년 벚꽃 개화예상시기」 첨부 PDF 의 [첨부1] 주요도시 표 (19곳)
-        https://www.weatheri.co.kr/board/board03_list.php
-        2023~2026 네 해 모두 같은 표. 날짜 표기만 '3.24'(~2024) → '3/25'(2025~) 로 바뀌었음.
-        올해 표가 아직 없으면 지난해 표의 평년 개화일(예상일 옆 칸)만 빌려 씀 — 평년은
-        해마다 같고, 발표가 2/21~2/28 이라 다루는 기간의 첫 주와 엇갈림.
-
-개화는 한 가지에 세 송이 이상 핀 때, 만발은 80% 이상 핀 때.
-
-봇이 벚꽃을 다루는 기간은 2월 마지막 월요일 ~ 3월 마지막 월요일이 든 주까지.
+기상청은 관측만 하고 예보하지 않음. 예상일은 웨더아이 「YYYY년 벚꽃 개화예상시기」 첨부 PDF 의 [첨부1] 표.
 """
 from __future__ import annotations
 
@@ -40,7 +24,7 @@ STAGES = ("개화 전", "개화", "만발")
 NOT_STARTED_TEXT = "기상청 벚꽃 관측이 아직 시작되지 않았습니다 (해마다 3월부터)"
 NOT_PUBLISHED_TEXT = f"올해 개화 예상은 아직 나오지 않았습니다 ({OUTLOOK_SOURCE}, 해마다 2월 말 발표)"
 
-# 표가 통째로 바뀌었는지 가려낼 문턱. 해마다 19곳이 나왔음.
+# 형식 변경 감지 문턱 — 해마다 19곳
 _MIN_ROWS = 15
 
 
@@ -65,8 +49,6 @@ def in_season(day: dt.date) -> bool:
     return start <= day <= end
 
 
-# --- 공통 ------------------------------------------------------------------
-
 def _get(url: str, **kw) -> requests.Response:
     return shared.get(url, error=BlossomError, **kw)
 
@@ -76,8 +58,8 @@ def _get(url: str, **kw) -> requests.Response:
 @dataclass
 class Status:
     stages: dict[str, int]                                   # 군락지 → 0 개화 전 / 1 개화 / 2 만발
-    bloom: dict[str, dt.date] = field(default_factory=dict)  # 관측된 개화일
-    full: dict[str, dt.date] = field(default_factory=dict)   # 관측된 만발일
+    bloom: dict[str, dt.date] = field(default_factory=dict)
+    full: dict[str, dt.date] = field(default_factory=dict)
     in_service: bool = True
 
 
@@ -86,7 +68,7 @@ def _jsonp(text: str) -> dict:
 
 
 def parse_status(text: str) -> tuple[dict[str, int], bool]:
-    """목록 응답에서 (군락지별 단계, 서비스 중인지)."""
+    """(군락지별 단계, 서비스 중인지)."""
     return shared.stages_in(_jsonp(text), STAGES, "봄꽃", BlossomError)
 
 
@@ -97,7 +79,7 @@ def _kma(place: str = "") -> str:
 
 
 def fetch_status(today: dt.date) -> Status:
-    """13곳의 단계와, 핀 곳의 관측일. 한 곳의 날짜를 못 받아도 단계는 그대로 둠."""
+    """단계는 목록 한 번에, 촬영일은 obsPlace 로 한 곳씩 불러야 나옴. 날짜를 못 받아도 단계는 둠."""
     try:
         stages, in_service = parse_status(_kma())
     except (KeyError, TypeError, AttributeError) as exc:
@@ -125,29 +107,25 @@ def fetch_status(today: dt.date) -> Status:
 
 @dataclass
 class Outlook:
-    expected: dict[str, dt.date]    # 도시 → 올해 개화 예상일. 지난해 표를 빌렸으면 비어 있음
-    normal: dict[str, dt.date]      # 도시 → 평년 개화일 (올해 날짜로 옮겨 둠)
+    expected: dict[str, dt.date]    # 지난해 표를 빌렸으면 비어 있음
+    normal: dict[str, dt.date]      # 평년 개화일, 올해 날짜로 옮겨 둠
     published: dt.date | None = None
     url: str = ""
 
     def gap_days(self) -> float | None:
-        """올해 예상이 평년보다 며칠 이른지(음수) 늦은지(양수). 도시 평균."""
+        """평년 대비 도시 평균 날수 — 이르면 음수."""
         gaps = [(d - self.normal[c]).days for c, d in self.expected.items() if c in self.normal]
         return sum(gaps) / len(gaps) if gaps else None
 
 
-# 도시  예상일  평년(평년차)  작년(편차). 2023 표에는 '4. 1' 처럼 띄어 쓴 날짜도 있음.
+# 도시  예상일  평년(평년차)  작년(편차). 날짜는 '3.24'·'4. 1'(~2024), '3/25'(2025~).
 # 군락지 줄('진해 여좌천 3/27 …')은 이름이 두 낱말이라 걸리지 않음.
 _DAY = r"(\d{1,2})\s*[/.]\s*(\d{1,2})"
 _ROW = re.compile(rf"^\s*([가-힣]{{2,3}})\s+{_DAY}\s+{_DAY}\s*\(")
 
 
 def parse_outlook_text(text: str, year: int) -> tuple[dict[str, dt.date], dict[str, dt.date]]:
-    """PDF 에서 뽑은 글자에서 도시별 (개화 예상일, 평년 개화일).
-
-    조금이라도 어긋나면 통째로 버리고 BlossomError 를 냄. 잘못 읽은 날짜는 게시물에서
-    그럴듯해 보여 알아채기 어려우니, 예상 없이 관측만 전하는 편이 나음.
-    """
+    """도시별 (개화 예상일, 평년 개화일). 조금이라도 어긋나면 통째로 버림 — 그럴듯한 오독은 알아채기 어려움."""
     expected: dict[str, dt.date] = {}
     normal: dict[str, dt.date] = {}
     lo, hi = dt.date(year, 3, 1), dt.date(year, 4, 30)
@@ -187,11 +165,7 @@ def _load_post(list_html: str, year: int) -> Outlook | None:
 
 
 def fetch_outlook(year: int) -> Outlook:
-    """올해 웨더아이 예상. 아직 없으면 지난해 표의 평년만, 그것도 없으면 빈 예상.
-
-    읽다 실패하면 BlossomError — «아직 안 나왔다» 와 «받지 못했다» 를 섞으면 실패를
-    "아직 나오지 않았습니다" 로 잘못 알리게 됨.
-    """
+    """없으면 지난해 표의 평년만 — 발표(2/21~28)가 시즌 첫 주와 엇갈림. 실패는 «없음» 과 섞지 않고 BlossomError."""
     listing = _get(shared.WEATHERI_LIST)
     listing.encoding = "utf-8"
     outlook = _load_post(listing.text, year)
@@ -209,7 +183,7 @@ def fetch_outlook(year: int) -> Outlook:
 # --- 주간 게시 문구 -----------------------------------------------------------
 
 def observed_line(status: Status) -> str:
-    """관측 한 줄. 핀 곳이 적으면 이름과 날짜를, 많아지면 개수와 최근 변화를 씀."""
+    """관측 한 줄 — 핀 곳이 적으면 이름·날짜, 많으면 개수·최근 변화."""
     if not status.in_service:
         return NOT_STARTED_TEXT
     events = []   # (날짜 또는 None, 군락지, 단계)
@@ -246,7 +220,6 @@ def _grouped(days: list[tuple[str, dt.date]]) -> str:
 
 
 def week_line(outlook: Outlook | None, start: dt.date, end: dt.date) -> str:
-    """그 주에 개화가 예상된 도시. 없으면 다음에 필 곳을 미리 알림."""
     if outlook is None or not outlook.expected:
         return NOT_PUBLISHED_TEXT
     week = [(c, d) for c, d in outlook.expected.items() if start <= d <= end]
@@ -260,7 +233,7 @@ def week_line(outlook: Outlook | None, start: dt.date, end: dt.date) -> str:
 
 
 def year_line(outlook: Outlook | None) -> str:
-    """올해가 평년보다 이른지 늦은지. 올해 예상이 없으면 평년 개화일을 알림."""
+    """평년보다 이른지 늦은지. 올해 예상이 없으면 평년 개화일."""
     if outlook is None or not outlook.normal:
         return ""
     seoul_normal = outlook.normal.get("서울")
@@ -271,7 +244,7 @@ def year_line(outlook: Outlook | None) -> str:
     gap = outlook.gap_days()
     if gap is None:
         return ""
-    days = int(abs(gap) + 0.5)             # 날수는 보통 반올림으로 — round() 는 2.5 를 2 로
+    days = int(abs(gap) + 0.5)             # 사사오입 — round() 는 2.5 를 2 로 내림
     trend = ("평년과 비슷하겠습니다" if days == 0
              else f"평년보다 {days}일가량 {'이르겠습니다' if gap < 0 else '늦겠습니다'}")
     seoul = outlook.expected.get("서울")

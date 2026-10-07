@@ -5,8 +5,8 @@
 #   bin/stop.sh mention       멘션 봇만
 #   bin/stop.sh timers        타이머만 — 이번 주 게시를 건너뛸 때
 #
-# systemd 유닛이 등록된 서버면 그 유닛을 끄고, 없으면 bin/start.sh 가 직접 띄운 봇을 끔.
-# 유닛은 끄기만 하고 disable 하지 않음 — 재부팅하면 enable 된 유닛은 다시 켜짐.
+# systemd 유닛이 있으면 유닛을, 없으면 bin/start.sh 가 직접 띄운 봇을 끔.
+# 끄기만 하고 disable 하지 않음 — 재부팅하면 enable 된 유닛은 다시 켜짐.
 # 아예 끄려면: systemctl --user disable --now <유닛>  (root 서버는 sudo systemctl)
 set -euo pipefail
 

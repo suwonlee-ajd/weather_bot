@@ -1,5 +1,4 @@
-# 월 07:50 기동 → 스크립트가 POST_AT(08:00 KST)까지 대기 후 게시.
-# 서버가 꺼져 있어 밀린 회차는 켜진 직후 실행함(Persistent=true).
+# 월 07:50 기동 → POST_AT(08:00 KST)까지 기다렸다 게시. 밀린 회차는 켜진 직후(Persistent).
 [Unit]
 Description=Weekly Weather - Monday 07:50 KST
 

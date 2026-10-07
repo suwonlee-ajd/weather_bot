@@ -21,11 +21,11 @@ from src.kma.regions import NATIONWIDE, Region
 NOTICE_URL = f"{BASE}/w/forecast/notice.do"
 
 
-# "○ (오늘, 12일) 가끔 구름많음, ..." 에서 날짜와 하늘상태를 뽑음.
+# "○ (오늘, 12일) 가끔 구름많음, ..." 꼴의 날짜별 서술 줄
 DAILY_LINE_RE = re.compile(r"^○\s*\([^,)]*,\s*(\d{1,2})일\)\s*(.+)$")
 
 
-# 서술문의 하늘상태 표현을 표 값과 같은 어휘로 맞춤 (앞에 오는 것이 우선)
+# 서술문 하늘상태 표현 — 앞에 오는 것이 우선함
 SKY_WORDS = ("흐리", "구름많", "구름 많", "대체로 맑", "맑")
 
 
@@ -37,10 +37,9 @@ RAIN_WORDS = ("비", "눈", "소나기", "빗방울")
 
 
 def _sky_from_line(text: str) -> str | None:
-    """서술문에서 대표 하늘상태 하나. 비/눈이 있으면 그것을 우선함."""
     for word in RAIN_WORDS:
         if word in text:
-            # '빗방울' 처럼 약한 표현도 비로 봄 — 우산 여부가 갈리는 정보
+            # '빗방울' 처럼 약한 표현도 비로 봄 — 우산 여부가 갈림
             base = next((SKY_CANON[w] for w in SKY_WORDS if w in text), "흐림")
             return f"{base}, 비" if word != "눈" else f"{base}, 눈"
     for word in SKY_WORDS:
@@ -51,20 +50,12 @@ def _sky_from_line(text: str) -> str | None:
 
 def lines_for_dates(lines: list[str], ref: dt.date,
                     window: set[dt.date]) -> list[str]:
-    """서술 줄 중 물어본 날짜에 해당하는 것만 고름.
-
-    "○ (모레, 14일) ..." 처럼 날짜가 박힌 줄은 그 날짜가 window 에 있을 때만 남김.
-    날짜가 없는 줄(□ 종합, ○ (기온)/(하늘상태) 같은 기간 전체 서술)은 그대로 남김 —
-    어느 날을 물어도 유효함.
-
-    날짜가 박힌 줄이 하나도 안 맞으면 기간 전체 서술만 돌아감 — 물은 날과
-    다른 날의 이야기를 붙이느니 덜 보여주는 쪽이 나음.
-    """
+    """window 날짜의 줄과, 날짜 없는 기간 전체 서술(□ 종합, ○ (기온) 등)만 남김."""
     out: list[str] = []
     for line in lines:
         m = DAILY_LINE_RE.match(line)
         if not m:
-            out.append(line)          # 날짜가 없는 줄은 항상 유효
+            out.append(line)
             continue
         date = _resolve_date(int(m.group(1)), ref)
         if date is None or date in window:
@@ -73,11 +64,7 @@ def lines_for_dates(lines: list[str], ref: dt.date,
 
 
 def daily_sky(lines: list[str], ref: dt.date) -> dict[dt.date, str]:
-    """통보문 서술문에서 날짜별 하늘상태를 뽑음.
-
-    D+0~D+3 은 서술문에서 읽음 — 통보문 표에는 기온과 파고만 있고 하늘상태·강수확률이
-    없음. 중기예보(D+4~)는 표에 하늘상태가 따로 있음.
-    """
+    """날짜별 하늘상태 — 통보문 표에는 기온·파고만 있어 서술문에서 읽음."""
     out: dict[dt.date, str] = {}
     for line in lines:
         m = DAILY_LINE_RE.match(line)
@@ -114,7 +101,6 @@ def fetch_notice(
     if not header or "최저기온" not in rows or "최고기온" not in rows:
         raise ScrapeError(f"{url} 에서 기온 표를 찾지 못했습니다 (페이지 구조 변경 의심)")
 
-    # 헤더에서 '오늘(10일)' 같은 칸만 날짜로 환산. '평년'/'어제' 는 건너뜀.
     col_dates: dict[int, dt.date] = {}
     for idx, label in enumerate(header):
         if idx == 0 or "평년" in label or "어제" in label:

@@ -1,12 +1,6 @@
-"""이번 주 날씨를 사람이 읽을 형태로 출력하는 조회 CLI.
+"""이번 주 날씨·단풍을 슬랙 게시 없이 터미널에 찍는 조회 CLI.
 
-주간 게시 봇과 같은 수집 코드(src/kma_scrape.py)를 쓰되, 슬랙 게시 없이 결과만 찍음.
-
-    python -m src.query            # 이번 주 전국
-    python -m src.query 부산        # 지역 지정
-    python -m src.query --json     # 기계용 JSON
-    python -m src.query --foliage  # 단풍 현황·예상 (9월 둘째 주 ~ 11월 둘째 주)
-    python -m src.query --foliage 설악산
+    python -m src.query [지역] [--json]    /    python -m src.query --foliage [산]
 """
 from __future__ import annotations
 
@@ -96,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--foliage", action="store_true",
                         help="단풍 현황·예상. region 자리에 산 이름을 주면 그 산만")
     args = parser.parse_args(argv)
-    # 로그 설정(src/logsetup.py)을 따름. 결과는 stdout 이라 기본은 WARNING 으로 조용히 둠 — LOG_LEVEL=DEBUG 로 엶
+    # 결과는 stdout 이라 로그는 기본 WARNING
     setup("query", level=os.environ.get("LOG_LEVEL") or "WARNING")
 
     if args.foliage:

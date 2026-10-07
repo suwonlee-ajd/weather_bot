@@ -1,11 +1,4 @@
-"""아주 작은 TTL 캐시.
-
-멘션마다 페이지를 다시 긁지 않음 — 기상청 예보는 하루 네 번(통보문 05/11/17/23시,
-중기예보 06/18시)만 갱신됨. 응답이 빨라지고, 남의 서버에 대한 예의이기도 함.
-
-항목마다 만료 시각을 들고 있다가, 새 값을 넣을 때 지난 항목을 걷어냄. 단풍처럼
-날짜가 든 키는 날마다 새로 생기므로, 걷어내지 않으면 멘션 봇이 떠 있는 동안 계속 쌓임.
-"""
+"""TTL 캐시 — 기상청 예보는 하루 몇 번(통보문 05/11/17/23시, 중기 06/18시)만 갱신되므로 멘션마다 다시 긁지 않음."""
 from __future__ import annotations
 
 import threading
@@ -17,7 +10,6 @@ _STORE: dict[Any, tuple[float, Any]] = {}     # key → (만료 시각, 값)
 
 
 class _Failure:
-    """실패를 기억해 둔 자리. 다시 꺼내면 같은 예외를 새로 만들어 던짐."""
     def __init__(self, exc: BaseException):
         self.exc = exc
 
@@ -30,11 +22,7 @@ def get_or_set(
     errors: tuple[type[BaseException], ...] = (),
     error_ttl: int = 0,
 ) -> Any:
-    """캐시에 있으면 그 값, 없으면 만들어 넣고 돌려줌.
-
-    `errors` 에 든 예외는 `error_ttl` 초 동안 기억했다가 다시 던짐. 실패할 때마다
-    같은 페이지를 다시 받으러 가지 않게 함 — 예외는 값이 아니라 그냥 두면 캐시에 남지 않음.
-    """
+    """`errors` 예외는 `error_ttl` 초 동안 기억해 다시 던짐 — 실패할 때마다 같은 페이지를 다시 받지 않게."""
     now = time.monotonic()
     with _LOCK:
         hit = _STORE.get(key)
@@ -44,8 +32,7 @@ def get_or_set(
             raise type(exc)(*exc.args)
         return hit[1]
 
-    # 값을 만드는 동안에는 락을 놓음. 같은 키가 동시에 두 번 만들어질 수는 있지만,
-    # 네트워크 호출을 락 안에서 붙들고 있는 것보다 나음.
+    # 락 밖에서 만듦 — 같은 키가 두 번 만들어질 수는 있어도 네트워크 호출 동안 락을 쥐지 않음
     try:
         value = producer()
     except errors as exc:
@@ -58,6 +45,7 @@ def get_or_set(
 
 def _store(key: Any, expires: float, value: Any, now: float) -> None:
     with _LOCK:
+        # 날짜가 든 키(단풍 등)는 날마다 새로 생겨, 지난 항목을 걷지 않으면 계속 쌓임
         for old in [k for k, (until, _) in _STORE.items() if until <= now]:
             del _STORE[old]
         _STORE[key] = (expires, value)

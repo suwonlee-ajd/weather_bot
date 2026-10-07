@@ -6,19 +6,12 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Region:
-    """기상청 페이지의 지역 구분.
-
-    통보문(notice.do)은 지역별 페이지가 따로 있어 stnId 하나로 끝남.
-    중기예보(mid-term.do)는 표에서 해당 그룹 행만 골라내야 함 — 두 지역을 한 페이지에
-    묶어 보여주는 경우가 있음(예: 부산·울산·경남 + 대구·경북).
-    """
-
     key: str
     label: str
     notice_stn: str
     mid_stn1: str
     mid_stn2: str | None = None
-    mid_group: str | None = None  # 기온/날씨 표에서 이 문자열이 든 지역 행만 사용
+    mid_group: str | None = None  # 중기예보는 두 지역을 한 페이지에 묶기도 해 이 문자열이 든 행만 씀
     aliases: tuple[str, ...] = ()
 
 
@@ -26,7 +19,7 @@ REGIONS: tuple[Region, ...] = (
     Region("전국", "전국", "108", "108", aliases=("전체", "대한민국", "all")),
     Region("수도권", "서울·인천·경기", "109", "109",
            aliases=("서울", "인천", "경기", "경기도", "서울경기", "수도권", "기호")),
-    # 기상청 중기예보는 강원을 영서/영동으로 나눠 줌. 전통 지명이 그대로 표의 그룹명.
+    # 중기예보는 강원을 영서/영동으로 나눠 줌 (표의 그룹명 그대로)
     Region("강원", "강원", "105", "105",
            aliases=("강원도", "관동", "춘천", "원주")),
     Region("영서", "강원 영서", "105", "105", mid_group="강원도 영서",
@@ -49,10 +42,8 @@ REGIONS: tuple[Region, ...] = (
 )
 
 
-# 여러 광역 구역을 아우르는 말은 대표 구역으로 보냄 — 기상청에 대응하는 단일 페이지가 없음.
-# (응답에는 어떤 구역으로 해석했는지 함께 적음 — 예보 자체가 그 구역 기준.)
+# 기상청에 단일 페이지가 없는 광역 표현 → (대표 REGIONS key, 안내문)
 WIDE_AREAS: dict[str, tuple[str, str]] = {
-    # 별칭 → (대표 REGIONS key, 사용자에게 보여줄 설명)
     "중부": ("수도권", "중부지방은 서울·인천·경기 기준으로 보여드립니다"),
     "중부지방": ("수도권", "중부지방은 서울·인천·경기 기준으로 보여드립니다"),
     "남부": ("경남", "남부지방은 부산·울산·경남 기준으로 보여드립니다"),
@@ -61,7 +52,7 @@ WIDE_AREAS: dict[str, tuple[str, str]] = {
     "호남": ("전남", "호남은 광주·전남 기준으로 보여드립니다 (전북은 '전북')"),
     "충청": ("충남", "충청은 대전·세종·충남 기준으로 보여드립니다 (충북은 '충북')"),
     "충청도": ("충남", "충청은 대전·세종·충남 기준으로 보여드립니다 (충북은 '충북')"),
-    "영동": ("영동", ""),   # 영동/영서는 실제 구역이 있으므로 설명이 필요 없음
+    "영동": ("영동", ""),   # 실제 구역이라 안내 없음
     "영서": ("영서", ""),
 }
 
@@ -69,16 +60,11 @@ WIDE_AREAS: dict[str, tuple[str, str]] = {
 NATIONWIDE = REGIONS[0]
 
 
-# 안내문에 쓰는 구역 목록. REGIONS 에서 만들어 구역을 추가해도 따로 고칠 일이 없음.
 REGION_HELP = " · ".join(r.key for r in REGIONS)
 
 
 def extract_region(text: str) -> tuple[Region | None, str]:
-    """문장에서 지역을 집어냄. 조언 문장처럼 군더더기가 섞여 있어도 동작함.
-
-    아는 지역 이름이 문장 안에 있는지 긴 이름부터 훑음 — '경기'보다 '경기도' 가 먼저 걸림.
-    지우는 방식(정규식으로 조언어 제거)은 '무등산' 의 '등산' 까지 지워 버려 쓰지 않음.
-    """
+    """문장 속 아는 지역 이름을 긴 것부터 찾음 — 조언어를 지우는 방식은 '무등산' 의 '등산' 까지 지움."""
     flat = (text or "").replace(" ", "")
     if not flat:
         return NATIONWIDE, ""
@@ -98,18 +84,12 @@ def extract_region(text: str) -> tuple[Region | None, str]:
 
 
 def find_region(query: str | None) -> Region | None:
-    """'부산', '영남', '중부' 같은 말에서 지역을 찾음. 못 찾으면 None."""
     region, _ = resolve_region(query)
     return region
 
 
 def resolve_region(query: str | None) -> tuple[Region | None, str]:
-    """지역과 함께 '어떻게 해석했는지' 안내문을 돌려줌.
-
-    '중부'·'남부'·'영남'처럼 기상청에 대응하는 단일 페이지가 없는 말은 대표 구역으로
-    보내되, 무엇으로 바꿔 읽었는지 안내문에 담음. 조용히 바꿔치기하면 사용자가
-    자기가 물은 것과 다른 답을 받은 줄 모름.
-    """
+    """(지역, 안내문). 대표 구역으로 바꿔 읽었으면 안내문으로 밝힘 — 조용히 바꾸면 다른 답인 줄 모름."""
     if not query:
         return NATIONWIDE, ""
     text = query.strip().lower().replace(" ", "")
@@ -119,7 +99,7 @@ def resolve_region(query: str | None) -> tuple[Region | None, str]:
     def by_key(key: str) -> Region | None:
         return next((r for r in REGIONS if r.key == key), None)
 
-    # 광역 표현을 먼저 봄 ('영동'처럼 실제 구역과 겹치는 말이 있어 순서가 중요함)
+    # 광역 표현을 먼저 봄 — '영동' 처럼 실제 구역과 겹치는 말이 있음
     for name, (key, note) in WIDE_AREAS.items():
         if text == name:
             return by_key(key), note
@@ -128,9 +108,7 @@ def resolve_region(query: str | None) -> tuple[Region | None, str]:
         canon = {region.key, region.label}
         for name in (region.key, region.label, *region.aliases):
             if text == name.lower().replace(" ", "").replace("·", ""):
-                # 도시 하나를 구역 전체로 답할 때는 그 사실을 밝힘('부산' → 부산·울산·경남).
-                # 헤더에 구역 이름이 떠도 물은 대로 답했다고 읽기 쉽고, 기온 범위가
-                # 남의 동네까지 아우른 값인 줄 모르면 «예보가 틀렸다» 로 읽힘.
+                # 도시를 구역 전체로 답하면 밝힘 — 남의 동네가 섞인 기온 범위를 «예보가 틀렸다» 로 읽음
                 if name not in canon:
                     return region, (f"'{query.strip()}' 은 기상청 구역 "
                                     f"'{region.label}' 에 묶여 있어 그 기준으로 "

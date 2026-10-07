@@ -1,17 +1,6 @@
-"""동네예보(동 단위) 조회.
+"""행정동 이름 → 동네예보 행정동코드(10자리) 검색.
 
-기상청 날씨누리의 행정동별 1시간 단위 예보 RSS 를 씀(아직 살아 있음).
-키는 표준 행정동코드 10자리 그대로 (예: 1168064000 = 서울 강남구 역삼1동).
-
-    https://www.weather.go.kr/w/rss/dfs/hr1-forecast.do?zone=<행정동코드>
-
-한계 두 가지를 분명히 해 둠.
-  1. **오늘~+3일**까지만 나옴. 주간(7일) 예보는 광역 구역(src/kma_scrape.py)으로만 가능함.
-  2. 언제든 끊길 수 있음 — 2025-03-31 폐지 공지가 났던 경로(지금은 응답함). 실패하면
-     광역 예보로 안내하고 넘어감 — 동 단위가 안 된다고 게시를 막지 않음.
-
-동 이름 → 코드 변환은 날씨누리의 지역 목록 API(/w/rest/zone/dong.do)를 그때그때 호출함.
-행정동은 통폐합·신설이 계속 있어 스냅샷을 리포에 두면 조용히 낡기 때문.
+동 목록은 날씨누리 지역 API 에 그때그때 물음 — 행정동이 계속 바뀌어 리포 스냅샷은 조용히 낡음.
 """
 from __future__ import annotations
 
@@ -28,11 +17,9 @@ log = logging.getLogger(__name__)
 
 ZONE_URL = "https://www.weather.go.kr/w/rest/zone/dong.do"
 
-# 행정동 목록은 기상청에 그때그때 묻고 프로세스 안에서만 잠깐 들고 있음.
-# 통폐합·신설이 계속 있어 스냅샷을 리포에 두면 조용히 낡음.
 ZONE_TTL_SEC = 24 * 3600
 
-# 시/도를 짧게 부르는 말. "서울 강남" 처럼 앞에 붙여 동명이인을 가려낼 때 씀.
+# "서울 강남" 처럼 앞에 붙여 동명이인을 가려내는 시/도 약칭
 WIDE_ALIASES = {
     "서울": "서울특별시", "부산": "부산광역시", "대구": "대구광역시", "인천": "인천광역시",
     "광주": "광주광역시", "대전": "대전광역시", "울산": "울산광역시", "세종": "세종특별자치시",
@@ -80,32 +67,21 @@ def _dongs_in(wide: dict, city: dict) -> list[Dong]:
     ]
 
 
-# 시도 이름 → 동네예보 코드. '부산' 을 물으면 부산·울산·경남 구역이 아니라
-# 부산광역시 값을 보여줌 — 구역 기온(14~20도)은 경남내륙까지 아우른 분포라
-# 부산만 알고 싶은 사람에게는 남의 동네 숫자가 섞여 있음.
-#
-# 광역시·특별시처럼 «도시 = 시도» 인 곳만 다룸. '수원' 같은 시군구는 시도가
-# 아니라서 여기서 걸리지 않고 기존 동 검색으로 감.
+# «도시 = 시도» 인 곳은 시도 값으로 답함 — 광역 구역(부산·울산·경남) 기온엔 경남내륙이 섞임
 _WIDE_ALIASES = {
     "서울": "서울특별시", "부산": "부산광역시", "대구": "대구광역시",
     "인천": "인천광역시", "대전": "대전광역시", "울산": "울산광역시",
     "세종": "세종특별자치시", "제주": "제주특별자치도",
 }
 
-# 광주는 5개 구 중 하나를 대표로 씀 — 5개 구는 값이 서로 같음. 광주는 시도 단위가
-# 없고, 기상청이 전남과 묶은 '전남광주통합특별시' 는 곡성부터 여수까지 27개 시군구를
-# 담아 «광주 날씨» 로 쓰기엔 너무 넓음(같은 날 통합값 20~30도, 목포 21~28도).
+# 광주는 값이 같은 5개 구 중 하나로 대신함 — '전남광주통합특별시' 는 27개 시군구라 너무 넓음
 _CITY_ALIASES = {
     "광주": ("전남광주통합특별시", "북구", "광주광역시"),
 }
 
 
 def find_wide(query: str) -> tuple[str, str] | None:
-    """'부산' 처럼 도시 하나를 가리키는 말이면 (동네예보 코드, 보여줄 이름).
-
-    광역시는 시도 코드가 곧 그 도시라 그대로 씀. 광주처럼 시도가 없는 곳은
-    아래 _CITY_ALIASES 로 시군구 하나를 대표로 삼음.
-    """
+    """'부산' 처럼 도시 하나를 가리키는 말이면 (동네예보 코드, 보여줄 이름)."""
     text = _normalize(query).lower()
     if not text:
         return None
@@ -127,15 +103,9 @@ def find_wide(query: str) -> tuple[str, str] | None:
 
 
 def _candidate_cities(text: str) -> list[tuple[dict, dict]]:
-    """입력에서 시/도·시군구를 짚어 후보 (시도, 시군구) 목록을 만듦.
-
-    시/도와 시군구 목록만으로 범위를 좁혀 해당 구역의 동만 받음 — 보통 요청 2~3번으로
-    끝남. 전국 동을 다 받으면 3,500건이 넘음.
-    """
     wides = get_or_set("zone:wide", ZONE_TTL_SEC, lambda: _zone("WIDE"))
     rest = text
 
-    # "서울 …" 처럼 시/도가 앞에 붙어 있으면 그 안에서만 찾음
     scoped = None
     for alias, full in WIDE_ALIASES.items():
         if rest.startswith(alias) and len(rest) > len(alias):
@@ -152,7 +122,7 @@ def _candidate_cities(text: str) -> list[tuple[dict, dict]]:
         )
         for city in cities:
             name = _normalize(city["name"])
-            # '성남시분당구' 처럼 합쳐진 이름은 앞 토막('성남')만 줘도 걸리게 함
+            # '성남시분당구' 같은 합친 이름도 앞 토막('성남')으로 걸리게 함
             heads = {name} | {name.split(cut)[0] for cut in ("시", "군", "구") if cut in name}
             if any(h and (rest.startswith(h) or h.startswith(rest)) for h in heads if h):
                 pairs.append((wide, city))
@@ -160,12 +130,7 @@ def _candidate_cities(text: str) -> list[tuple[dict, dict]]:
 
 
 def _all_dongs() -> list[Dong]:
-    """전국 행정동. 하루 한 번만 받아 프로세스 안에 들고 있음.
-
-    동 이름만 주어지면 전국을 훑음 — 기상청 지역 API 는 keyword 검색을 지원하지 않음.
-    요청이 250번쯤 나가므로 캐시가 사실상 필수. 스냅샷은 리포에 두지 않음 — 행정동이
-    계속 바뀌고, 하루면 충분히 최신임.
-    """
+    """지역 API 가 keyword 검색을 못 해 전국을 훑음 — 요청 약 250번이라 하루 캐시함."""
     def build() -> list[Dong]:
         out: list[Dong] = []
         for wide in _zone("WIDE"):
@@ -178,11 +143,7 @@ def _all_dongs() -> list[Dong]:
 
 
 def search_dong(query: str, limit: int = 5) -> list[Dong]:
-    """가장 가까운 행정동 후보를 점수순으로 돌려줌.
-
-    '강남' 처럼 구 이름만 줘도 그 구의 동을 찾고, 앞에 시/도나 시군구를 붙이면
-    ('강릉 강남') 동명이인을 가려냄.
-    """
+    """행정동 후보를 점수순으로. 구 이름만('강남')도, 시/도·시군구를 붙인 말('강릉 강남')도 받음."""
     text = _normalize(query)
     if not text:
         return []
@@ -228,18 +189,18 @@ def search_dong(query: str, limit: int = 5) -> list[Dong]:
         elif stripped in name:
             score = 2
         elif city.startswith(stripped) or stripped.startswith(city.rstrip("시군구")):
-            # 구 이름만 준 경우('강남'). 같은 이름을 가진 동이 있으면 그쪽을 대표로 삼음
+            # 구 이름만 준 경우('강남')
             score = 3 if stripped not in name else 2
         elif pairs:
             score = 4        # 시군구로 좁혀진 결과라 후보로 남김
         else:
-            continue         # 전국을 훑는 중이면 무관한 동까지 담지 않음
+            continue         # 전국을 훑는 중이면 버림
         scored.append((score, d))
 
     scored.sort(key=lambda pair: (pair[0], pair[1].full_name))
     hits = [d for _, d in scored[:limit]]
 
-    # 못 찾으면 접미사를 떼고 한 번 더 봄 — '역삼동' 의 실제 행정동은 '역삼1동'/'역삼2동'.
+    # 접미사를 떼고 다시 찾음 — '역삼동' 의 실제 행정동은 '역삼1동'·'역삼2동'
     if not hits and len(text) > 2 and text[-1] in "동읍면":
         return search_dong(text[:-1], limit)
     return hits

@@ -1,4 +1,7 @@
-"""동네예보 RSS — 행정동 하나의 시간별 예보를 받아 날짜별로 묶음."""
+"""동네예보 RSS — 행정동 하나의 시간별 예보를 받아 날짜별로 묶음.
+
+2025-03-31 폐지 공지가 났던 경로라 언제든 끊길 수 있음.
+"""
 from __future__ import annotations
 
 import datetime as dt
@@ -44,12 +47,10 @@ class DongForecast:
             pops = [p.pop for p in pts if p.pop is not None]
             if not temps:
                 continue
-            # 점이 모자란 끝자락 날은 버림 — 00시 한 점만 오는 날은 최저와 최고가
-            # 같은 «22~22℃» 가 나와 하루 날씨처럼 읽히지 않음.
+            # 점이 모자란 끝자락 날은 버림 — 00시 한 점이면 «22~22℃» 가 됨
             if len(pts) < 4 and date != min(by_date):
                 continue
-            # 비·눈은 몇 시간만 있어도 그날의 날씨. 최빈값으로 고르면
-            # 24시간 중 두 시간 오는 비가 «흐림» 에 묻혀 우산 조언까지 사라짐.
+            # 비·눈은 몇 시간만 있어도 그날의 날씨임 — 최빈값이면 «흐림» 에 묻힘
             wet = next((w for w in ("비", "눈", "소나기") for x in skies if w in x), None)
             out.append((
                 date, min(temps), max(temps),
@@ -104,7 +105,6 @@ def fetch_dong(zone: str, name: str, timeout: float = 20.0) -> DongForecast:
 
     if not points:
         raise DongError("동네예보에 시간별 값이 없습니다.")
-    # 부르는 쪽이 이름을 정해 두었으면 그것을 씀 — '광주광역시' 를 기상청
-    # 응답의 '전남광주통합특별시 북구' 로 되돌리면 물은 것과 다른 말이 됨.
+    # 부른 쪽 이름 우선 — 기상청 이름('전남광주통합특별시 북구')은 물은 말과 다를 수 있음
     display = name or (title.split(" - ")[-1].strip() if " - " in title else name)
     return DongForecast(name=display, zone=zone, issued=issued, points=points)

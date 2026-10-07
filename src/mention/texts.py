@@ -9,19 +9,15 @@ from src.common.config import KST
 from src.kma.regions import REGION_HELP
 from src.mention.parse import DONG_MAX_DAYS, MAX_FORECAST_DAYS
 
-# 못 한다고 답할 때 / 그렇다고 답할 때 붙이는 표정. 문장 끝에 둠 —
-# 앞에 두면 내용보다 먼저 눈에 띄어 정작 읽어야 할 말을 가림.
-# 자료가 없는 경우(수집 실패·예보 없음)에는 붙이지 않음 — 사용자가 잘못한 게 아님.
-# NO_EMOJI / YES_EMOJI 로 갈아끼울 수 있음 — 유니코드 15.1 ZWJ 시퀀스라
-# 오래된 클라이언트에서는 안 보일 수 있음.
+# 문장 끝에 붙임(앞에 두면 내용을 가림). 자료가 없을 때는 안 붙임 — 사용자 잘못이 아님.
+# 유니코드 15.1 ZWJ 라 오래된 클라이언트에서 안 보일 수 있어 환경변수로 바꿀 수 있게 함
 NO_EMOJI = os.environ.get("NO_EMOJI", ":head_shaking_horizontally:")
 
 
 YES_EMOJI = os.environ.get("YES_EMOJI", ":head_shaking_vertically:")
 
 
-# 안내문의 예시에 쓰는 자기 멘션. 기동할 때 실제 user_id 로 채움.
-# 하드코딩한 '@봇' 은 이름이 바뀌면 바로 어긋나고, 코드블록 안이라 링크도 안 됨.
+# 기동할 때 실제 user_id 로 채움 — 하드코딩한 이름은 봇 이름이 바뀌면 어긋남
 _SELF = {"mention": "@날씨 알리미"}
 
 
@@ -29,8 +25,7 @@ def self_mention() -> str:
     return _SELF["mention"]
 
 
-# 하늘상태를 이모지로. 공백을 지우고 견줌 — 중기예보 "구름많음", 동네예보 "구름 많음" 처럼
-# 표기가 갈림. 순서가 중요함 — 비/눈이 섞인 값이 먼저 걸려야 함.
+# 순서 중요 — 비/눈 섞인 값이 먼저. 공백은 지우고 견줌(중기 "구름많음" · 동네 "구름 많음")
 SKY_EMOJI: tuple[tuple[str, str], ...] = (
     ("소나기", ":umbrella_with_rain_drops:"),
     ("비/눈", ":snow_cloud:"),
@@ -45,7 +40,6 @@ SKY_EMOJI: tuple[tuple[str, str], ...] = (
 
 
 def sky_emoji(sky: str | None) -> str:
-    """하늘상태 문구를 이모지로. 모르는 값이면 원문을 그대로 둠."""
     if not sky:
         return ""
     flat = sky.replace(" ", "")
@@ -55,8 +49,7 @@ def sky_emoji(sky: str | None) -> str:
     return sky
 
 
-# 첫 인사만 돌려 씀. 아래 기능 안내는 고정임 — 무엇을 할 수 있는지가
-# 날마다 달리 읽히면 곤란함.
+# 인사만 날마다 돌려 씀 — 기능 안내는 고정
 HELLO_LINES = (
     "안녕하세요, 날씨 알리미입니다. :sunny:",
     "반갑습니다, 날씨 알리미예요. :sunny:",

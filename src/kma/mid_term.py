@@ -32,7 +32,6 @@ def _table_by_caption(soup: BeautifulSoup, keyword: str):
 
 
 def _header_dates(tbl, ref: dt.date) -> list[tuple[int, dt.date]]:
-    """헤더의 '14일 (월)' 칸들을 (열 인덱스, 날짜) 로. 인덱스는 날짜 칸만 센 순번."""
     head = tbl.select_one("thead tr") or tbl.select("tr")[0]
     out: list[tuple[int, dt.date]] = []
     n = 0
@@ -49,7 +48,7 @@ def _header_dates(tbl, ref: dt.date) -> list[tuple[int, dt.date]]:
 
 
 def _row_group(cells, current: str | None) -> str | None:
-    """지역 그룹 값을 뒤 행으로 이어 넘김. 지역 셀은 rowspan 으로 그룹 첫 행에만 나옴."""
+    """지역 셀은 rowspan 으로 그룹 첫 행에만 나와 뒤 행으로 이어 넘김."""
     if cells and cells[0].get("rowspan"):
         return cells[0].get_text(" ", strip=True)
     return current
@@ -74,7 +73,7 @@ def fetch_mid_term(
     n_dates = len(dates)
     days: dict[dt.date, ScrapedDay] = {}
 
-    # --- 기온: 도시별 "18 / 27" 을 날짜별로 모아 전국 분포 범위를 만듦 ---
+    # 기온: 도시별 "18 / 27" 을 날짜별로 모아 분포 범위로 만듦
     mins: dict[dt.date, list[float]] = {d: [] for _, d in dates}
     maxs: dict[dt.date, list[float]] = {d: [] for _, d in dates}
     group: str | None = None
@@ -104,9 +103,7 @@ def fetch_mid_term(
             source="중기예보",
         )
 
-    # --- 하늘상태·강수확률: 지역 × 날짜. 날짜별 대표값을 뽑음 ---
-    # 열 수는 가변 — 앞쪽 날짜는 오전/오후 두 칸, 뒤쪽 날짜(발표일 +8일 이후)는 하루 한 칸.
-    # 페이지 안내: "18일~20일 은 오전, 오후 구분 없이 일별로 예보합니다."
+    # 하늘상태·강수확률: 열 수가 가변임 — 앞쪽 날짜는 오전/오후 두 칸, 발표일 +8일 이후는 한 칸
     if sky_tbl is not None:
         sky_dates = [d for _, d in _header_dates(sky_tbl, ref)]
         per_date: dict[dt.date, tuple[list[str], list[int]]] = {d: ([], []) for d in sky_dates}
@@ -135,7 +132,7 @@ def fetch_mid_term(
             if date not in days:
                 continue
             if skies:
-                days[date].sky = max(set(skies), key=skies.count)  # 최빈값
+                days[date].sky = max(set(skies), key=skies.count)
             if pops:
                 days[date].pop = max(pops)
 

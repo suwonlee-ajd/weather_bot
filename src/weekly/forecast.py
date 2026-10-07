@@ -1,11 +1,6 @@
-"""기상청 공개 페이지에서 긁어온 값으로 이번 주(월~일) 예보를 조립함.
+"""기상청 페이지에서 긁은 값으로 이번 주(월~일) 예보를 조립함.
 
-값이 물리적으로 가능한 범위인지 한 번 더 검증하고, 7일 중 절반 이상이 비면 예외를 던져
-**게시를 포기**함. 수치는 전부 기상청 원문이라 LLM 이 지어낼 여지는 없지만,
-페이지 구조가 바뀌면 엉뚱한 값이 잡힐 수 있음.
-
-기온은 '지역 간 분포 범위'임. 전국 예보의 "아침 14~22℃, 낮 23~30℃" 가 곧
-(tmin_lo, tmin_hi) / (tmax_lo, tmax_hi) 임.
+페이지 구조가 바뀌면 엉뚱한 값이 잡힐 수 있어, 범위 밖 값은 버리고 7일 중 절반 이상 비면 게시를 포기함.
 """
 from __future__ import annotations
 
@@ -41,7 +36,7 @@ class Section:
 
 @dataclass
 class DayForecast:
-    """하루치 예보. 기온은 지역 간 분포 범위로 담음."""
+    """하루치 예보. 기온은 지역 간 분포 범위임 — 전국 "아침 14~22℃" 가 (tmin_lo, tmin_hi)."""
 
     date: dt.date
     tmin_lo: float | None = None
@@ -198,8 +193,7 @@ def build_week(
     incomplete = [d for d in days if not d.is_complete]
     if len(incomplete) > MAX_BAD_DAYS:
         missing = ", ".join(f"{d.date:%m/%d}" for d in incomplete)
-        # 지난 날짜가 빈 것은 파서 고장과 구분해 알림. 기상청이 지난 날짜 예보는
-        # 내리지 않아 비는 게 정상인데, 구분이 없으면 로그만 보고 파서 고장으로 오해함.
+        # 지난 날짜는 기상청이 예보를 내리지 않아 비는 게 정상 — 파서 고장과 구분함
         today = now.date()
         future = [d for d in incomplete if d.date >= today]
         cause = (

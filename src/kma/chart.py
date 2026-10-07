@@ -1,17 +1,7 @@
-"""기상청 일기도(분석일기도) PNG 원본을 직접 내려받음.
+"""기상청 분석일기도 PNG 를 정적 저장소에서 바로 내려받음.
 
-페이지를 렌더링(Selenium 등)하지 않고 파일명 규칙으로 바로 받음. 날씨누리 분석일기도
-페이지(https://www.weather.go.kr/w/image/chart/analysis.do)는 아래 정적 저장소의 PNG를
-<img>로 띄우기만 함.
-
-    https://www.weather.go.kr/w/repositary/image/cht/img/{product}_{YYYYMMDDHH}.png
-      - YYYYMMDDHH 는 **UTC** 기준
-      - surf(지상일기도) / ghmd_s24(지상 24시간 예상) 모두 00, 12 UTC 만 존재
-        (= 09시, 21시 KST)
-      - 보관 기간이 약 2일이라 오래된 일자는 사라짐
-
-주의: 상태코드가 아니라 PNG 매직바이트로 검증함. 존재하지 않는 시각을 요청해도 404가 아니라
-**HTTP 200 + 4KB짜리 HTML 오류 페이지**가 돌아옴.
+URL 시각은 UTC 00·12시뿐이고 약 2일만 보관함. 성공 여부는 PNG 매직바이트로 봄 — 없는 시각도
+404 가 아니라 200 + HTML 오류 페이지가 옴.
 """
 from __future__ import annotations
 
@@ -54,7 +44,6 @@ class Chart:
 
 
 def _slots(now_utc: dt.datetime, back: int) -> list[dt.datetime]:
-    """현재 시각 이전의 00/12 UTC 발표 시각을 최신순으로."""
     anchor = now_utc.replace(minute=0, second=0, microsecond=0)
     anchor = anchor.replace(hour=12 if anchor.hour >= 12 else 0)
     return [anchor - dt.timedelta(hours=12 * i) for i in range(back)]
@@ -67,7 +56,6 @@ def fetch_latest_chart(
     back: int = 5,
     timeout: float = 30.0,
 ) -> Chart:
-    """가장 최근에 실제로 올라와 있는 일기도 PNG를 반환함."""
     now_utc = (now or dt.datetime.now(tz=UTC)).astimezone(UTC)
     session = requests.Session()
     session.headers.update(
@@ -86,7 +74,6 @@ def fetch_latest_chart(
         except requests.RequestException:
             continue
         body = resp.content
-        # 200 + HTML 오류 페이지를 걸러내는 유일하게 믿을 수 있는 방법
         if resp.status_code == 200 and body.startswith(PNG_MAGIC):
             return Chart(product=product, valid_utc=slot, url=url, png=body)
 

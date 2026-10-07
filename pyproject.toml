@@ -6,29 +6,23 @@ readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 classifiers = [
-    # PyPI 가 거부하는 classifier — 배포용 패키지가 아니라서 실수로 `uv publish` 해도 업로드가 막힘
+    # 실수로 `uv publish` 해도 PyPI 가 거부함
     "Private :: Do Not Upload",
 ]
 requires-python = ">=3.12"
 dependencies = [
-    # 기상청 페이지 수집 — API 키도 결제도 필요 없음
     "requests>=2.32",
     "beautifulsoup4>=4.12",
     "lxml>=5.0",
-    # 슬랙 (Socket Mode 라 인바운드 포트·TLS 가 필요 없음)
     "slack_sdk>=3.33",
     "slack_bolt>=1.30",
-    # 카드 이미지 렌더링 — src/render_card.py 가 헤드리스 크로뮴을 띄움.
-    #   설치 후 `python -m playwright install chromium` 이 한 번 더 필요함
-    "playwright>=1.49",
-    # 로깅
+    "playwright>=1.49",  # 설치 후 `python -m playwright install chromium` 도 필요
     "loguru>=0.7",
-    # 단풍·벚꽃 예상일 — 웨더아이가 해마다 올리는 PDF 의 표를 읽음 (src/foliage.py · src/blossom.py)
-    "pypdf>=5.0",
+    "pypdf>=5.0",  # 단풍·벚꽃 예상일 PDF(웨더아이) 읽기
 ]
 
 [project.optional-dependencies]
-# WRITER=claude · WRITER=gemini 일 때만 씀. 규칙 기반(none)은 둘 다 없이 동작함.
+# WRITER=claude · gemini 일 때만 필요
 claude = ["anthropic>=1.0"]
 gemini = ["google-genai>=2.28"]
 

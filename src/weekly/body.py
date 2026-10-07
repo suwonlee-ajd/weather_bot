@@ -27,24 +27,18 @@ def _rainy_days(week: WeekForecast):
     ]
 
 
-# 카드 불릿 최대 개수. 원본 캡처가 3개였고, 너무 많으면 캡처처럼 보이지 않음.
-MAX_SECTIONS = 5
+MAX_SECTIONS = 5  # 많으면 원본 캡처처럼 보이지 않음
 
 
-# 예보관 서술 한 줄. 예: "○ (기온) 이번 예보기간 아침 기온은 14~21℃, ..."
+# 예: "○ (기온) 이번 예보기간 아침 기온은 14~21℃, ..."
 NARRATIVE_RE = re.compile(r"^[□○]\s*\(([^)]+)\)\s*(.+)$")
 
 
 def official_sections(week: WeekForecast) -> list[Section]:
-    """기상청 예보관이 쓴 문장을 그대로 카드 불릿으로 만듦.
-
-    모델에게 다시 쓰게 하는 것보다 나음 — 사람이 쓴 정확한 문장이고, 비용이 들지 않으며,
-    지어낼 여지가 아예 없음. "(기온)", "(하늘상태)" 같은 괄호 머리말은 그대로 라벨로 씀 —
-    마침 원본 캡처의 "초반 (9월 1일~2일):" 형식과 같은 모양.
-    """
+    """예보관 문장을 그대로 카드 불릿으로 씀 — 지어낼 여지가 없고, 괄호 머리말이 곧 라벨임."""
     sections: list[Section] = []
     seen: set[str] = set()
-    # 가까운 날(통보문)을 먼저, 그 다음 중기예보
+    # 통보문(가까운 날)이 중기예보보다 먼저
     ordered = sorted(week.narratives, key=lambda n: 0 if "통보문" in n.title else 1)
     for narrative in ordered:
         source = [Source(narrative.title, narrative.url)]
@@ -53,18 +47,18 @@ def official_sections(week: WeekForecast) -> list[Section]:
             if not m:
                 continue
             head_text, text = m.group(1).strip(), m.group(2).strip()
-            # "종합"·"기온" 은 카드에서 뺌 — 각각 본문 1문단과 카드 리드에 이미 들어감.
+            # 종합은 본문 1문단, 기온은 카드 리드에 이미 들어감
             if head_text.startswith(("종합", "기온")) or text in seen:
                 continue
             seen.add(text)
-            # "오늘~그글피, 10~14일" 처럼 머리말에 기간이 붙어 오는 경우를 나눔
+            # 머리말에 기간이 붙어 오기도 함 — "오늘~그글피, 10~14일"
             label, _, period = head_text.partition(",")
             sections.append(Section(label.strip(), period.strip(), text, source))
     return sections[:MAX_SECTIONS]
 
 
 def fallback(week: WeekForecast) -> Written:
-    """모델 없이 만드는 문구. 카드는 예보관 원문, 본문은 규칙 기반 2문단."""
+    """카드는 예보관 원문, 본문은 규칙 기반 2문단."""
     morning, noon = week.morning_range, week.noon_range
     if morning and noon:
         lead = (
@@ -76,7 +70,6 @@ def fallback(week: WeekForecast) -> Written:
 
     sections = official_sections(week)
     if not sections:
-        # 예보관 서술을 못 얻었을 때만 수치로 구간을 만듦
         for label, lo, hi in (("초반", 0, 2), ("중후반", 2, 5), ("주말 전망", 5, 7)):
             chunk = [d for d in week.days[lo:hi] if d.is_complete]
             if not chunk:
@@ -93,10 +86,7 @@ def fallback(week: WeekForecast) -> Written:
                 )
             )
 
-    # --- 본문: 1문단 날씨 / 2문단 테마 ---
-    # 여기서는 1문단을 문장으로 맺음. 모델은 원본처럼 «~사오니» 로 열어 두고 2문단에서
-    # 이어받지만(SYSTEM), 규칙 기반 2문단은 «사실. 권하는 말.» 로 시작하는 조언이라
-    # 이어받지 못함 — 열어 두면 글이 끊겨 읽힘.
+    # 1문단은 문장으로 맺음 — 규칙 기반 2문단(조언)은 모델처럼 «~사오니» 를 이어받지 못함
     spreads = [
         d.tmax_mid - d.tmin_mid for d in week.days if d.tmin_mid is not None and d.tmax_mid is not None
     ]
@@ -117,7 +107,7 @@ def fallback(week: WeekForecast) -> Written:
         "",
     )
     if headline:
-        # 통보문 (종합)은 인용으로 실음 — «…쌀쌀, 해상 높은 물결 유의» 같은 개조식.
+        # (종합)은 개조식이라 인용으로 실음
         weather.append(f'기상청은 "*{headline}*"{quote_josa(headline)} 전하고 있습니다.')
     elif spreads and max(spreads) >= BIG_SPREAD:
         weather.append("낮과 아침의 기온차가 큰 한 주가 되겠습니다.")
@@ -132,35 +122,22 @@ def fallback(week: WeekForecast) -> Written:
 
 
 def quote_josa(text: str) -> str:
-    """인용 조사. 끝 글자에 받침이 있으면 «이라고», 없으면 «라고» — «기온차 큼"이라고», «유의"라고».
-
-    괄호·숫자 같은 꼬리는 건너뛰고 마지막 한글로 고름.
-    """
+    """마지막 한글에 받침이 있으면 «이라고», 없으면 «라고»."""
     last = next((c for c in reversed(text) if "가" <= c <= "힣"), "")
     return "이라고" if last and (ord(last) - ord("가")) % 28 else "라고"
 
 
-_TEMP_ORDER = tuple(TEMP_STEMS)   # 앞선 조언의 권하는 말과 이모지를 씀
+_TEMP_ORDER = tuple(TEMP_STEMS)   # 이 순서로 앞선 조언의 권하는 말·이모지를 씀
 
 
-THEME_SENTENCES = 2               # 2문단에 담는 조언 묶음 수. 많으면 잔소리가 됨.
+THEME_SENTENCES = 2               # 많으면 잔소리가 됨
 
 
 def theme_paragraph(tips: list[Advice]) -> str:
-    """조언을 한 문단으로 엮음.
+    """조언을 한 문단으로 엮음 — 같은 날짜·권하는 말이 거듭 나오지 않게 묶음.
 
-    날짜와 권하는 말이 겹치지 않게 묶음 — 멘션은 한 줄에 하나씩이라 «*10/07* 일교차가 …» 의
-    날짜가 머리표로 읽히지만, 그냥 이어 붙이면 같은 날짜와 권하는 말(겉옷·껴입기)이 거듭 나옴.
-      * 기온 조언(advice.TEMP_STEMS)은 날이 달라도 한 문장으로 합치고, 날짜 순으로 적음.
-        같은 날은 날짜를 한 번만 씀. 권하는 말은 앞선 조언의 것 하나만 남김.
-        «*10/7(수)에는* 아침 최저 4도까지 내려가고 일교차가 14도 안팎으로 벌어지겠습니다.»
-      * 비는 권하는 말이 달라(우산) 따로 두되, 바로 앞과 같은 날이면 «같은 날은» 으로 받음.
-      * 날짜 없는 조언(특이사항)은 원래 문장 그대로, 맨 앞에 둠. 이모지가 같으면(풍랑·너울)
-        같은 종류라 앞선 하나만 — 두 자리를 다 차지하면 기온·비 조언이 밀려남.
-      * 담을 묶음은 build_advice 의 우선순위로 고르고, 보이는 순서는 날짜 순.
-      * 이모지는 문단 끝에 하나만 — 가장 앞선 묶음의 것. 문장마다 붙이면 산만해짐.
-    굵게 표시는 조사까지 감쌈(*10/7(수)에는*) — 닫는 별표 바로 뒤에 글자가 붙으면
-    슬랙이 굵게로 읽지 않을 수 있음.
+    기온은 날이 달라도 한 문장, 비는 앞과 같은 날이면 «같은 날은», 날짜 없는 조언은 이모지(종류)당 하나.
+    굵게는 조사까지 감쌈(*10/7(수)에는*) — 닫는 별표 바로 뒤에 글자가 붙으면 슬랙이 굵게로 읽지 않음.
     """
     groups: dict[object, list[Advice]] = {}
     for i, tip in enumerate(tips):

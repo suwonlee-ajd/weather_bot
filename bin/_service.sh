@@ -1,19 +1,12 @@
 #!/bin/bash
-# start.sh · stop.sh 공용 — 멘션 봇과 타이머를 켜고 끔.
-#
-# 두 방식 가운데 그 서버에 맞는 쪽을 씀.
-#   systemd  유닛이 등록돼 있으면(deploy/DEPLOY.md §3) 그 유닛을 켜고 끔.
-#            권한 없는 서버는 systemd --user, root 서버는 시스템 유닛임.
-#   직접     유닛이 없으면 멘션 봇을 백그라운드 프로세스로 띄우고 PID 파일로 끔.
-#            죽어도 되살리지 않고, 주간 게시·정리 예약도 없음 — 타이머가 하던 일임.
-#
-# 부르는 쪽이 ROOT 를 먼저 정해 둠.
+# start.sh · stop.sh 공용 — 멘션 봇과 타이머를 켜고 끔. 부르는 쪽이 ROOT 를 먼저 정함.
+#   systemd  유닛이 등록돼 있으면 그 유닛(--user, root 서버는 시스템 유닛). deploy/DEPLOY.md §3
+#   직접     유닛이 없으면 멘션 봇만 백그라운드로 띄우고 PID 파일로 끔 — 되살림·예약 없음
 
 MENTION_UNIT=weather-mention.service
 TIMER_UNITS=(weather-weekly.timer weather-cleanup.timer)
 PIDFILE="$ROOT/data/mention.pid"
-# 직접 띄울 때의 콘솔 출력 — 파이썬이 뜨기도 전에 죽은 경우(.env·venv)를 보는 용도임.
-# 앱 로그는 logs/{연}/… 에 따로 쌓임. 띄울 때마다 비움.
+# 직접 띄울 때의 콘솔 출력 — 파이썬이 뜨기 전 실패(.env·venv) 확인용, 띄울 때마다 비움
 CONSOLE="$ROOT/logs/weather-mention.console.log"
 
 detect_mode() {
@@ -26,7 +19,6 @@ detect_mode() {
   fi
 }
 
-# 대상 이름 → UNITS 배열
 units_for() {
   case "${1:-all}" in
     mention) UNITS=("$MENTION_UNIT") ;;
@@ -38,7 +30,7 @@ units_for() {
 
 wants_mention() { [[ " ${UNITS[*]} " == *" $MENTION_UNIT "* ]]; }
 
-# 직접 띄운 멘션 봇의 PID. 떠 있지 않으면 실패를 돌려줌(PID 파일이 낡았어도).
+# 직접 띄운 멘션 봇의 PID — 떠 있지 않으면(낡은 PID 파일 포함) 실패
 direct_pid() {
   local pid
   [[ -f "$PIDFILE" ]] || return 1
@@ -58,7 +50,7 @@ direct_start() {
     direct_stop
   fi
   mkdir -p "$(dirname "$PIDFILE")" "$(dirname "$CONSOLE")"
-  # $! 가 곧 봇의 PID 임 — run-mention.sh 가 exec 으로 파이썬이 됨
+  # run-mention.sh 가 exec 하므로 $! 가 곧 봇의 PID 임
   nohup "$ROOT/deploy/run-mention.sh" >"$CONSOLE" 2>&1 </dev/null &
   echo $! >"$PIDFILE"
   sleep 3
@@ -88,7 +80,7 @@ direct_stop() {
   echo "  멘션 봇 — 끔 (PID $pid)"
 }
 
-# 이 스크립트가 관리하지 않는 멘션 봇. 같은 슬랙 앱에 두 연결이 붙으면 한 멘션에 두 번 답함.
+# 이 스크립트 밖에서 띄운 멘션 봇 — 같은 앱에 연결이 둘이면 한 멘션에 두 번 답함
 stray_mentions() {
   local own=0
   if [[ "$MODE" == systemd ]]; then
@@ -96,7 +88,7 @@ stray_mentions() {
   else
     own=$(direct_pid || echo 0)
   fi
-  # 파이썬으로 시작하는 명령줄만 — 셸·편집기 명령줄에 이 글자가 들어 있어도 봇으로 치지 않음
+  # 파이썬 명령줄만 — 셸·편집기 명령줄에 든 같은 글자는 봇이 아님
   pgrep -f -- '^[^ ]*python[0-9.]* .*-m src\.mention' | grep -vx "${own:-0}" || true
 }
 

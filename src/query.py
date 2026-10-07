@@ -1,12 +1,6 @@
-"""이번 주 날씨를 사람이 읽을 형태로 출력하는 조회 CLI.
+"""이번 주 날씨·단풍을 슬랙 게시 없이 터미널에 찍는 조회 CLI.
 
-주간 게시 봇과 같은 수집 코드(src/kma_scrape.py)를 쓰되, 슬랙 게시 없이 결과만 찍음.
-
-    python -m src.query            # 이번 주 전국
-    python -m src.query 부산        # 지역 지정
-    python -m src.query --json     # 기계용 JSON
-    python -m src.query --foliage  # 단풍 현황·예상 (9월 둘째 주 ~ 11월 둘째 주)
-    python -m src.query --foliage 설악산
+    python -m src.query [지역] [--json]    /    python -m src.query --foliage [산]
 """
 from __future__ import annotations
 
@@ -16,16 +10,26 @@ import json
 import os
 import sys
 
-from .config import KST
-from .foliage import (
-    CRITERIA_TEXT, KINDS, NOT_STARTED_TEXT, OUTLOOK_SOURCE, SEASON_TEXT, STAGES,
-    FoliageError, fetch_snapshot, in_season, next_season,
+from src.common.config import KST
+from src.common.logsetup import setup
+from src.common.text import WEEKDAY_KO, day_label, range_text, short_date
+from src.kma.page import ScrapeError
+from src.kma.regions import REGION_HELP, find_region
+from src.kma.scrape import scrape_week
+from src.season.foliage import (
+    CRITERIA_TEXT,
+    KINDS,
+    NOT_STARTED_TEXT,
+    SEASON_TEXT,
+    STAGES,
+    FoliageError,
+    fetch_snapshot,
+    in_season,
+    next_season,
 )
-from .forecast import WEEKDAY_KO, day_label, range_text, short_date
-from .kma_scrape import REGION_HELP, ScrapeError, find_region, scrape_week
-from .logsetup import setup
-from .mountains import MOUNTAINS, find_mountain
-from .render_foliage import sources
+from src.season.foliage_text import sources
+from src.season.mountains import MOUNTAINS, find_mountain
+from src.season.sources import OUTLOOK_SOURCE
 
 
 def _foliage(name: str, as_json: bool) -> int:
@@ -86,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--foliage", action="store_true",
                         help="단풍 현황·예상. region 자리에 산 이름을 주면 그 산만")
     args = parser.parse_args(argv)
-    # 로그 설정(src/logsetup.py)을 따름. 결과는 stdout 이라 기본은 WARNING 으로 조용히 둠 — LOG_LEVEL=DEBUG 로 엶
+    # 결과는 stdout 이라 로그는 기본 WARNING
     setup("query", level=os.environ.get("LOG_LEVEL") or "WARNING")
 
     if args.foliage:

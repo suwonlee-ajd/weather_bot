@@ -24,7 +24,6 @@ from src.season.foliage import (
     CRITERIA_TEXT,
     KINDS,
     NOT_STARTED_TEXT,
-    OUTLOOK_SOURCE,
     SEASON_TEXT,
     STAGES,
     FoliageError,
@@ -45,6 +44,7 @@ from src.season.mountains import (
     find_mountain,
     unknown_mountain,
 )
+from src.season.sources import OUTLOOK_SOURCE
 
 log = logging.getLogger("weather-mention")
 

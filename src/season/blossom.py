@@ -21,31 +21,22 @@
 from __future__ import annotations
 
 import datetime as dt
-import io
-import json
 import logging
 import re
-import urllib.parse
 from dataclasses import dataclass, field
 
 import requests
 
-from src.common.config import UA
 from src.common.text import bold, short_date
-from src.season.foliage import (  # 촬영일(올해 것만)·게시일 — 단풍과 같은 판
-    _date,
-    posted_on,
-)
+from src.season import sources as shared
+from src.season.sources import OUTLOOK_SOURCE
 
 log = logging.getLogger(__name__)
 
 KMA_URL = "https://www.kma.go.kr/kma/theme/flower_photojs.jsp"
 KMA_PAGE = "https://www.weather.go.kr/w/forecast/life/seasonal-observation/spring-flower.do"
-WEATHERI_BASE = "https://www.weatheri.co.kr/board/"
-WEATHERI_LIST = WEATHERI_BASE + "board03_list.php"
 
 STAGES = ("개화 전", "개화", "만발")
-OUTLOOK_SOURCE = "웨더아이"
 NOT_STARTED_TEXT = "기상청 벚꽃 관측이 아직 시작되지 않았습니다 (해마다 3월부터)"
 NOT_PUBLISHED_TEXT = f"올해 개화 예상은 아직 나오지 않았습니다 ({OUTLOOK_SOURCE}, 해마다 2월 말 발표)"
 
@@ -76,16 +67,8 @@ def in_season(day: dt.date) -> bool:
 
 # --- 공통 ------------------------------------------------------------------
 
-def _get(url: str, *, params: dict | None = None, timeout: float = 20.0, referer: str = "") -> requests.Response:
-    headers = {"User-Agent": UA}
-    if referer:
-        headers["Referer"] = referer
-    try:
-        resp = requests.get(url, params=params, headers=headers, timeout=timeout)
-        resp.raise_for_status()
-    except requests.RequestException as exc:
-        raise BlossomError(f"요청 실패 {url}: {exc}") from exc
-    return resp
+def _get(url: str, **kw) -> requests.Response:
+    return shared.get(url, error=BlossomError, **kw)
 
 
 # --- 기상청 관측 -------------------------------------------------------------
@@ -99,35 +82,12 @@ class Status:
 
 
 def _jsonp(text: str) -> dict:
-    m = re.search(r"applyFlowerData\((\{.*\})\)", text, re.S)
-    if not m:
-        raise BlossomError("기상청 봄꽃 응답에서 자료를 찾지 못했습니다 (형식 변경 의심)")
-    try:
-        return json.loads(m.group(1))
-    except ValueError as exc:
-        raise BlossomError(f"기상청 봄꽃 응답을 읽지 못했습니다: {exc}") from exc
-
-
-def _stage_of(place: dict) -> int:
-    text = place.get("status") or ""
-    if text in STAGES:
-        return STAGES.index(text)
-    try:                                  # 글자가 바뀌어도 코드는 남음
-        return max(0, min(2, int(place.get("sts", "1")) - 1))
-    except (TypeError, ValueError):
-        return 0
+    return shared.jsonp(text, "applyFlowerData", "봄꽃", BlossomError)
 
 
 def parse_status(text: str) -> tuple[dict[str, int], bool]:
     """목록 응답에서 (군락지별 단계, 서비스 중인지)."""
-    data = _jsonp(text)
-    places = data.get("places") or []
-    if not places:
-        raise BlossomError("기상청 봄꽃 응답에 관측 지점이 없습니다")
-    in_service = bool(data.get("isService"))
-    # 서비스 기간 밖이면 개화 전으로 둠 — 남아 있는 지난 시즌 단계(만발)를 올해 것으로 읽지 않게.
-    return {p["obsPlace"]: (_stage_of(p) if in_service else 0)
-            for p in places if p.get("obsPlace")}, in_service
+    return shared.stages_in(_jsonp(text), STAGES, "봄꽃", BlossomError)
 
 
 def _kma(place: str = "") -> str:
@@ -154,9 +114,9 @@ def fetch_status(today: dt.date) -> Status:
         if flower.get("obsPlace") != name:
             log.warning("벚꽃 상세 %s 를 요청했는데 %s 가 왔습니다", name, flower.get("obsPlace"))
             continue
-        if bloom := _date(flower.get("cfShotDate"), today.year):
+        if bloom := shared.shot_date(flower.get("cfShotDate"), today.year):
             status.bloom[name] = bloom
-        if full := _date(flower.get("ffShotDate"), today.year):
+        if full := shared.shot_date(flower.get("ffShotDate"), today.year):
             status.full[name] = full
     return status
 
@@ -209,22 +169,8 @@ def parse_outlook_text(text: str, year: int) -> tuple[dict[str, dt.date], dict[s
     return expected, normal
 
 
-def _pdf_text(blob: bytes) -> str:
-    try:
-        from pypdf import PdfReader
-    except ImportError as exc:
-        raise BlossomError("pypdf 가 설치되지 않아 웨더아이 예상을 읽지 못합니다") from exc
-    try:
-        reader = PdfReader(io.BytesIO(blob))
-        return "\n".join(p.extract_text(extraction_mode="layout") for p in reader.pages)
-    except Exception as exc:          # pypdf 는 깨진 파일마다 다른 예외를 냄
-        raise BlossomError(f"웨더아이 PDF 를 읽지 못했습니다: {exc}") from exc
-
-
 def _find_post(list_html: str, year: int) -> str | None:
-    m = re.search(rf"href=['\"]?(board03_read\.php\?id=\d+[^'\"\s>]*)['\"]?\s*>\s*{year}년\s*벚꽃\s*개화예상시기",
-                  list_html)
-    return urllib.parse.urljoin(WEATHERI_BASE, m.group(1)) if m else None
+    return shared.find_post(list_html, year, r"벚꽃\s*개화예상시기")
 
 
 def _load_post(list_html: str, year: int) -> Outlook | None:
@@ -233,13 +179,11 @@ def _load_post(list_html: str, year: int) -> Outlook | None:
         return None
     post = _get(post_url)
     post.encoding = "utf-8"
-    pdf = re.search(r"https?://[^\"'\s<>]+\.pdf", post.text, re.I)
-    if not pdf:
+    pdf_url = shared.pdf_link(post.text)
+    if not pdf_url:
         raise BlossomError(f"웨더아이 {year}년 벚꽃 게시물에 PDF 가 없습니다: {post_url}")
-    # 파일명에 대괄호가 들어 있음 ([Weatheri]2026_spring_flower2.pdf). http 는 https 로 넘어감.
-    pdf_url = urllib.parse.quote(pdf.group(0), safe=":/?&=%")
-    expected, normal = parse_outlook_text(_pdf_text(_get(pdf_url, timeout=30).content), year)
-    return Outlook(expected=expected, normal=normal, published=posted_on(post.text, year), url=post_url)
+    expected, normal = parse_outlook_text(shared.pdf_text(_get(pdf_url, timeout=30).content, BlossomError), year)
+    return Outlook(expected=expected, normal=normal, published=shared.posted_on(post.text, year), url=post_url)
 
 
 def fetch_outlook(year: int) -> Outlook:
@@ -248,7 +192,7 @@ def fetch_outlook(year: int) -> Outlook:
     읽다 실패하면 BlossomError — «아직 안 나왔다» 와 «받지 못했다» 를 섞으면 실패를
     "아직 나오지 않았습니다" 로 잘못 알리게 됨.
     """
-    listing = _get(WEATHERI_LIST)
+    listing = _get(shared.WEATHERI_LIST)
     listing.encoding = "utf-8"
     outlook = _load_post(listing.text, year)
     if outlook is not None:

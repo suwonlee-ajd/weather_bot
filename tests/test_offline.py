@@ -857,7 +857,8 @@ def test_foliage_parse() -> None:
     """기상청 JSONP 와 웨더아이 표. 지난 시즌 값·잘못 읽은 표는 버림."""
     import json
 
-    from src.season.foliage import FoliageError, _date, parse_outlook_text, parse_status
+    from src.season.foliage import FoliageError, parse_outlook_text, parse_status
+    from src.season.sources import shot_date
 
     def jsonp(service: bool, statuses: dict[str, str], flower: dict) -> str:
         places = [{"obsPlace": n, "status": s, "sts": str(["단풍전", "첫단풍", "절정"].index(s) + 1)}
@@ -869,11 +870,11 @@ def test_foliage_parse() -> None:
         jsonp(True, {"설악산": "첫단풍", "오대산": "단풍전", "한라산": "절정"},
               {"obsPlace": "설악산", "cfShotDate": "2026-09-28"}), 2026)
     assert live and stages == {"설악산": 1, "오대산": 0, "한라산": 2}, stages
-    assert _date(flower["cfShotDate"], 2026) == dt.date(2026, 9, 28)
+    assert shot_date(flower["cfShotDate"], 2026) == dt.date(2026, 9, 28)
     # 서비스 기간 밖의 단계는 올해 현황으로 읽지 않음 — 지난 시즌 값이 남아 있음
     stages, live, _ = parse_status(jsonp(False, {"설악산": "절정"}, {}), 2026)
     assert not live and stages == {"설악산": 0}, stages
-    assert _date("2025-10-20", 2026) is None, "지난해 촬영일을 올해 것으로 읽었습니다"
+    assert shot_date("2025-10-20", 2026) is None, "지난해 촬영일을 올해 것으로 읽었습니다"
     try:
         parse_status("<html>점검 중</html>", 2026)
         raise AssertionError("JSONP 가 아닌데 통과했습니다")
@@ -1336,12 +1337,8 @@ def test_blossom_parse() -> None:
     """기상청 JSONP 와 웨더아이 표. 해마다 바뀐 날짜 표기, 군락지·평균 줄, 깨진 표."""
     import json
 
-    from src.season.blossom import (
-        BlossomError,
-        parse_outlook_text,
-        parse_status,
-        posted_on,
-    )
+    from src.season.blossom import BlossomError, parse_outlook_text, parse_status
+    from src.season.sources import posted_on
 
     def jsonp(service: bool) -> str:
         places = [{"obsPlace": n, "status": s, "sts": str(["개화 전", "개화", "만발"].index(s) + 1)}

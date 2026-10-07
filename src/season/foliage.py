@@ -21,32 +21,25 @@
 from __future__ import annotations
 
 import datetime as dt
-import io
-import json
 import logging
 import re
-import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 import requests
 
 from src.common.cache import get_or_set
-from src.common.config import UA
+from src.season import sources as shared
 from src.season.mountains import BY_NAME
 
 log = logging.getLogger(__name__)
 
 KMA_URL = "https://www.kma.go.kr/kma/theme/maple_photojs.jsp"
 KMA_PAGE = "https://www.weather.go.kr/w/forecast/life/seasonal-observation/autumn-leaves.do"
-WEATHERI_BASE = "https://www.weatheri.co.kr/board/"
-WEATHERI_LIST = WEATHERI_BASE + "board03_list.php"
 
 STAGES = ("단풍전", "첫단풍", "절정")
 KINDS = ("first", "peak")             # 첫단풍 · 절정 — Status / Outlook 의 필드 이름
 
-# 지도·멘션·CLI 가 함께 쓰는 문구
-OUTLOOK_SOURCE = "웨더아이"
 SEASON_TEXT = "9월 둘째 주 ~ 11월 둘째 주"
 CRITERIA_TEXT = "첫단풍은 산 정상부터 20%, 절정은 80%가 물든 때"
 NOT_STARTED_TEXT = "기상청 단풍 관측이 아직 시작되지 않았습니다 (해마다 9월 하순부터)"
@@ -126,59 +119,18 @@ class Status:
 
 
 def _jsonp(text: str) -> dict:
-    m = re.search(r"applyMapleData\((\{.*\})\)", text, re.S)
-    if not m:
-        raise FoliageError("기상청 단풍 응답에서 자료를 찾지 못했습니다 (형식 변경 의심)")
-    try:
-        return json.loads(m.group(1))
-    except ValueError as exc:
-        raise FoliageError(f"기상청 단풍 응답을 읽지 못했습니다: {exc}") from exc
-
-
-def _stage_of(place: dict) -> int:
-    text = place.get("status") or ""
-    if text in STAGES:
-        return STAGES.index(text)
-    # 글자가 바뀌어도 코드(1 단풍전 / 2 첫단풍 / 3 절정)는 남음
-    try:
-        return max(0, min(2, int(place.get("sts", "1")) - 1))
-    except (TypeError, ValueError):       # "sts": null 이 와도 단풍전으로
-        return 0
-
-
-def _date(raw: str | None, year: int) -> dt.date | None:
-    """촬영일. 올해 것이 아니면 버림 — 서비스 전에는 지난해 기록이 그대로 내려옴."""
-    if not raw:
-        return None
-    try:
-        d = dt.date.fromisoformat(raw[:10])
-    except ValueError:
-        return None
-    return d if d.year == year else None
+    return shared.jsonp(text, "applyMapleData", "단풍", FoliageError)
 
 
 def parse_status(text: str, year: int) -> tuple[dict[str, int], bool, dict]:
     """목록 응답에서 (산별 단계, 서비스 중인지, 고른 산의 상세) 를 뽑음."""
     data = _jsonp(text)
-    places = data.get("places") or []
-    if not places:
-        raise FoliageError("기상청 단풍 응답에 관측 지점이 없습니다")
-    in_service = bool(data.get("isService"))
-    # 서비스 기간 밖이면 단풍전으로 둠 — 남아 있는 지난 시즌 단계를 올해 것으로 읽지 않게.
-    stages = {p["obsPlace"]: (_stage_of(p) if in_service else 0) for p in places if p.get("obsPlace")}
+    stages, in_service = shared.stages_in(data, STAGES, "단풍", FoliageError)
     return stages, in_service, data.get("flower") or {}
 
 
-def _get(url: str, *, params: dict | None = None, timeout: float = 20.0, referer: str = "") -> requests.Response:
-    headers = {"User-Agent": UA}
-    if referer:
-        headers["Referer"] = referer
-    try:
-        resp = requests.get(url, params=params, headers=headers, timeout=timeout)
-        resp.raise_for_status()
-    except requests.RequestException as exc:
-        raise FoliageError(f"요청 실패 {url}: {exc}") from exc
-    return resp
+def _get(url: str, **kw) -> requests.Response:
+    return shared.get(url, error=FoliageError, **kw)
 
 
 def _kma(place: str = "") -> str:
@@ -189,7 +141,7 @@ def _kma(place: str = "") -> str:
 
 def _dates(flower: dict, year: int) -> tuple[dt.date | None, dt.date | None]:
     """상세에서 (첫단풍, 절정) 촬영일."""
-    return _date(flower.get("cfShotDate"), year), _date(flower.get("ffShotDate"), year)
+    return shared.shot_date(flower.get("cfShotDate"), year), shared.shot_date(flower.get("ffShotDate"), year)
 
 
 def _detail(name: str, stage: int, year: int) -> tuple[dt.date | None, dt.date | None]:
@@ -290,31 +242,8 @@ def parse_outlook_text(text: str, year: int) -> tuple[dict[str, dt.date], dict[s
     return first, peak
 
 
-def _pdf_text(blob: bytes) -> str:
-    try:
-        from pypdf import PdfReader
-    except ImportError as exc:            # 현황만으로라도 답함 — 서버에서 uv sync 를 빠뜨린 경우
-        raise FoliageError("pypdf 가 설치되지 않아 웨더아이 예상을 읽지 못합니다") from exc
-    try:
-        reader = PdfReader(io.BytesIO(blob))
-        return "\n".join(p.extract_text(extraction_mode="layout") for p in reader.pages)
-    except Exception as exc:          # pypdf 는 깨진 파일마다 다른 예외를 냄
-        raise FoliageError(f"웨더아이 PDF 를 읽지 못했습니다: {exc}") from exc
-
-
 def _find_post(list_html: str, year: int) -> str | None:
-    m = re.search(rf"href=['\"]?(board03_read\.php\?id=\d+[^'\"\s>]*)['\"]?\s*>\s*{year}년\s*단풍\s*예상시기", list_html)
-    return urllib.parse.urljoin(WEATHERI_BASE, m.group(1)) if m else None
-
-
-def posted_on(post_html: str, year: int) -> dt.date | None:
-    """웨더아이 게시물의 게시일. 머리 표의 날짜 칸에 있음 — 벚꽃 게시물도 같은 판.
-
-    날짜 칸은 글자색으로 집음. 페이지 맨 위 특보 띠에도 오늘 날짜가 흘러가고,
-    작성자 칸이 비어 있는 해(2026 벚꽃)가 있어 '관리자' 뒤를 찾으면 놓침.
-    """
-    m = re.search(rf"#124c78\">\s*({year})-(\d{{2}})-(\d{{2}})", post_html)
-    return dt.date(*map(int, m.groups())) if m else None
+    return shared.find_post(list_html, year, r"단풍\s*예상시기")
 
 
 def fetch_outlook(year: int) -> Outlook | None:
@@ -331,7 +260,7 @@ def fetch_outlook(year: int) -> Outlook | None:
 
 
 def _load_outlook(year: int) -> Outlook:
-    listing = _get(WEATHERI_LIST)
+    listing = _get(shared.WEATHERI_LIST)
     listing.encoding = "utf-8"
     post_url = _find_post(listing.text, year)
     if post_url is None:
@@ -339,13 +268,11 @@ def _load_outlook(year: int) -> Outlook:
         raise _NotPublished(year)
     post = _get(post_url)
     post.encoding = "utf-8"
-    pdf = re.search(r"https?://[^\"'\s<>]+\.pdf", post.text, re.I)
-    if not pdf:
+    pdf_url = shared.pdf_link(post.text)
+    if not pdf_url:
         raise FoliageError(f"웨더아이 {year}년 단풍 게시물에 PDF 가 없습니다: {post_url}")
-    # 파일명에 대괄호가 들어 있음 ([Weatheri]2026_maple.pdf)
-    pdf_url = urllib.parse.quote(pdf.group(0), safe=":/?&=%")
-    first, peak = parse_outlook_text(_pdf_text(_get(pdf_url, timeout=30).content), year)
-    published = posted_on(post.text, year)
+    first, peak = parse_outlook_text(shared.pdf_text(_get(pdf_url, timeout=30).content, FoliageError), year)
+    published = shared.posted_on(post.text, year)
     log.info("웨더아이 %d년 단풍 예상 %d곳 (%s 발표)", year, len(first), published)
     return Outlook(first=first, peak=peak, published=published, url=post_url)
 

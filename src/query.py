@@ -26,7 +26,6 @@ from src.season.foliage import (
     CRITERIA_TEXT,
     KINDS,
     NOT_STARTED_TEXT,
-    OUTLOOK_SOURCE,
     SEASON_TEXT,
     STAGES,
     FoliageError,
@@ -36,6 +35,7 @@ from src.season.foliage import (
 )
 from src.season.foliage_map import sources
 from src.season.mountains import MOUNTAINS, find_mountain
+from src.season.sources import OUTLOOK_SOURCE
 
 
 def _foliage(name: str, as_json: bool) -> int:

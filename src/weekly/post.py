@@ -9,8 +9,8 @@
 본문은 paragraph.Message 로 조립함 — 날씨 두 문단 → 철마다의 소식 문단(src/themes.py) → 출처 줄.
 철 소식에 딸린 그림(단풍 지도)은 첨부로 함께 올라감.
 
-    python -m src.post              # 실제 게시
-    python -m src.post --dry-run    # 슬랙 전송 없이 data/ 에 저장하고 본문만 출력
+    python -m src.weekly.post              # 실제 게시
+    python -m src.weekly.post --dry-run    # 슬랙 전송 없이 data/ 에 저장하고 본문만 출력
 """
 from __future__ import annotations
 
@@ -22,15 +22,15 @@ import re
 import sys
 import time
 
-from . import themes
-from .logsetup import setup
-from .config import KST, Config
-from .forecast import ForecastError, build_week
-from .kma_chart import fetch_latest_chart
-from .paragraph import Message
-from .render_card import render_png
-from .retention import sweep
-from .writer import write
+from src.weekly import themes
+from src.common.logsetup import setup
+from src.common.config import KST, Config
+from src.weekly.forecast import ForecastError, build_week
+from src.kma.chart import fetch_latest_chart
+from src.weekly.paragraph import Message
+from src.weekly.card import render_png
+from src.common.retention import sweep
+from src.weekly.writer import write
 
 log = logging.getLogger("weekly-weather")
 

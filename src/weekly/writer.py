@@ -24,8 +24,8 @@ import os
 import re
 from dataclasses import dataclass, field
 
-from .advice import BIG_SPREAD, RAIN, TEMP_STEMS, Advice, build_advice, first_three
-from .forecast import Section, Source, WeekForecast, short_day_label
+from src.advice.rules import BIG_SPREAD, RAIN, TEMP_STEMS, Advice, build_advice, first_three
+from src.weekly.forecast import Section, Source, WeekForecast, short_day_label
 
 log = logging.getLogger(__name__)
 

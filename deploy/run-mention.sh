@@ -3,7 +3,7 @@
 # 서버에서는 systemd(weather-mention.service)가 띄우고, 죽으면 되살림.
 #
 # 짝이 되는 run-weekly.sh 와는 마지막 줄(실행 모듈)만 다름:
-#   run-weekly.sh   src.post     예약 게시 · 끝나면 종료
+#   run-weekly.sh   src.weekly   예약 게시 · 끝나면 종료
 #   run-mention.sh  src.mention  멘션 응답 · 24시간 상시
 #
 # python -u 로 출력 버퍼링을 끔 — 상시 프로세스라 출력이 journal 로 갈 때

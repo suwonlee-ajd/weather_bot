@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import html
 
-from .forecast import Section, Source, WeekForecast
+from src.weekly.forecast import Section, Source, WeekForecast
 
 CARD_WIDTH = 700
 

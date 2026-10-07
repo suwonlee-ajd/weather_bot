@@ -17,8 +17,10 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from . import blossom, foliage, render_foliage
-from .paragraph import Attachment, Block, Paragraph, bold
+from src.season import blossom
+from src.season import foliage
+from src.season import foliage_map as render_foliage
+from src.weekly.paragraph import Attachment, Block, Paragraph, bold
 
 log = logging.getLogger(__name__)
 

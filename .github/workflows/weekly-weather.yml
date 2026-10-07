@@ -66,7 +66,7 @@ jobs:
           WRITER: ${{ vars.WRITER }}
           CHART_PRODUCT: ${{ vars.CHART_PRODUCT }}
           POST_AT: "08:00"
-        run: uv run python -m src.post ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: uv run python -m src.weekly ${{ inputs.dry_run && '--dry-run' || '' }}
 
       - name: Upload rendered images (dry-run 확인용)
         if: ${{ inputs.dry_run }}

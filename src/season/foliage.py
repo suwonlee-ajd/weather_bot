@@ -31,9 +31,9 @@ from dataclasses import dataclass, field
 
 import requests
 
-from .cache import get_or_set
-from .config import UA
-from .mountains import BY_NAME
+from src.common.cache import get_or_set
+from src.common.config import UA
+from src.season.mountains import BY_NAME
 
 log = logging.getLogger(__name__)
 

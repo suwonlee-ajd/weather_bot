@@ -20,7 +20,7 @@ from dataclasses import dataclass
 
 import requests
 
-from .config import KST, UA, UTC
+from src.common.config import KST, UA, UTC
 
 BASE = "https://www.weather.go.kr/w/repositary/image/cht/img"
 REFERER = "https://www.weather.go.kr/w/image/chart/analysis.do"

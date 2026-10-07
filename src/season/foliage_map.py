@@ -14,7 +14,7 @@
   - 관측 날짜는 굵게, 예상 날짜는 흐리게. 둘을 섞어 읽지 않게 함.
   - 게시 주에 예상된 변화가 있는 산은 점선 고리와 표 강조로 짚음.
 
-지도 윤곽은 src/assets/korea_provinces.json (Natural Earth, 퍼블릭 도메인).
+지도 윤곽은 src/season/assets/korea_provinces.json (Natural Earth, 퍼블릭 도메인).
 울릉도·독도는 오른쪽 상자로 옮겨 그림. 독도는 좌표로 점만 찍음(원자료에 없음).
 """
 from __future__ import annotations
@@ -26,10 +26,10 @@ import json
 import math
 from pathlib import Path
 
-from .foliage import CRITERIA_TEXT, KINDS, NOT_STARTED_TEXT, OUTLOOK_SOURCE, STAGES, Snapshot
-from .forecast import day_label, short_date
-from .mountains import MOUNTAINS, Mountain
-from .render_card import CARD_WIDTH, capture
+from src.season.foliage import CRITERIA_TEXT, KINDS, NOT_STARTED_TEXT, OUTLOOK_SOURCE, STAGES, Snapshot
+from src.weekly.forecast import day_label, short_date
+from src.season.mountains import MOUNTAINS, Mountain
+from src.weekly.card import CARD_WIDTH, capture
 
 ASSET = Path(__file__).parent / "assets" / "korea_provinces.json"
 

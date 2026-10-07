@@ -29,8 +29,8 @@ if (_VENV / "bin" / "python").exists() and Path(sys.prefix).resolve() != _VENV.r
     os.execv(_VENV / "bin" / "python", [str(_VENV / "bin" / "python"), __file__, *sys.argv[1:]])
 sys.path.insert(0, str(ROOT))
 
-from src.logsetup import RETENTION_DAYS, log_dir, setup  # noqa: E402
-from src.retention import prune_empty_dirs, sweep  # noqa: E402
+from src.common.logsetup import RETENTION_DAYS, log_dir, setup  # noqa: E402
+from src.common.retention import prune_empty_dirs, sweep  # noqa: E402
 
 
 def _int_env(key: str, default: int) -> int:

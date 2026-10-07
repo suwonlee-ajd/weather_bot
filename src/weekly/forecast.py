@@ -13,8 +13,8 @@ import datetime as dt
 import logging
 from dataclasses import dataclass, field
 
-from .config import KST
-from .kma_scrape import Narrative, Region, ScrapeError, find_region, scrape_week
+from src.common.config import KST
+from src.kma.scrape import Narrative, Region, ScrapeError, find_region, scrape_week
 
 log = logging.getLogger(__name__)
 

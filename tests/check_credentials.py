@@ -44,8 +44,8 @@ def check_kma_pages() -> bool:
     """기상청 공개 페이지가 여전히 파싱되는지 (키 불필요)."""
     import datetime as dt
 
-    from src.config import KST
-    from src.kma_scrape import fetch_mid_term, fetch_notice
+    from src.common.config import KST
+    from src.kma.scrape import fetch_mid_term, fetch_notice
 
     ok = True
     for name, fn in (("예보 통보문", fetch_notice), ("중기예보", fetch_mid_term)):
@@ -131,7 +131,7 @@ if __name__ == "__main__":
     results = [check_slack(), check_kma_pages(), check_writer(), check_chromium()]
     print()
     if all(results):
-        print("전부 준비됨 → python -m src.post --dry-run")
+        print("전부 준비됨 → python -m src.weekly.post --dry-run")
         sys.exit(0)
     print("위 ❌ 항목을 해결한 뒤 다시 실행하세요.")
     sys.exit(1)

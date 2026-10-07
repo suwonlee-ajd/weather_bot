@@ -6,7 +6,7 @@ Signing Secret 이 필요 없고, 서버에 이미 떠 있는 다른 서비스�
     SLACK_BOT_TOKEN=xoxb-...   (chat:write, files:write, app_mentions:read, emoji:read)
     SLACK_APP_TOKEN=xapp-...   (connections:write)
 
-    python -m src.mention
+    python -m src.mention.bot
 """
 from __future__ import annotations
 
@@ -18,25 +18,25 @@ import sys
 import threading
 import time
 
-from .advice import _pick, build_advice, detect_topic, topic_advice
+from src.advice.rules import _pick, build_advice, detect_topic, topic_advice
 from dataclasses import dataclass, replace
 
-from .cache import get_or_set
-from .config import KST
-from .forecast import day_label, range_text, short_date
-from .logsetup import setup
-from .dong import DongError, fetch_dong, find_wide, search_dong
-from .foliage import KMA_PAGE as KMA_FOLIAGE_PAGE
-from .foliage import (
+from src.common.cache import get_or_set
+from src.common.config import KST
+from src.weekly.forecast import day_label, range_text, short_date
+from src.common.logsetup import setup
+from src.kma.dong import DongError, fetch_dong, find_wide, search_dong
+from src.season.foliage import KMA_PAGE as KMA_FOLIAGE_PAGE
+from src.season.foliage import (
     CRITERIA_TEXT, KINDS, NOT_STARTED_TEXT, OUTLOOK_SOURCE, SEASON_TEXT, STAGES,
     FoliageError, Snapshot, fetch_snapshot, in_season, next_season,
 )
-from .mountains import MOUNTAINS, Mountain, find_mountain, in_region, in_zone, unknown_mountain
-from .outlook import OutlookError, fetch_outlook
-from .paragraph import bold
-from .render_foliage import gap_text, observed_line, sources, week_changes, week_line
-from .render_foliage import render_png as render_foliage_png
-from .kma_scrape import (
+from src.season.mountains import MOUNTAINS, Mountain, find_mountain, in_region, in_zone, unknown_mountain
+from src.kma.outlook import OutlookError, fetch_outlook
+from src.weekly.paragraph import bold
+from src.season.foliage_map import gap_text, observed_line, sources, week_changes, week_line
+from src.season.foliage_map import render_png as render_foliage_png
+from src.kma.scrape import (
     NATIONWIDE, REGION_HELP, ScrapeError, _resolve_date, extract_region,
     lines_for_dates, resolve_region, scrape_range,
 )

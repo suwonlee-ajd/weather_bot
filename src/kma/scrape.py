@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 import requests
 from bs4 import BeautifulSoup
 
-from .config import KST, UA
+from src.common.config import KST, UA
 
 log = logging.getLogger(__name__)
 

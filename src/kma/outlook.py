@@ -21,8 +21,8 @@ from dataclasses import dataclass
 
 import requests
 
-from .cache import get_or_set
-from .config import KST, UA
+from src.common.cache import get_or_set
+from src.common.config import KST, UA
 
 log = logging.getLogger(__name__)
 

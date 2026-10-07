@@ -787,6 +787,16 @@ def test_footer_and_region_variation() -> None:
         tonight = mention._dong_reply("1100000000", "서울특별시", days=3)
         assert f"`{mention.day_label(first)}` 21시 이후 10~12℃" in tonight, tonight   # 굵게 아님
         assert "시 이후" not in tonight.split("\n")[2], tonight                       # 다음 날은 그대로
+        # 오늘 줄의 밤 기온은 조언에도 쓰지 않음 — «아침 최저 2도» 처럼 읽히면 안 됨
+        rows[0] = (first, 2.0, 4.0, "맑음", 0)
+        cold_night = mention._dong_reply("1100000000", "서울특별시", days=3)
+        assert ":cold_face:" not in cold_night and "아침 최저" not in cold_night, cold_night
+
+        # 산 답(quiet)에는 광역 안내를 붙이지 않음 — 4일치 발표를 끝까지 보여 줘도
+        mention.fetch_dong = lambda z, n: fake_fetch(z, n, 4)
+        mountain = mention._dong_reply("5121060000", "설악산 아래 속초시 대포동", 4,
+                                       dt.date(2026, 9, 16), quiet=True)
+        assert mountain and "더 먼 날이 필요" not in mountain, mountain
 
         # 같은 날·같은 수치라도 지역이 다르면 조언 문장이 갈림
         mention.fetch_dong = lambda z, n: fake_fetch(z, n, 3)

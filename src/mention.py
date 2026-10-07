@@ -260,7 +260,8 @@ def _dong_reply(zone: str, name: str, days: int = 4, start: dt.date | None = Non
             f"• `{day_label(date)}` {since}{temp} · {sky_emoji(sky)}"
             + (f" · `{pop}%`" if pop else "")
         )
-    tips = _dong_advice(summary, fc.name)
+    # 조언도 하루치 값만으로 — 저녁 발표의 오늘 줄(밤 몇 시간)이 «아침 최저 N도» 로 읽히지 않게
+    tips = _dong_advice([row for row in summary if row[0] not in partial], fc.name)
     if tips:
         lines.append("")
         lines += [f"{t.emoji} {t.text}" for t in tips]
@@ -269,7 +270,8 @@ def _dong_reply(zone: str, name: str, days: int = 4, start: dt.date | None = Non
     # 글피, 17·20시 발표는 그글피) — 일수로 재면 4일치 발표에서는 끝까지 보여 줘도 안내가 붙지 않음.
     # 하루치 답에서는 쓸모없이 두 줄 본문의 절반을 차지하고, 같은 꼬리말 탓에 다른 지역을 물은
     # 두 답이 같은 메시지로 읽힘.
-    if len(summary) > 1 and summary[-1][0] == available[-1][0]:
+    # quiet(산 답) 에서는 붙이지 않음 — 산 단풍 사이에 «예: 수도권» 이 끼어들면 엉뚱함.
+    if not quiet and len(summary) > 1 and summary[-1][0] == available[-1][0]:
         lines.append(f"_더 먼 날이 필요하시면 광역 구역으로 불러 주세요 (최대 10일). "
                      f"예: {self_mention()} 수도권_")
     if today is not None:

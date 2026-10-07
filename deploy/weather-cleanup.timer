@@ -1,5 +1,5 @@
 # 매일 새벽 04:00 KST. 게시(월 08:00)와 겹치지 않는 한산한 시각.
-# Persistent=true 라 서버가 꺼져 있었으면 켜진 직후 밀린 회차를 실행한다.
+# 서버가 꺼져 있어 밀린 회차는 켜진 직후 실행함(Persistent=true).
 [Unit]
 Description=Weather bot - daily cleanup
 

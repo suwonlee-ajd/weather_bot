@@ -1,13 +1,13 @@
 """1개월 전망 (주 단위 확률 예보).
 
-10일 예보 너머를 묻는 질문 — "올해 겨울은", "다음 달 어때" — 에 답하기 위한 자료다.
-일별 예보와 성격이 다르다는 점이 중요하다.
+10일 예보 너머를 묻는 질문 — "올해 겨울은", "다음 달 어때" — 에 답하는 자료.
+일별 예보와 성격이 다름 — 값이 아니라 확률.
 
   일별 예보   "수요일 아침 13℃, 낮 30℃, 맑음"      → 값
   1개월 전망  "평년보다 높을 확률 50%"               → 확률
 
-기상청이 매주 목요일 발표하며 4주치를 담는다. 그보다 먼 계절 단위(3개월)는
-확률조차 주 단위가 아니라 월 단위라 여기서는 다루지 않고, 안내만 한다.
+기상청이 매주 목요일 발표하며 4주치를 담음. 그보다 먼 계절 단위(3개월)는 다루지 않고
+안내만 함 — 확률조차 주 단위가 아니라 월 단위.
 
   https://www.weather.go.kr/repositary/xml/fct/mon/img/fct_mon1rss_108_{YYYYMMDD}.xml
 """
@@ -22,16 +22,15 @@ from dataclasses import dataclass
 import requests
 
 from .cache import get_or_set
-from .config import KST
+from .config import KST, UA
 
 log = logging.getLogger(__name__)
 
 URL = "https://www.weather.go.kr/repositary/xml/fct/mon/img/fct_mon1rss_108_{:%Y%m%d}.xml"
-UA = "ajd-slack-weather-bot/1.0 (+internal Slack bot)"
 TTL_SEC = 6 * 3600
-LOOKBACK_DAYS = 21          # 매주 목요일 발표라 3주면 충분하다
+LOOKBACK_DAYS = 21          # 3주면 충분함 — 매주 목요일 발표
 
-# 전망 본문의 지역명은 예보 페이지와 표기가 다르다 (가운뎃점 대신 'ㆍ')
+# 전망 본문의 지역명은 예보 페이지와 표기가 다름 (가운뎃점 대신 'ㆍ')
 REGION_ALIAS = {
     "전국": "전국(제주도,북한제외)",
     "수도권": "서울ㆍ인천ㆍ경기도",
@@ -86,7 +85,7 @@ class OutlookError(RuntimeError):
 
 
 def _latest_xml(now: dt.datetime) -> tuple[ET.Element, str]:
-    """가장 최근 발표본. 매주 목요일이라 하루씩 거슬러 올라가며 찾는다."""
+    """가장 최근 발표본. 하루씩 거슬러 올라가며 찾음(매주 목요일 발표)."""
     for back in range(LOOKBACK_DAYS):
         day = now.date() - dt.timedelta(days=back)
         url = URL.format(day)
@@ -110,10 +109,10 @@ def _clean(text: str | None) -> str:
 
 
 def _odds(body: ET.Element, prefix: str, region_tag: str, region: str) -> tuple[int, int, int]:
-    """지역별 확률 3종. 같은 태그가 지역 수만큼 반복돼서 순서로 짚는다.
+    """지역별 확률 3종. 순서로 짚음 — 같은 태그가 지역 수만큼 반복됨.
 
-    body 아래가 summary/weather_forecast/onemonth_*_forecast 로 한 겹 더 중첩돼 있어
-    findall(직계) 이 아니라 iter(전체) 로 찾는다.
+    findall(직계) 이 아니라 iter(전체) 로 찾음 — body 아래가
+    summary/weather_forecast/onemonth_*_forecast 로 한 겹 더 중첩돼 있음.
     """
     names = [e.text for e in body.iter(region_tag)]
     try:
@@ -128,7 +127,7 @@ def _odds(body: ET.Element, prefix: str, region_tag: str, region: str) -> tuple[
 
 
 def fetch_outlook(region_key: str = "전국", now: dt.datetime | None = None) -> Outlook:
-    """1개월 전망. 6시간 캐시한다 — 주 1회 갱신이라 자주 받을 이유가 없다."""
+    """1개월 전망. 6시간 캐시함 — 주 1회 갱신이라 자주 받을 이유가 없음."""
     now = now or dt.datetime.now(tz=KST)
 
     def build() -> Outlook:
@@ -153,7 +152,7 @@ def fetch_outlook(region_key: str = "전국", now: dt.datetime | None = None) ->
             ranges = [e.text for e in body.iter(f"week{n}_local_ta_similarRange")]
             weeks.append(WeekOutlook(
                 period=period,
-                # 확률 서술은 따로 보여주므로 기압계 흐름만 남긴다
+                # 기압계 흐름만 남김 — 확률 서술은 따로 보여줌
                 summary=summary.split("(주평균기온)")[0].strip(),
                 temp_normal=(ranges[idx] if idx < len(ranges) else "") or "",
                 temp_odds=_odds(body, f"week{n}_local_ta", "local_ta_name", target),

@@ -6,9 +6,9 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=/home/ajung/workspace/weather_bot
-EnvironmentFile=/home/ajung/workspace/weather_bot/.env
+WorkingDirectory=%h/workspace/weather_bot
+EnvironmentFile=%h/workspace/weather_bot/.env
 Environment=TZ=Asia/Seoul
-ExecStart=/home/ajung/workspace/weather_bot/deploy/run-weekly.sh
+ExecStart=%h/workspace/weather_bot/deploy/run-weekly.sh
 StandardOutput=journal
 StandardError=journal

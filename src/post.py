@@ -1,9 +1,13 @@
-"""주간 날씨 브리핑을 슬랙 채널에 게시한다. (엔트리포인트)
+"""주간 날씨 브리핑을 슬랙 채널에 게시함. (엔트리포인트)
 
-메시지 구성 — 원본 게시물과 동일한 형태:
-  본문   : 복장·우산·태풍 등 특이사항에 대한 권장 대응 (Claude)
-  첨부 1 : Gemini 검색 브리핑 카드 PNG
+메시지 구성:
+  본문   : 날씨 두 문단 — 체감·예보관 서술 + 복장·우산·태풍 등 권장 대응 (src/writer.py, 기본 규칙 기반)
+  첨부 1 : 주간 전망 카드 PNG (src/render_card.py)
   첨부 2 : 기상청 지상일기도 PNG (인증 불필요한 공개 파일)
+  첨부 3 : 단풍 지도 PNG — 9월 둘째 주 ~ 11월 둘째 주에만 (src/render_foliage.py)
+
+본문은 paragraph.Message 로 조립함 — 날씨 두 문단 → 철마다의 소식 문단(src/themes.py) → 출처 줄.
+철 소식에 딸린 그림(단풍 지도)은 첨부로 함께 올라감.
 
     python -m src.post              # 실제 게시
     python -m src.post --dry-run    # 슬랙 전송 없이 data/ 에 저장하고 본문만 출력
@@ -18,10 +22,12 @@ import re
 import sys
 import time
 
+from . import themes
 from .logsetup import setup
 from .config import KST, Config
 from .forecast import ForecastError, build_week
 from .kma_chart import fetch_latest_chart
+from .paragraph import Message
 from .render_card import render_png
 from .retention import sweep
 from .writer import write
@@ -32,7 +38,7 @@ MAX_WAIT = dt.timedelta(minutes=60)
 
 
 def wait_until(post_at: str, now: dt.datetime) -> None:
-    """GitHub Actions 등 크론 지연을 흡수해 지정 시각(KST)에 맞춰 게시한다."""
+    """지정 시각(KST)까지 기다림 — GitHub Actions 등 크론 지연을 흡수함."""
     if not post_at:
         return
     hour, minute = (int(x) for x in post_at.split(":"))
@@ -48,9 +54,9 @@ def wait_until(post_at: str, now: dt.datetime) -> None:
     time.sleep(delta.total_seconds())
 
 
-# 기상청 원문의 머릿기호를 마크다운 불릿로 바꾼다. □(종합)은 1단계, ○(개별)은 2단계.
-# 콘솔에 찍기 직전에만 쓴다 — 원문 문자열은 그대로 둬야 한다. writer.py 의
-# 서술 파싱(NARRATIVE_RE)이 □/○ 를 보고 갈라내기 때문이다.
+# 기상청 원문의 머릿기호를 마크다운 불릿로 바꿈. □(종합)은 1단계, ○(개별)은 2단계.
+# 콘솔에 찍기 직전에만 쓰고 원문 문자열은 그대로 둠 — writer.py 의
+# 서술 파싱(NARRATIVE_RE)이 □/○ 를 보고 갈라냄.
 def _md_bullets(text: str) -> str:
     text = re.sub(r"^□\s*", "- ", text, flags=re.M)
     return re.sub(r"^○\s*", "  - ", text, flags=re.M)
@@ -61,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="슬랙에 보내지 않고 출력/저장만")
     parser.add_argument("--no-wait", action="store_true", help="POST_AT 대기 생략")
     parser.add_argument("--data-dir", default=None,
-                        help="dry-run 산출물 위치 (아래에 out/·img/ 로 나뉜다). "
+                        help="dry-run 산출물 위치 (이미지는 그 아래 IMG_DIR, 기본 img/ 에 쌓인다). "
                              "실제 게시는 슬랙에만 올리므로 --dry-run 과 함께 써야 한다")
     parser.add_argument(
         "--week-offset", type=int, default=0,
@@ -73,13 +79,13 @@ def main(argv: list[str] | None = None) -> int:
     cfg = Config()
     data_dir = args.data_dir or cfg.data_dir
     if args.data_dir and not (args.dry_run or cfg.dry_run):
-        # 실제 게시는 슬랙에만 올리고 디스크에 남기지 않는다. 조용히 무시하면
-        # 지정한 자리를 뒤지다 «아무것도 안 만들어졌다» 로 헤맨다.
+        # --data-dir 은 dry-run 에서만 받음 — 실제 게시는 디스크에 남기지 않아,
+        # 조용히 무시하면 지정한 자리를 뒤지다 «아무것도 안 만들어졌다» 로 헤맴.
         parser.error("--data-dir 은 --dry-run 과 함께 써야 합니다 (실제 게시는 파일을 남기지 않습니다)")
 
     now = dt.datetime.now(tz=KST)
 
-    # 1) 기상청 공개 페이지에서 월~일 예보 수집. 실패하면 게시하지 않는다.
+    # 1) 기상청 공개 페이지에서 월~일 예보 수집. 실패하면 게시하지 않음.
     try:
         week = build_week(cfg, now, week_offset=args.week_offset)
     except ForecastError as exc:
@@ -102,8 +108,11 @@ def main(argv: list[str] | None = None) -> int:
     chart = fetch_latest_chart(cfg.chart_product, back=5)
     log.info("카드 %s bytes / 일기도 %s (%s bytes)", f"{len(card_png):,}", chart.url, f"{len(chart.png):,}")
 
-    # 3) 본문
-    text = f"{written.body}\n\n_{chart.label} · 기상청_"
+    # 3) 본문 — 날씨 두 문단, 철마다의 소식, 출처
+    message = Message(written.body, credits=[f"{chart.label} · 기상청"])
+    for block in themes.blocks_for(week.week_start, now.date(), cfg.card_scale):
+        message.add(block)
+    text = message.to_slack()
 
     uploads = [
         {
@@ -120,22 +129,30 @@ def main(argv: list[str] | None = None) -> int:
         },
     ]
 
-    # dry-run 저장 자리. uploads 는 슬랙 API 페이로드 그대로 둔다 — 우리 메타를
-    # 섞으면 넘기기 전에 걷어내야 하고, 키를 하나 더할 때마다 그 필터를 고쳐야 한다.
-    # 둘 다 data/img/ 로 가고, 보존 기간만 파일명 패턴으로 갈린다.
+    # dry-run 저장 규칙은 uploads 와 따로 둠 — uploads 는 슬랙 API 페이로드 그대로임.
+    # 메타를 섞으면 넘기기 전에 걷어내야 하고, 키를 더할 때마다 그 필터를 고쳐야 함.
+    # 모두 data/img/ 로 가고, 보존 기간만 파일명 패턴으로 갈림.
     save_specs = [
         (cfg.card_keep_days, "weekly-weather-*.png"),
         (cfg.chart_keep_days, f"{cfg.chart_product}_*.png"),
     ]
+    for att in message.attachments:
+        uploads.append({
+            "filename": f"{att.slug}-{week.week_start:%Y%m%d}.png",
+            "file": att.png,
+            "title": att.title,
+            "alt_txt": att.alt,
+        })
+        # 보존 기간은 카드를 따름 — 카드처럼 언제든 다시 만들 수 있음
+        save_specs.append((cfg.card_keep_days, f"{att.slug}-*.png"))
 
     if args.dry_run or cfg.dry_run:
         d = pathlib.Path(data_dir) / cfg.img_dir
         d.mkdir(parents=True, exist_ok=True)
         saved = []
         for item, (keep_days, pattern) in zip(uploads, save_specs, strict=True):
-            # 이번 산출물을 쓰기 전에 지난 것을 치운다 — 방금 쓴 파일이 걸리지 않는 순서다.
-            # pattern 으로 좁히는 이유는 data/ 가 사용자도 열어 보는 자리라서
-            # 우리가 만들지 않은 파일까지 지우면 안 되기 때문이다.
+            # 이번 산출물을 쓰기 전에 지난 것을 치움 — 방금 쓴 파일이 걸리지 않는 순서임.
+            # 우리가 만든 파일만 pattern 으로 좁혀 지움 — data/ 는 사용자도 열어 보는 자리임.
             sweep(d, keep_days, pattern=pattern)
             path = d / item["filename"]
             path.write_bytes(item["file"])
@@ -167,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
         err = exc.response.get("error")
         if err in ("not_in_channel", "channel_not_found"):
             log.error(
-                "봇이 채널(%s)에 없습니다. 해당 채널에서 `/invite @주간 날씨` 를 실행하세요. "
+                "봇이 채널(%s)에 없습니다. 해당 채널에서 `/invite @날씨 알리미` 를 실행하세요. "
                 "(비공개 채널은 초대 전까지 채널 자체가 보이지 않아 channel_not_found 로 나옵니다)",
                 cfg.slack_channel_id,
             )

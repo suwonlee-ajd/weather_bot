@@ -1,33 +1,36 @@
 [project]
-name = "slack-weather-bot"
-version = "0.1.0"
+name = "weather-bot"
+version = "0.2.0"
 description = "기상청 공개 페이지를 긁어 주간 날씨를 슬랙에 올리고, 멘션에 답하는 봇"
 readme = "README.md"
-license = { text = "Proprietary — 사내 전용 (LicenseRef-Proprietary)" }
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 classifiers = [
-    "License :: Other/Proprietary License",
-    # PyPI 가 거부하는 classifier — 실수로 `uv publish` 해도 업로드가 막힘(사내 전용 산출물)
+    # PyPI 가 거부하는 classifier — 배포용 패키지가 아니라서 실수로 `uv publish` 해도 업로드가 막힘
     "Private :: Do Not Upload",
 ]
 requires-python = ">=3.12"
 dependencies = [
-    # 기상청 페이지 수집 — API 키도 결제도 필요 없다
+    # 기상청 페이지 수집 — API 키도 결제도 필요 없음
     "requests>=2.32",
     "beautifulsoup4>=4.12",
     "lxml>=5.0",
-    # 슬랙 (Socket Mode 라 인바운드 포트·TLS 가 필요 없다)
+    # 슬랙 (Socket Mode 라 인바운드 포트·TLS 가 필요 없음)
     "slack_sdk>=3.33",
     "slack_bolt>=1.30",
-    # 카드 이미지 렌더링 — src/render_card.py 가 헤드리스 크로뮴을 띄운다.
-    #   설치 후 `python -m playwright install chromium` 이 한 번 더 필요하다
+    # 카드 이미지 렌더링 — src/render_card.py 가 헤드리스 크로뮴을 띄움.
+    #   설치 후 `python -m playwright install chromium` 이 한 번 더 필요함
     "playwright>=1.49",
     # 로깅
     "loguru>=0.7",
+    # 단풍·벚꽃 예상일 — 웨더아이가 해마다 올리는 PDF 의 표를 읽음 (src/foliage.py · src/blossom.py)
+    "pypdf>=5.0",
 ]
 
 [project.optional-dependencies]
-# WRITER=claude 일 때만 쓴다. 기본값(gemini)과 규칙 기반(none)은 이것 없이 돈다.
+# WRITER=claude · WRITER=gemini 일 때만 씀. 규칙 기반(none)은 둘 다 없이 동작함.
 claude = ["anthropic>=1.0"]
+gemini = ["google-genai>=2.28"]
 
 [project.scripts]
 weather-post = "src.post:main"

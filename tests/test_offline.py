@@ -100,8 +100,8 @@ def test_wide_areas() -> None:
 
 def test_find_dong() -> None:
     """동 검색 점수 규칙. 기상청 호출 없이 가짜 목록으로 확인함."""
-    import src.kma.dong as dong_mod
-    from src.kma.dong import Dong
+    import src.kma.dong_zone as dong_mod
+    from src.kma.dong_zone import Dong
 
     fake = [
         Dong("1168064000", "서울특별시", "강남구", "역삼1동"),
@@ -591,7 +591,7 @@ def test_mention_parsing() -> None:
         assert all(c[1] == dt.date(2026, 9, 12) and c[2] == 10 for c in calls), calls
 
         # 광역에도 동에도 없는 말이면 긁지 않고 안내함 (동 검색은 격리)
-        import src.kma.dong as dong_mod
+        import src.kma.dong_zone as dong_mod
         orig = dong_mod.search_dong
         mention.search_dong = lambda q, limit=5: []
         try:

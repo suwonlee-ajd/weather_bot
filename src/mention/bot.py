@@ -24,7 +24,8 @@ from src.common.cache import get_or_set
 from src.common.config import KST
 from src.common.logsetup import setup
 from src.common.text import bold, day_label, range_text, short_date
-from src.kma.dong import DongError, fetch_dong, find_wide, search_dong
+from src.kma.dong_forecast import DongError, fetch_dong
+from src.kma.dong_zone import find_wide, search_dong
 from src.kma.notice import lines_for_dates
 from src.kma.outlook import OutlookError, fetch_outlook
 from src.kma.page import ScrapeError, _resolve_date

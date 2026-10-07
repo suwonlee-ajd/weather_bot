@@ -15,7 +15,9 @@ from dataclasses import dataclass, field
 
 from src.common.config import KST
 from src.common.text import WEEKDAY_KO, day_label, range_text
-from src.kma.scrape import Narrative, Region, ScrapeError, find_region, scrape_week
+from src.kma.page import Narrative, ScrapeError
+from src.kma.regions import Region, find_region
+from src.kma.scrape import scrape_week
 
 log = logging.getLogger(__name__)
 

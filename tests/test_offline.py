@@ -17,13 +17,8 @@ os.environ.setdefault("SLACK_CHANNEL_ID", "C_TEST")
 
 from src.common.config import KST  # noqa: E402
 from src.kma.chart import PNG_MAGIC, fetch_latest_chart  # noqa: E402
-from src.kma.scrape import (  # noqa: E402
-    Narrative,
-    ScrapedDay,
-    _resolve_date,
-    find_region,
-    resolve_region,
-)
+from src.kma.page import Narrative, ScrapedDay, _resolve_date
+from src.kma.regions import find_region, resolve_region
 from src.mention.bot import build_reply  # noqa: E402
 from src.weekly.body import fallback  # noqa: E402
 from src.weekly.card import render_png  # noqa: E402
@@ -138,7 +133,7 @@ def test_greeting() -> None:
 
     def fake_scrape(now, start, span, region):
         calls.append(region.key)
-        from src.kma.scrape import Scrape
+        from src.kma.page import Scrape
         return Scrape(days={}, narratives=[])
 
     from src.common.cache import clear
@@ -176,7 +171,7 @@ def test_long_range_routing() -> None:
     """10일 너머 요청의 세 갈래: 1개월 전망 / 너무 먼 미래 / 정상 조회."""
     import src.mention.bot as mention
     from src.common.cache import clear
-    from src.kma.scrape import Scrape
+    from src.kma.page import Scrape
 
     calls: list = []
 
@@ -246,7 +241,7 @@ def test_topic_advice() -> None:
     from types import SimpleNamespace
 
     from src.advice.rules import detect_topic, topic_advice
-    from src.kma.scrape import extract_region
+    from src.kma.regions import extract_region
 
     assert detect_topic("내일 뭐 입지?") == "옷차림"
     assert detect_topic("주말 무등산 등산 괜찮아?") == "야외"
@@ -277,7 +272,7 @@ def test_cache_shared_across_spans() -> None:
     """지역 캐시 하나를 «이번 주»·«다음 주»·«기본» 이 나눠 써도 날이 빠지지 않음."""
     import src.mention.bot as mention
     from src.common.cache import clear
-    from src.kma.scrape import Narrative, Scrape, ScrapedDay
+    from src.kma.page import Narrative, Scrape, ScrapedDay
 
     base = dt.date(2026, 9, 12)
     full = {base + dt.timedelta(days=i): ScrapedDay(
@@ -314,7 +309,7 @@ def test_city_uses_dong_forecast() -> None:
     """'부산' 은 구역이 아니라 부산광역시 값으로 답함 — 기간이 닿는 한."""
     import src.mention.bot as mention
     from src.common.cache import clear
-    from src.kma.scrape import Scrape
+    from src.kma.page import Scrape
 
     calls: list = []
 
@@ -360,7 +355,7 @@ def test_partial_week_is_declared() -> None:
     """예보가 기간을 못 채우면 머리글이 실제 범위를 말하고, 왜 짧은지 밝힘."""
     import src.mention.bot as mention
     from src.common.cache import clear
-    from src.kma.scrape import Narrative, Scrape, ScrapedDay
+    from src.kma.page import Narrative, Scrape, ScrapedDay
 
     # 자료는 중기예보처럼 오늘부터 열흘까지만 — 월요일에 «다음 주» 를 물으면 사흘만 걸침.
     today = dt.date(2026, 9, 14)
@@ -522,7 +517,7 @@ def test_resolve_date() -> None:
 def test_forecast_validation() -> None:
     """스크랩 값이 이상하면 바로잡거나 버림."""
     import src.kma.scrape as scrape_mod
-    from src.kma.scrape import Scrape
+    from src.kma.page import Scrape
     from src.weekly.forecast import ForecastError, build_week
 
     class Cfg:
@@ -572,7 +567,7 @@ def test_mention_parsing() -> None:
     """멘션 문장에서 지역과 기간을 읽어내는지. (네트워크는 타지 않는 경로만 확인)"""
     import src.mention.bot as mention
     from src.common.cache import clear
-    from src.kma.scrape import Scrape
+    from src.kma.page import Scrape
 
     calls: list[tuple] = []
 
@@ -935,7 +930,7 @@ def test_mountain_lookup() -> None:
         assert find_mountain(q) is None, q
     assert find_mountain("주말 설악 날씨").name == "설악산"
 
-    from src.kma.scrape import REGIONS
+    from src.kma.regions import REGIONS
     from src.season.mountains import REGION_MOUNTAINS, in_region, in_zone
 
     names = {m.name for m in MOUNTAINS}
@@ -965,7 +960,7 @@ def test_foliage_routing() -> None:
                                daily_summary=lambda: rows)
 
     from src.common.cache import clear
-    from src.kma.scrape import Scrape
+    from src.kma.page import Scrape
 
     scraped: list = []
     renders: list = []
@@ -1067,7 +1062,7 @@ def test_foliage_in_weather() -> None:
 
     import src.mention.bot as mention
     from src.common.cache import clear
-    from src.kma.scrape import Scrape, ScrapedDay
+    from src.kma.page import Scrape, ScrapedDay
     from src.season.foliage import FoliageError
 
     now = dt.datetime(2026, 10, 1, 15, 0, tzinfo=KST)        # 단풍철, 목요일

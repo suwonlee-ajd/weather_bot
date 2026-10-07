@@ -25,17 +25,11 @@ from src.common.config import KST
 from src.common.logsetup import setup
 from src.common.text import bold, day_label, range_text, short_date
 from src.kma.dong import DongError, fetch_dong, find_wide, search_dong
+from src.kma.notice import lines_for_dates
 from src.kma.outlook import OutlookError, fetch_outlook
-from src.kma.scrape import (
-    NATIONWIDE,
-    REGION_HELP,
-    ScrapeError,
-    _resolve_date,
-    extract_region,
-    lines_for_dates,
-    resolve_region,
-    scrape_range,
-)
+from src.kma.page import ScrapeError, _resolve_date
+from src.kma.regions import NATIONWIDE, REGION_HELP, extract_region, resolve_region
+from src.kma.scrape import scrape_range
 from src.season.foliage import (
     CRITERIA_TEXT,
     KINDS,

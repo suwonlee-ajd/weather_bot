@@ -19,7 +19,9 @@ import sys
 from src.common.config import KST
 from src.common.logsetup import setup
 from src.common.text import WEEKDAY_KO, day_label, range_text, short_date
-from src.kma.scrape import REGION_HELP, ScrapeError, find_region, scrape_week
+from src.kma.page import ScrapeError
+from src.kma.regions import REGION_HELP, find_region
+from src.kma.scrape import scrape_week
 from src.season.foliage import (
     CRITERIA_TEXT,
     KINDS,

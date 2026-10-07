@@ -2,10 +2,11 @@
 
 날씨를 사람이 읽을 문장으로 옮길 때의 기준. 사람이 쓰든, 모델이 쓰든, 코드가 내든 같은 기준을 따름.
 
-- 봇의 조언 문구 — [`src/advice/phrases.py`](../src/advice/phrases.py) 의 문구 표(`*_LINES`, 특이사항은 `SPECIAL`)와 임계값
+- 봇의 조언 문구 — [`src/advice/phrases.py`](../src/advice/phrases.py) 의 문구 표(`*_LINES`, 특이사항은 `SPECIAL`)와
+  [`src/advice/rules.py`](../src/advice/rules.py) 의 임계값
 - 주간 게시 본문 — [`src/weekly/body.py`](../src/weekly/body.py) 의 규칙 기반 본문과 [`src/weekly/writer.py`](../src/weekly/writer.py) 의 모델 지시문(`SYSTEM`)
 
-**기준은 하나.** 이 문서를 고쳤으면 위 두 파일도 같이 볼 것 — 한쪽만 고치면 사람이 쓰는 답변과
+**기준은 하나.** 이 문서를 고쳤으면 위 파일도 같이 볼 것 — 한쪽만 고치면 사람이 쓰는 답변과
 봇이 내는 문구가 조용히 갈라짐.
 
 ## 순서 — 날씨 자체를 먼저

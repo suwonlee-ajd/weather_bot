@@ -2,7 +2,7 @@
 
 | 항목 | 값 |
 | --- | --- |
-| 문서 버전 | 0.1.0 |
+| 문서 버전 | 0.2.0 |
 | 최종 수정 | 2026-10-07 |
 
 `.claude/` 가 gitignore 라 저장소에 커밋되는 유일한 코드 스타일 문서임. 봇이 내보내는 문장의 문체는
@@ -23,7 +23,7 @@
 | --- | --- |
 | 버전 | 3.12+ (`.python-version` 은 uv 가 받음) |
 | 패키지 | `uv add` — `pip install` 금지. 서버는 `uv sync --frozen`, 모델 extra 는 매번 함께 줌 |
-| 린트 | `ruff check src tests bin` — import 정렬(I) 포함 |
+| 린트 | `ruff check src tests bin` — import 정렬(I) 포함. 포맷터(`ruff format`)는 쓰지 않음 |
 | HTTP | `requests` |
 | 로깅 | 표준 `logging` 으로 찍고 `common/logsetup.setup()` 이 loguru 로 모음. `print` 는 CLI 출력(조회 · dry-run · 정리)에만 |
 | 경로 | `pathlib.Path` — `os.path` 금지 |
@@ -94,6 +94,7 @@ type: `feat` · `fix` · `refactor` · `chore` · `docs` · `test`
 ## 브랜치
 
 `main` 에서 `feat/*` · `fix/*` · `refactor/*` 를 따서 작업하고 `main` 으로 머지.
+문서(README · docs)만 바꿀 때는 `main` 에 바로 커밋하고 버전은 올리지 않음.
 
 | 머지 | 버전 (`pyproject.toml`) |
 | --- | --- |

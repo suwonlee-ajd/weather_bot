@@ -102,9 +102,9 @@ LOG_LEVEL=DEBUG .venv/bin/python -m src.query 부산
 
 - 슬랙 토큰·`.env` 값 — 어떤 수준에서도 로그에 넣지 않음.
 - 사용자 발화는 질문 원문 200자까지만. 재현에 필요한 최소량.
-- `slack_bolt`·`slack_sdk`·`urllib3`·`requests` 의 잡담은 WARNING 으로 눌러 뒀음. Bolt 는 앱을 만들 때
-  자기 로거를 루트 수준(INFO)으로 되돌리므로 `src/mention/bot.py` 가 앱을 만든 뒤 다시 WARNING 으로 누름 —
-  연결 줄(`A new session has been established` 등)은 남지 않고, 끊김·오류(WARNING 이상)만 남음.
+- `slack_bolt`·`slack_sdk`·`urllib3`·`requests` 의 잡담은 WARNING 으로 눌러 뒀음. 예외는 세션 수립 한 줄
+  (`A new session has been established`) — 첫 연결과 재연결 성공(대략 5시간마다)을 확인하려고 남김. Bolt 는 앱을
+  만들 때 자기 로거를 루트 수준으로 되돌리므로 `src/mention/bot.py` 가 앱을 만든 뒤 필터(`session_only`)로 거름.
 
 ## 산출물 보존 — `data/`
 

@@ -62,6 +62,22 @@ def test_log_dir() -> None:
     print("[ok] 로그 위치 — 저장소의 logs/")
 
 
+def test_session_log_filter() -> None:
+    """Bolt 연결 잡담은 버리고 세션 수립 줄과 WARNING 이상만 남김 — 재연결 확인용."""
+    import logging
+
+    from src.mention.bot import session_only
+
+    def record(level: int, msg: str) -> logging.LogRecord:
+        return logging.LogRecord("slack_bolt.App", level, __file__, 0, msg, None, None)
+
+    assert session_only(record(logging.INFO, "A new session has been established (session id: x)"))
+    assert not session_only(record(logging.INFO, "Connecting to a new endpoint..."))
+    assert not session_only(record(logging.INFO, "The connection has been closed (session id: x)"))
+    assert session_only(record(logging.WARNING, "Failed to check the current session or reconnect"))
+    print("[ok] 슬랙 로그 — 세션 수립과 WARNING 이상만")
+
+
 def test_extract_json() -> None:
     assert extract_json('```json\n{"lead": "가"}\n```')["lead"] == "가"
     assert extract_json('설명입니다.\n{"lead": "나"}\n끝')["lead"] == "나"
@@ -1489,6 +1505,7 @@ def test_weekly_themes() -> None:
 if __name__ == "__main__":
     test_extract_json()
     test_log_dir()
+    test_session_log_filter()
     test_find_region()
     test_wide_areas()
     test_find_dong()

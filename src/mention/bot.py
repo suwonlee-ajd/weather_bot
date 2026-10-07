@@ -47,6 +47,13 @@ def resolve_loading_emoji(client) -> str:
     return LOADING_FALLBACK
 
 
+def session_only(record: logging.LogRecord) -> bool:
+    """Bolt 연결 잡담 중 세션 수립(첫 연결 · 재연결 성공)과 WARNING 이상만 통과."""
+    return record.levelno >= logging.WARNING or record.getMessage().startswith(
+        "A new session has been established"
+    )
+
+
 @dataclass(frozen=True)
 class Thread:
     """답할 자리. ctx 는 로그용(사용자·채널·스레드)."""
@@ -72,8 +79,8 @@ def main() -> int:
     from slack_bolt.adapter.socket_mode import SocketModeHandler
 
     app = App(token=bot_token)
-    # Bolt 가 App 로거를 INFO 로 되돌려 놓음 — 연결 잡담을 다시 누름
-    app.logger.setLevel(logging.WARNING)
+    # Bolt 가 App 로거를 루트 수준으로 되돌려 놓음 — 수준 대신 필터로 잡담을 누르고 재연결 기록은 남김
+    app.logger.addFilter(session_only)
     loading = resolve_loading_emoji(app.client)
     log.info("로딩 표시: %s", loading)
     try:

@@ -425,33 +425,48 @@ def test_explicit_date() -> None:
 
 def test_phrase_rotation() -> None:
     """같은 조건이라도 날짜가 다르면 문구가 달라지고, 같은 날은 늘 같음."""
-    import src.advice.rules as advice
-    from src.advice.phrases import SPREAD_LINES
-    from src.advice.rules import _pick
+    import math
 
+    import src.advice.rules as advice
+    from src.advice.phrases import FOG_LINES, SPREAD_LINES
+    from src.advice.rules import _pick, _pick_pair
+
+    facts = SPREAD_LINES[0]
     base = dt.date(2026, 9, 13)
-    got = {_pick(SPREAD_LINES, base + dt.timedelta(days=i))
-           for i in range(len(SPREAD_LINES))}
-    assert len(got) == len(SPREAD_LINES), got
+    got = {_pick(facts, base + dt.timedelta(days=i)) for i in range(len(facts))}
+    assert len(got) == len(facts), got
 
     tables = {n: v for n, v in vars(advice).items()
               if n.endswith("_LINES") and isinstance(v, tuple)}
     assert len(tables) >= 12, sorted(tables)
-    for name, lines in tables.items():
-        assert lines, name
-        assert len(set(lines)) == len(lines), name
-        rotated = {_pick(lines, base + dt.timedelta(days=i)) for i in range(len(lines))}
-        assert len(rotated) == len(lines), (name, rotated)
+    mixed = {n: v for n, v in tables.items() if isinstance(v[0], tuple)} | {"FOG_LINES": FOG_LINES}
+    for name, table in tables.items():
+        for lines in table if name in mixed else (table,):
+            assert lines, name
+            assert len(set(lines)) == len(lines), name
+            rotated = {_pick(lines, base + dt.timedelta(days=i)) for i in range(len(lines))}
+            assert len(rotated) == len(lines), (name, rotated)
     # 한 바퀴 돌면 제자리 — 날짜에만 달림
-    later = base + dt.timedelta(days=len(SPREAD_LINES))
-    assert _pick(SPREAD_LINES, later) == _pick(SPREAD_LINES, base)
+    later = base + dt.timedelta(days=len(facts))
+    assert _pick(facts, later) == _pick(facts, base)
     assert _pick((), base) == ""
 
-    by_region = {_pick(SPREAD_LINES, base, r) for r in ("서울", "부산", "대구")}
+    by_region = {_pick(facts, base, r) for r in ("서울", "부산", "대구")}
     assert len(by_region) > 1, by_region
-    assert _pick(SPREAD_LINES, base, "서울") == _pick(SPREAD_LINES, base, "서울")
-    assert _pick(SPREAD_LINES, base) == SPREAD_LINES[base.toordinal() % len(SPREAD_LINES)]
-    print("[ok] 문구 회전 — 날짜·지역별로 다르고 같은 조건은 고정")
+    assert _pick(facts, base, "서울") == _pick(facts, base, "서울")
+    assert _pick(facts, base) == facts[base.toordinal() % len(facts)]
+
+    # 사실과 권하는 말은 따로 돌아 모든 짝이 나옴 — 같은 줄끼리 묶이지 않음
+    assert {"SPREAD_LINES", "COLD_LINES", "RAIN_LINES"} <= set(mixed), sorted(mixed)
+    for name, (fs, acts) in mixed.items():
+        span = math.lcm(len(fs), len(acts)) * (len(acts) + 1)
+        pairs = [_pick_pair((fs, acts), base + dt.timedelta(days=i), "서울") for i in range(span)]
+        assert len(set(pairs)) == len(fs) * len(acts), (name, len(set(pairs)))
+        assert all(a[1] != b[1] for a, b in zip(pairs, pairs[1:])), name   # 권하는 말도 날마다 바뀜
+    assert _pick_pair(SPREAD_LINES, base, "서울") == _pick_pair(SPREAD_LINES, base, "서울")
+    assert _pick_pair(SPREAD_LINES, base, "서울")[0] == _pick(facts, base, "서울")
+    assert _pick_pair((), base) is None
+    print("[ok] 문구 회전 — 날짜·지역별로 다르고 같은 조건은 고정, 사실과 권하는 말은 섞임")
 
 
 def test_advice() -> None:
@@ -660,7 +675,7 @@ def test_weekly_body() -> None:
     text = theme_paragraph(build_advice([day(wed + dt.timedelta(days=1), 6, 22), day(wed, 2, 12)]))
     assert text.startswith("*10/7(수)에는* 아침 최저 2도까지 내려가고, "
                            "*10/8(목)에는* 일교차가 16도 안팎으로 벌어지겠습니다. "), text
-    assert not any(act in text for _, act in SPREAD_LINES), text
+    assert not any(act in text for act in SPREAD_LINES[1]), text
     assert text.endswith(":cold_face:"), text
 
     # 어간에 «고»·«겠습니다» 를 붙임 — «올라겠습니다» 가 아님

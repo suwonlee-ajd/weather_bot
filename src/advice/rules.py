@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import math
 from dataclasses import dataclass
 from typing import TypeVar
 
@@ -38,6 +39,16 @@ def _pick(options: tuple[T, ...], date: dt.date, region: str = "") -> T | str:
     salt = (int.from_bytes(hashlib.blake2b(region.encode(), digest_size=4).digest(), "big")
             if region else 0)
     return options[(date.toordinal() + salt) % len(options)]
+
+
+# 권하는 말은 두 길이의 최소공배수 일마다 한 칸 더 밀어 모든 짝이 돌아오게 함 — 같은 날짜로만 돌리면 같은 줄끼리 묶임
+def _pick_pair(lines: tuple[tuple[str, ...], tuple[str, ...]], date: dt.date,
+               region: str = "") -> tuple[str, str] | None:
+    if not lines:
+        return None
+    facts, acts = lines
+    shift = date.toordinal() // math.lcm(len(facts), len(acts))
+    return _pick(facts, date, region), _pick(acts, date + dt.timedelta(days=shift), region)
 
 
 def first_three(labels: list[str], sep: str = ", ") -> str:
@@ -87,7 +98,7 @@ RAIN = "비"
 @dataclass
 class Advice:
     emoji: str
-    fact: str             # 사실. 특이사항·관심사 조언은 한 줄 전부가 여기 듦
+    fact: str             # 사실. 관심사 조언은 한 줄 전부가 여기 듦
     act: str = ""         # 권하는 말
     # 아래는 build_advice 의 기온·비 조언만 채움 — 주간 본문이 한 문단으로 엮을 때 씀
     kind: str = ""        # TEMP_STEMS 의 키 또는 RAIN
@@ -179,7 +190,7 @@ def topic_advice(topic: str, days, region: str = "") -> list[Advice]:
 
 def _dated(emoji: str, kind: str, lines, date: dt.date, value: float, region: str,
            *, labeled: bool = True) -> Advice | None:
-    picked = _pick(lines, date, region)
+    picked = _pick_pair(lines, date, region)
     if not picked:
         return None
     fact, act = picked
@@ -217,7 +228,7 @@ def build_advice(days, narratives=None, region: str = "") -> list[Advice]:
         out.append(_dated(":fallen_leaf:", "쌀쌀", CHILLY_LINES, coldest.date, coldest.tmin_lo, region,
                           labeled=False))
 
-    if rainy and (picked := _pick(RAIN_LINES, rainy[0].date, region)):
+    if rainy and (picked := _pick_pair(RAIN_LINES, rainy[0].date, region)):
         fact, act = picked
         out.append(Advice(":umbrella_with_rain_drops:", fact.format(days=_days_text(rainy)), act,
                           RAIN, tuple(d.date for d in rainy)))
@@ -228,7 +239,8 @@ def build_advice(days, narratives=None, region: str = "") -> list[Advice]:
     for line in narratives or []:
         for keyword, (emoji, lines) in SPECIAL.items():
             if keyword in line and not any(k == keyword for k, _ in hits):
-                hits.append((keyword, Advice(emoji, _pick(lines, ref, region))))
+                fact, act = _pick_pair(lines, ref, region)
+                hits.append((keyword, Advice(emoji, fact, act)))
     hits.sort(key=lambda pair: SPECIAL_ORDER.index(pair[0]))
     special = [advice for _, advice in hits]
 

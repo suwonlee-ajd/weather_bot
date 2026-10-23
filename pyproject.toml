@@ -1,6 +1,6 @@
 [project]
 name = "weather-bot"
-version = "0.2.1"
+version = "0.3.0"
 description = "기상청 공개 페이지를 긁어 주간 날씨를 슬랙에 올리고, 멘션에 답하는 봇"
 readme = "README.md"
 license = "Apache-2.0"

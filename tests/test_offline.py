@@ -595,6 +595,13 @@ def test_mention_parsing() -> None:
         assert [c[0] for c in calls] == ["경남", "전북", "강원"], calls
         assert all(c[1] == dt.date(2026, 9, 12) and c[2] == 10 for c in calls), calls
 
+        # «요즘» 만 오면 전국 — 조사가 붙어도 지역 이름으로 읽지 않음
+        for text in ("<@U123> 요즘", "<@U123> 요즘 날씨 어때?", "<@U123> 요즘은 날씨 어때", "<@U123> 요즘엔 어때"):
+            calls.clear()
+            clear()
+            reply = build_reply(text, now)
+            assert [c[0] for c in calls] == ["전국"], (text, calls, reply)
+
         import src.kma.dong_zone as dong_mod
         orig = dong_mod.search_dong
         answer_mod.search_dong = lambda q, limit=5: []
@@ -605,7 +612,7 @@ def test_mention_parsing() -> None:
             assert "아는 지역이 아닙니다" in reply
         finally:
             answer_mod.search_dong = orig
-        print("[ok] 멘션 파싱 — 기본 '오늘부터 7일', 이번주/다음주 인식, 미지원 지역 거절")
+        print("[ok] 멘션 파싱 — 기본 '오늘부터 7일', 이번주/다음주 인식, '요즘' 은 전국, 미지원 지역 거절")
     finally:
         region_reply.scrape_range = orig
         clear()
@@ -1078,7 +1085,8 @@ def test_foliage_routing() -> None:
 
         # 단풍 상태·날짜를 되묻는 말에는 날씨를 붙이지 않음
         dong_calls.clear()
-        for q in ("설악산 단풍 지금 어때", "오대산 단풍 현재 상태", "설악산 단풍 절정 10/25 맞아?"):
+        for q in ("설악산 단풍 지금 어때", "설악산 단풍 요즘 어때", "오대산 단풍 현재 상태",
+                  "설악산 단풍 절정 10/25 맞아?"):
             assert "동네예보" not in ask(q), q
         assert not dong_calls, dong_calls
         dong_reply.fetch_dong = lambda z, n: (_ for _ in ()).throw(dong_reply.DongError("점검"))
@@ -1195,7 +1203,12 @@ def test_period_next_weekend() -> None:
     assert _period("주말 설악산", thu)[:2] == (dt.date(2026, 10, 3), 2)
     assert _period("다음 주 주말", thu)[:2] == (dt.date(2026, 10, 10), 2)
     assert _period("다음주 토요일 부산", thu)[0] == dt.date(2026, 10, 10)
-    print("[ok] 기간 — '다음 주 주말' 은 다음 주의 토·일")
+    # «요즘» 은 다른 기간·날짜가 없을 때만 이번 주
+    assert _period("요즘", thu) == (dt.date(2026, 9, 28), 7, "이번 주")
+    assert _period("요즘 내일 날씨", thu)[2] == "내일"
+    assert _period("요즘 다음 주", thu)[2] == "다음 주"
+    assert _period("요즘 10/3", thu)[0] == dt.date(2026, 10, 3)
+    print("[ok] 기간 — '다음 주 주말' 은 다음 주의 토·일, '요즘' 은 다른 기간이 없을 때 이번 주")
 
 
 def test_foliage_fetch() -> None:

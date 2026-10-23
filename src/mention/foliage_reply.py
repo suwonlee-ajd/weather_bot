@@ -14,6 +14,7 @@ from src.mention.parse import (
     FLOWER_RE,
     FOLIAGE_RE,
     FORWARD_DAYS,
+    RECENT_RE,
     TRIP_SPANS,
     WEATHER_ASK_RE,
     _period,
@@ -127,7 +128,8 @@ def _theme(query: str, now: dt.datetime) -> tuple[str, Snapshot | None] | None:
         return _overview_text(snap, today, unknown_mountain(query)), snap
 
     text = _mountain_text(snap, mountain, today)
-    start, days, title = _period(query, now)
+    # '요즘' 은 '지금' 처럼 단풍 상태를 묻는 말 — 이번 주로 읽어 날씨를 붙이지 않음
+    start, days, title = _period(RECENT_RE.sub(" ", query), now)
     trip = title in TRIP_SPANS
     if trip or asks_weather or detect_topic(query):
         if not trip:

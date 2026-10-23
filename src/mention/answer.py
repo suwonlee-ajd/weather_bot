@@ -24,6 +24,7 @@ from src.mention.parse import (
     OUTLOOK_RE,
     PAST_OBS_URL,
     PAST_RE,
+    RECENT_RE,
     THANKS_RE,
     THIS_WEEK_RE,
     TODAY_RE,
@@ -120,7 +121,8 @@ def build_reply(text: str, now: dt.datetime | None = None) -> str:
         # 산은 지역 목록에 없음 — 산 아래 마을 예보로
         return _mountain_reply(mountain, start, days, title, now.date())
 
-    for pattern in (EXPLICIT_DATE_RE, NEXT_WEEK_RE, THIS_WEEK_RE, TODAY_RE, TOMORROW_RE, NOISE_RE):
+    for pattern in (EXPLICIT_DATE_RE, NEXT_WEEK_RE, THIS_WEEK_RE, TODAY_RE, TOMORROW_RE, RECENT_RE,
+                    NOISE_RE):
         query = pattern.sub(" ", query)
     query = query.strip()
 

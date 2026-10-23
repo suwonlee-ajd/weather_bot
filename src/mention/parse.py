@@ -15,6 +15,10 @@ NEXT_WEEK_RE = re.compile(r"다음\s*주|담주|next", re.I)
 THIS_WEEK_RE = re.compile(r"이번\s*주|금주")
 
 
+# 다른 기간·날짜가 없을 때만 «이번 주». 조사까지 한 덩어리 — 남으면 지역 이름으로 읽힘
+RECENT_RE = re.compile(r"요즘(?:에는|에도|엔|은|에|도)?")
+
+
 THANKS_RE = re.compile(r"고마|감사|땡큐|thank|수고", re.I)
 
 
@@ -140,6 +144,8 @@ def _period(query: str, now: dt.datetime) -> tuple[dt.date, int, str]:
         ahead = 2 if "모레" in query else 1
         start, title, days = today + dt.timedelta(days=ahead), \
             ("모레" if ahead == 2 else "내일"), 1
+    elif RECENT_RE.search(query):
+        start, title = monday, "이번 주"
     else:
         start, title = today, f"앞으로 {FORWARD_DAYS}일"
 

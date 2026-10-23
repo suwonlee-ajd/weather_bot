@@ -31,24 +31,24 @@ T = TypeVar("T")
 
 # «날짜 + 지역» 으로 고름 — 같은 날 같은 곳은 같은 답, 날이나 지역이 바뀌면 다른 문장.
 # 무작위면 같은 질문에 답이 바뀌고, 지역을 빼면 한 채널에서 여럿이 물을 때 같은 말이 되풀이됨.
-def _pick(options: tuple[T, ...], date: dt.date, region: str = "") -> T | str:
+def _pick(options: tuple[T, ...], date: dt.date, region: str = "", shift: int = 0) -> T | str:
     if not options:
         return ""
     # blake2b 로 섞음 — hash() 는 PYTHONHASHSEED 로 재기동마다 바뀌고,
     # 글자 코드 합은 한 유니코드 블록에 몰린 한글 지명끼리 겹침
     salt = (int.from_bytes(hashlib.blake2b(region.encode(), digest_size=4).digest(), "big")
             if region else 0)
-    return options[(date.toordinal() + salt) % len(options)]
+    return options[(date.toordinal() + salt + shift) % len(options)]
 
 
 # 권하는 말은 두 길이의 최소공배수 일마다 한 칸 더 밀어 모든 짝이 돌아오게 함 — 같은 날짜로만 돌리면 같은 줄끼리 묶임
 def _pick_pair(lines: tuple[tuple[str, ...], tuple[str, ...]], date: dt.date,
                region: str = "") -> tuple[str, str] | None:
-    if not lines:
-        return None
     facts, acts = lines
+    if not facts or not acts:
+        return None
     shift = date.toordinal() // math.lcm(len(facts), len(acts))
-    return _pick(facts, date, region), _pick(acts, date + dt.timedelta(days=shift), region)
+    return _pick(facts, date, region), _pick(acts, date, region, shift)
 
 
 def first_three(labels: list[str], sep: str = ", ") -> str:

@@ -427,8 +427,8 @@ def test_phrase_rotation() -> None:
     """같은 조건이라도 날짜가 다르면 문구가 달라지고, 같은 날은 늘 같음."""
     import math
 
-    import src.advice.rules as advice
-    from src.advice.phrases import FOG_LINES, SPREAD_LINES
+    import src.advice.phrases as phrases
+    from src.advice.phrases import SPREAD_LINES
     from src.advice.rules import _pick, _pick_pair
 
     facts = SPREAD_LINES[0]
@@ -436,10 +436,10 @@ def test_phrase_rotation() -> None:
     got = {_pick(facts, base + dt.timedelta(days=i)) for i in range(len(facts))}
     assert len(got) == len(facts), got
 
-    tables = {n: v for n, v in vars(advice).items()
+    tables = {n: v for n, v in vars(phrases).items()
               if n.endswith("_LINES") and isinstance(v, tuple)}
     assert len(tables) >= 12, sorted(tables)
-    mixed = {n: v for n, v in tables.items() if isinstance(v[0], tuple)} | {"FOG_LINES": FOG_LINES}
+    mixed = {n: v for n, v in tables.items() if isinstance(v[0], tuple)}
     for name, table in tables.items():
         for lines in table if name in mixed else (table,):
             assert lines, name
@@ -457,15 +457,14 @@ def test_phrase_rotation() -> None:
     assert _pick(facts, base) == facts[base.toordinal() % len(facts)]
 
     # 사실과 권하는 말은 따로 돌아 모든 짝이 나옴 — 같은 줄끼리 묶이지 않음
-    assert {"SPREAD_LINES", "COLD_LINES", "RAIN_LINES"} <= set(mixed), sorted(mixed)
+    assert {"SPREAD_LINES", "COLD_LINES", "RAIN_LINES", "FOG_LINES"} <= set(mixed), sorted(mixed)
     for name, (fs, acts) in mixed.items():
         span = math.lcm(len(fs), len(acts)) * (len(acts) + 1)
         pairs = [_pick_pair((fs, acts), base + dt.timedelta(days=i), "서울") for i in range(span)]
         assert len(set(pairs)) == len(fs) * len(acts), (name, len(set(pairs)))
         assert all(a[1] != b[1] for a, b in zip(pairs, pairs[1:])), name   # 권하는 말도 날마다 바뀜
-    assert _pick_pair(SPREAD_LINES, base, "서울") == _pick_pair(SPREAD_LINES, base, "서울")
     assert _pick_pair(SPREAD_LINES, base, "서울")[0] == _pick(facts, base, "서울")
-    assert _pick_pair((), base) is None
+    assert _pick_pair(((), ()), base) is None
     print("[ok] 문구 회전 — 날짜·지역별로 다르고 같은 조건은 고정, 사실과 권하는 말은 섞임")
 
 
@@ -497,7 +496,7 @@ def test_advice() -> None:
     assert "온열질환" not in " ".join(t.text for t in cold_tips)
     import src.advice.rules as advice_mod
     orig_cold = advice_mod.COLD_LINES
-    advice_mod.COLD_LINES = ()
+    advice_mod.COLD_LINES = ((), ())
     try:
         assert not any(t.emoji == ":cold_face:" for t in build_advice([day(base, 2, 10)]))
     finally:

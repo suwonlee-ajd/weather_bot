@@ -754,6 +754,7 @@ def test_mention_delivery() -> None:
             if self.upload_fails:
                 raise TimeoutError("업로드 시간 초과")
             self.calls.append(("upload", kw["initial_comment"]))
+            self.calls.append(("file", kw["filename"].split("-")[0], kw["title"]))
 
     def run(reply, *, slow=False, upload_fails=False):
         client, said = FakeClient(upload_fails), []
@@ -779,6 +780,8 @@ def test_mention_delivery() -> None:
         calls, said = run(Reply("단풍", image=b"png"), slow=True)
         assert ("upload", "단풍") in calls and ("delete", "L1") in calls and not said, calls
         assert run(Reply("단풍", image=b"png"), upload_fails=True) == ([], ["단풍"])
+        calls, _ = run(Reply("첫눈", image=b"png", slug="snow", title="첫눈 지도"))
+        assert ("file", "snow", "첫눈 지도") in calls, calls
         calls, said = run(RuntimeError("파서 고장"))
         assert said == ["예보를 정리하는 중에 문제가 생겼습니다. 잠시 뒤 다시 불러 주세요."], said
     finally:
@@ -956,7 +959,7 @@ def test_foliage_parse() -> None:
 
 
 def test_mountain_lookup() -> None:
-    from src.season.foliage_map import LAT0, LAT1, LON0, LON1
+    from src.season.basemap import LAT0, LAT1, LON0, LON1
     from src.season.mountains import MOUNTAINS, find_mountain, unknown_mountain
 
     assert len(MOUNTAINS) == 21 and len({m.zone for m in MOUNTAINS}) == 21
@@ -1529,6 +1532,200 @@ def test_weekly_themes() -> None:
     print("[ok] 철 소식 — 단풍 글·지도, 벚꽃 글, 실패해도 날씨는 나간다")
 
 
+def snow_html(rows: dict[str, list[tuple[str, str]]]) -> str:
+    """계절관측 조회 화면 꼴 — 지점 머리 뒤에 표 하나, caption 은 지점과 무관한 고정 문구."""
+    parts = []
+    for name, cells in rows.items():
+        body = "".join(f"<tr><td> {y}</td><td> {d}</td><td> 1일</td><td></td><td></td></tr>" for y, d in cells)
+        parts.append(f'<div class="info_tbl"><dl><dt>조회기간</dt><dd>2025 ~ 2026년</dd></dl>'
+                     f'<dl><dt><b>지점</b></dt><dd>{name}</dd></dl></div><div class="wrap_tbl">'
+                     f'<table class="tbl"><caption>코스모스, 매화</caption><thead><tr><th>년도</th>'
+                     f'<th>눈</th></tr></thead><tbody>{body}</tbody></table></div>')
+    return "<html>" + "".join(parts) + "</html>"
+
+
+def test_snow_data() -> None:
+    """첫눈 관측 읽기 — 시즌 연도, 이상 행, 형식 변경, 주간 게시 기간, 지점 찾기."""
+    from src.season import snow, stations
+    from src.season.basemap import LAT0, LAT1, LON0, LON1
+
+    d = dt.date
+    status = snow.parse_status(snow_html({
+        "서울": [("2025", "2025-12-04"), ("2026", "2026-11-26")],
+        "안동": [("2026", "2026-01-10")],              # 2026 시즌인데 1월 — 실제 응답에 있음
+        "부산": [("2025", "2026-02-07")],
+        "홍성": [("2026", "2026-11-18")],
+        "대구": [],                                      # 아직 — 표머리만 옴
+    }), 2026)
+    assert status.first == {"서울": d(2026, 11, 26), "홍성": d(2026, 11, 18)}, status.first
+    assert status.last == {"서울": d(2025, 12, 4), "부산": d(2026, 2, 7)}, status.last
+    try:
+        snow.parse_status("<html>점검 중입니다</html>", 2026)
+        raise AssertionError("형식이 바뀐 응답을 읽었습니다")
+    except snow.SnowError:
+        pass
+
+    assert [snow.season_year(x) for x in (d(2026, 7, 31), d(2026, 8, 1), d(2027, 1, 10))] == [2025, 2026, 2026]
+    seoul, busan, hongseong = (stations.BY_NAME[n] for n in ("서울", "부산", "홍성"))
+    assert snow.gap_days(seoul, d(2026, 11, 26)) == 6 and snow.gap_days(busan, d(2027, 2, 7)) == 46
+    assert snow.gap_days(hongseong, d(2026, 11, 18)) is None
+
+    # 11월 첫째 월요일부터 — 서울 첫눈은 다음 월요일 게시에 한 번 알리고 끝냄
+    assert [snow.in_weekly_season(x) for x in (d(2026, 10, 26), d(2026, 11, 2), d(2027, 1, 25), d(2027, 2, 1))] \
+        == [False, True, True, False]
+    assert snow.weekly_open(snow.Status(2026), d(2026, 11, 30))
+    assert snow.weekly_open(status, d(2026, 11, 30)) and not snow.weekly_open(status, d(2026, 12, 7))
+
+    assert len(stations.STATIONS) == 24 and len({s.stn for s in stations.STATIONS}) == 24
+    assert [s.name for s in stations.STATIONS if s.normal is None] == ["홍성"]
+    assert all(LAT0 < s.lat < LAT1 and (LON0 < s.lon < LON1 or s.lon > 130.5) for s in stations.STATIONS)
+    assert [s.name for s in stations.stations_in_region("영동")] == ["속초", "북강릉"]
+    assert [s.name for s in stations.stations_in_zone("1168064000")] == ["서울"]
+    assert stations.stations_in_zone("3611000000") == ()                  # 세종 — 관측 지점 없음
+    assert stations.find_station("강릉 첫눈 왔어").name == "북강릉" and stations.find_station("첫눈 언제") is None
+    print("[ok] 첫눈 자료 — 시즌 연도 · 이상 행 버림 · 형식 변경 거절 · 게시 기간 · 지점")
+
+
+def test_snow_text() -> None:
+    from types import SimpleNamespace
+
+    from src.common.text import bold, short_day_label
+    from src.season.snow import Status
+    from src.season.snow_text import observed_line, week_line
+
+    d = dt.date
+    last = {"서울": d(2025, 12, 4)}
+    assert observed_line(Status(2026, {}, last)) == \
+        "아직 첫눈이 관측된 곳이 없습니다 — <b>서울</b> 아직 (평년 11/20, 지난겨울 12/4)"
+    assert observed_line(Status(2026, {"울릉도": d(2026, 11, 18)}, last), bold) == \
+        "*울릉도* 11/18 (평년보다 2일 늦음), 나머지 23곳은 아직 / *서울* 아직 (평년 11/20, 지난겨울 12/4)"
+    many = Status(2026, {"울릉도": d(2026, 11, 18), "서울": d(2026, 11, 20), "대전": d(2026, 11, 22)})
+    line = observed_line(many, bold)
+    assert line == "3곳 관측 · 21곳 아직 — 최근 *대전* 11/22 (평년보다 2일 늦음) · *서울* 11/20 (평년과 같음)", line
+
+    week = d(2026, 11, 30)
+    days = [SimpleNamespace(date=week + dt.timedelta(days=i), sky=s)
+            for i, s in enumerate(["맑음", "흐리고 비/눈", "흐림", "흐리고 눈", "맑음", "맑음", "맑음"])]
+    snowy = f"{short_day_label(d(2026, 12, 1))} · {short_day_label(d(2026, 12, 3))} 눈 예보"
+    assert week_line(many, days, week, week + dt.timedelta(days=6), muted=lambda s: s) == \
+        f"{snowy} (첫눈이 될 수 있음)"
+    assert week_line(many, days[:1], week, week, muted=lambda s: s) == "예보에 눈 소식이 없습니다"
+    print("[ok] 첫눈 문장 — 관측 0·1·여러 곳, 서울 기준, 눈 예보")
+
+
+def test_snow_weekly() -> None:
+    """주간 게시의 첫눈 덩어리 — 서울 관측 다음 주까지, 수집·지도 실패에도 게시는 나감."""
+    from types import SimpleNamespace
+
+    from src.season import snow, snow_map
+    from src.weekly import themes
+
+    d = dt.date
+    week = d(2026, 11, 30)
+    days = [SimpleNamespace(date=week + dt.timedelta(days=1), sky="흐리고 눈")]
+    status = snow.Status(2026, {"서울": d(2026, 11, 26)})
+    orig = (snow.fetch_status, snow_map.render_png)
+    snow.fetch_status = lambda today: status
+    snow_map.render_png = lambda st, start, days=(), scale=2: b"PNG"
+    try:
+        assert [t.name for t in themes.THEMES] == ["단풍", "첫눈", "벚꽃"]
+        block = themes.snow_block(week, week, 2, days)
+        assert block.paragraph.title == "이번 주 첫눈" and [r.label for r in block.paragraph.rows] == ["관측", "이번 주"]
+        assert "*서울* 11/26 (평년보다 6일 늦음)" in block.paragraph.to_slack()
+        assert block.attachment.slug == "snow" and block.credit.startswith("첫눈 지도 · ")
+        assert themes.snow_block(d(2026, 12, 7), week, 2, days) is None          # 서울 관측 다다음 주
+        snow_map.render_png = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("Chromium 없음"))
+        block = themes.snow_block(week, week, 2, days)
+        assert block.attachment is None and block.credit.startswith("첫눈 · ")
+        snow.fetch_status = lambda today: (_ for _ in ()).throw(snow.SnowError("점검"))
+        assert themes.snow_block(week, week, 2, days) is None
+    finally:
+        snow.fetch_status, snow_map.render_png = orig
+    print("[ok] 첫눈 주간 게시 — 서울 관측 다음 주까지, 지도·수집 실패에도 게시")
+
+
+def test_snow_mention() -> None:
+    """첫눈 멘션 — 전국 현황(지도), 지점·지역, 날씨 질문은 날씨로, 지역 답 한 줄."""
+    import src.mention.answer as answer_mod
+    import src.mention.region_reply as region_reply
+    from src.common.cache import clear
+    from src.kma.page import Narrative, Scrape, ScrapedDay
+    from src.mention.snow_note import _snow_note
+    from src.season import snow, stations
+
+    d = dt.date
+    now = dt.datetime(2026, 11, 25, 9, 0, tzinfo=KST)
+    today = now.date()
+    status = snow.Status(2026, {}, {"서울": d(2025, 12, 4), "부산": d(2026, 2, 7)})
+
+    def fake_scrape(_now, start, span, region):
+        days = {start + dt.timedelta(days=i): ScrapedDay(start + dt.timedelta(days=i), 0.0, 2.0, 5.0, 8.0,
+                                                         "흐리고 눈" if i == 2 else "맑음", 60, "중기예보")
+                for i in range(span)}
+        return Scrape(days=days, narratives=[Narrative("중기예보", "", None, [])])
+
+    orig = (snow.fetch_status, region_reply.scrape_range, answer_mod.render_snow_png, answer_mod.find_wide)
+    snow.fetch_status = lambda day: status
+    region_reply.scrape_range = fake_scrape
+    answer_mod.render_snow_png = lambda *a, **k: b"PNG"
+    answer_mod.find_wide = lambda q: None
+    try:
+        clear()
+        overview = answer_mod.answer("<@U1> 첫눈 언제 와?", now)
+        assert overview.text.startswith("*첫눈 현황* (11/25 기준 · 2026~27년 겨울)"), overview.text
+        assert overview.image == b"PNG" and "*서울* 아직 (평년 11/20, 지난겨울 12/4)" in overview.text
+        assert (overview.slug, overview.title) == ("snow", "첫눈 지도")
+        assert "• 앞으로 7일 — 11/27(" in overview.text, overview.text
+
+        busan = answer_mod.answer("<@U1> 부산 첫눈 왔어?", now)
+        assert busan.text.startswith("*부산 첫눈*") and busan.image is None, busan.text
+        assert "• *부산* — 아직 (평년 12/23, 지난겨울 2/7)" in busan.text, busan.text
+        assert "눈 예보 (첫눈이 될 수 있음)" in busan.text, busan.text
+        gangwon = answer_mod.answer("<@U1> 강원 첫눈", now).text
+        assert gangwon.startswith("*강원 첫눈*") and all(n in gangwon for n in ("속초", "북춘천", "북강릉"))
+
+        weather = answer_mod.answer("<@U1> 첫눈 온다는 서울 날씨", now).text
+        assert "첫눈 현황" not in weather and "*첫눈* —" in weather, weather   # 날씨 답 + 첫눈 한 줄
+
+        snow.fetch_status = lambda day: (_ for _ in ()).throw(snow.SnowError("점검"))
+        assert "가져오지 못했습니다" in answer_mod.answer("<@U1> 첫눈", now).text
+        snow.fetch_status = lambda day: status
+
+        seoul = (stations.BY_NAME["서울"],)
+        snowy = [(d(2026, 11, 27), "흐리고 눈")]
+        (_, line, _) = _snow_note(seoul, snowy, today)
+        assert line.startswith(":snowflake: *첫눈* — *서울* 아직 (평년 11/20, 지난겨울 12/4) — 11/27("), line
+        assert _snow_note(seoul, [(d(2026, 11, 27), "맑음")], today) == []        # 말할 것이 없음
+        assert _snow_note(seoul, snowy, d(2026, 3, 1)) == []                     # 철 밖
+        status.first["서울"] = d(2026, 11, 24)
+        (_, line, _) = _snow_note(seoul, [], today)
+        assert line == ":snowflake: *첫눈* — *서울* 11/24 첫눈 관측 (평년보다 4일 늦음)", line
+        assert _snow_note(seoul, [], d(2026, 12, 2)) == []                       # 7일 지나면 그만
+        (_, line, _) = _snow_note(stations.STATIONS, snowy, today)
+        assert "*서울* 11/24" in line and "나머지 23곳은 아직" in line, line
+    finally:
+        snow.fetch_status, region_reply.scrape_range, answer_mod.render_snow_png, answer_mod.find_wide = orig
+        clear()
+    print("[ok] 첫눈 멘션 — 전국 현황·지도, 지점·지역, 날씨 질문은 날씨로, 지역 답 한 줄")
+
+
+def test_snow_render() -> None:
+    from types import SimpleNamespace
+
+    from src.season.snow import Status
+    from src.season.snow_map import build_html
+
+    d = dt.date
+    status = Status(2026, {"서울": d(2026, 11, 26)}, {"서울": d(2025, 12, 4)})
+    days = [SimpleNamespace(date=d(2026, 12, 1), sky="흐리고 비/눈")]
+    html_text = build_html(status, d(2026, 11, 30), days)
+    assert html_text.count('<tr><th scope="row">') == 24
+    assert '<span class="obs">11/26</span> <span class="gap">+6일</span>' in html_text
+    assert "<b>서울</b> 11/26 (평년보다 6일 늦음)" in html_text and "눈 예보" in html_text
+    assert "2026~27년 겨울" in html_text and html_text.count("울릉도") == 2   # 표 한 줄 + 상자 이름(점 라벨 없음)
+    print("[ok] 첫눈 지도 — 24곳 표 · 관측일·평년차 · 눈 예보")
+
+
 if __name__ == "__main__":
     test_extract_json()
     test_log_dir()
@@ -1569,4 +1766,9 @@ if __name__ == "__main__":
     test_blossom_parse()
     test_blossom_text()
     test_weekly_themes()
+    test_snow_data()
+    test_snow_text()
+    test_snow_weekly()
+    test_snow_mention()
+    test_snow_render()
     print("\n전부 통과")

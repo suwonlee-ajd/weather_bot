@@ -5,68 +5,17 @@
 from __future__ import annotations
 
 import datetime as dt
-import functools
 import html
-import json
-import math
-from pathlib import Path
 
-from src.common.browser import CARD_WIDTH, capture
+from src.common.browser import capture
 from src.common.text import day_label, short_date
+from src.season.basemap import BASE_CSS, MAP_H, MAP_W, basemap, proj
 from src.season.foliage import CRITERIA_TEXT, KINDS, STAGES, Snapshot
 from src.season.foliage_text import observed_line, sources, week_changes, week_line
 from src.season.mountains import MOUNTAINS, Mountain
 
-ASSET = Path(__file__).parent / "assets" / "korea_provinces.json"
-
 # 주황→진홍 순서형이라 색맹 검증 통과. 상태는 모양(빈 원·아래 반원·채운 원)으로도 가름
 ORANGE, RED, GRAY = "#eb6834", "#a8321f", "#898781"
-
-# 위도 36° 기준 등장방형 — 남한만 그려 이것으로 충분함
-LON0, LON1, LAT0, LAT1 = 124.55, 130.35, 33.05, 38.68
-_K = math.cos(math.radians(36))
-_S = 74.0
-MAP_W = (LON1 - LON0) * _K * _S
-MAP_H = (LAT1 - LAT0) * _S
-INSET = {"x": MAP_W - 60, "y": 70.0, "w": 56.0, "h": 46.0}
-
-
-def _proj(lon: float, lat: float) -> tuple[float, float]:
-    return (lon - LON0) * _K * _S, (LAT1 - lat) * _S
-
-
-def _proj_inset(lon: float, lat: float) -> tuple[float, float]:
-    # 울릉도는 실제 축척 그대로 상자 왼쪽에 둠
-    return INSET["x"] + 10 + (lon - 130.80) * _K * _S, INSET["y"] + 12 + (37.56 - lat) * _S
-
-
-def _path(ring: list[list[float]], inset: bool = False) -> str:
-    f = _proj_inset if inset else _proj
-    pts = [f(lon, lat) for lon, lat in ring]
-    return "M" + "L".join(f"{x:.1f},{y:.1f}" for x, y in pts) + "Z"
-
-
-@functools.cache
-def _basemap() -> str:
-    doc = json.loads(ASSET.read_text(encoding="utf-8"))
-    main, islands = [], []
-    for prov in doc["provinces"]:
-        d_main = "".join(_path(r) for r in prov["rings"] if r[0][0] <= 130.5)
-        d_isl = "".join(_path(r, inset=True) for r in prov["rings"] if r[0][0] > 130.5)
-        if d_main:
-            main.append(f'<path d="{d_main}"/>')
-        if d_isl:
-            islands.append(f'<path d="{d_isl}"/>')
-    x, y, w, h = INSET["x"], INSET["y"], INSET["w"], INSET["h"]
-    dokdo_x, dokdo_y = x + w - 12, y + 22   # 원자료에 없어 점만 — 실제 거리로는 상자 밖
-    return (
-        f'<g class="land">{"".join(main)}</g>'
-        f'<rect x="{x:.1f}" y="{y:.1f}" width="{w}" height="{h}" rx="4" fill="none" '
-        f'stroke="#c3c2b7" stroke-width="1" stroke-dasharray="3 2"/>'
-        f'<g class="land">{"".join(islands)}</g>'
-        f'<circle cx="{dokdo_x:.1f}" cy="{dokdo_y:.1f}" r="1.8" fill="#d9d7cf"/>'
-        f'<text class="inset" x="{x + w / 2:.1f}" y="{y + h - 5:.1f}" text-anchor="middle">울릉도·독도</text>'
-    )
 
 
 def _marker(x: float, y: float, stage: int, ring: bool = False, r: float = 6.5) -> str:
@@ -103,13 +52,13 @@ def build_html(snap: Snapshot, week_start: dt.date, span_label: str = "이번 �
 
     marks, labels = [], []
     for m in MOUNTAINS:
-        x, y = _proj(m.lon, m.lat)
+        x, y = proj(m.lon, m.lat)
         stage = snap.stage(m.name)
         marks.append(_marker(x, y, stage, ring=m.name in flagged))
         labels.append(_label(x, y, m, strong=m.name in flagged or stage > 0))
     svg = (f'<svg width="{MAP_W:.0f}" height="{MAP_H:.0f}" viewBox="0 0 {MAP_W:.0f} {MAP_H:.0f}" '
            f'role="img" aria-label="전국 {len(MOUNTAINS)}개 명산 단풍 현황 지도">'
-           f'{_basemap()}{"".join(marks)}{"".join(labels)}</svg>')
+           f'{basemap()}{"".join(marks)}{"".join(labels)}</svg>')
 
     def cell(kind: str, name: str) -> str:
         day, observed = snap.when(kind, name)
@@ -161,48 +110,12 @@ def render_png(snap: Snapshot, week_start: dt.date, *, span_label: str = "이번
     return capture(build_html(snap, week_start, span_label), scale=scale)
 
 
-CSS = f"""
-* {{ box-sizing: border-box; margin: 0; padding: 0; }}
-body {{ background: #ffffff; }}
-#card {{
-  --ink: #0b0b0b; --ink2: #52514e; --muted: #898781; --hair: #e1e0d9;
-  width: {CARD_WIDTH}px; padding: 22px 24px 18px; background: #ffffff;
-  font-family: 'Apple SD Gothic Neo', 'Noto Sans KR', 'Noto Sans CJK KR', 'Malgun Gothic', sans-serif;
-  color: var(--ink); line-height: 1.6; font-size: 14px; -webkit-font-smoothing: antialiased;
-  word-break: keep-all;   /* 한국어는 낱말 단위로 줄을 바꾼다 ("첫단|풍" 방지) */
-}}
-.head {{ display: flex; align-items: baseline; gap: 10px; }}
-h1 {{ font-size: 19px; font-weight: 700; letter-spacing: -0.2px; }}
-.period {{ color: var(--ink2); font-size: 13.5px; }}
-.muted {{ color: var(--muted); }}
-.lead {{ margin: 8px 0 14px; padding: 9px 12px; background: #fbf3ee; border-radius: 8px; font-size: 13.5px; }}
-.lead div {{ display: flex; }}
-.lead div + div {{ margin-top: 2px; }}
-.lead .k {{ flex: none; width: 56px; color: var(--ink2); font-size: 12.5px; padding-top: 1px; }}
-.body {{ display: flex; gap: 18px; align-items: flex-start; }}
-.map {{ flex: none; }}
-.land path {{ fill: #eeede8; stroke: #ffffff; stroke-width: 1; stroke-linejoin: round; }}
-.lbl {{ font-size: 11.5px; fill: var(--ink2); paint-order: stroke; stroke: #ffffff;
-        stroke-width: 3px; stroke-linejoin: round; }}
-.lbl.strong {{ fill: var(--ink); font-weight: 700; }}
-.inset {{ font-size: 9px; fill: var(--muted); }}
-.legend {{ display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font-size: 12px; color: var(--ink2); }}
-.legend span {{ display: inline-flex; align-items: center; gap: 4px; }}
-table {{ border-collapse: collapse; width: 100%; font-size: 12.5px; font-variant-numeric: tabular-nums; }}
-caption {{ text-align: left; font-size: 12px; color: var(--ink2); padding-bottom: 6px; }}
-caption b {{ color: var(--ink); }}
-thead th {{ font-weight: 600; color: var(--ink2); text-align: left; font-size: 12px;
-            border-bottom: 1px solid #c3c2b7; padding: 0 4px 4px; }}
-tbody tr {{ line-height: 1.4; }}
-tbody th {{ text-align: left; font-weight: 600; padding: 1px 4px; white-space: nowrap; }}
-tbody td {{ padding: 1px 4px; white-space: nowrap; }}
-tbody tr + tr > * {{ border-top: 1px solid #f0efec; }}
-td.st {{ color: var(--ink2); }}
-td.st svg {{ vertical-align: -2px; margin-right: 4px; }}
-.obs {{ font-weight: 700; color: var(--ink); }}
-.prd {{ color: var(--muted); }}
-.prd.wk {{ color: var(--ink); font-weight: 600; background: #fbe3d6; border-radius: 4px; padding: 0 4px; margin: 0 -4px; }}
-.none {{ color: #c3c2b7; }}
-.foot {{ margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--hair);
-         font-size: 11.5px; color: var(--muted); line-height: 1.55; }}
+CSS = BASE_CSS + """
+.lead { background: #fbf3ee; }
+td.st { color: var(--ink2); }
+td.st svg { vertical-align: -2px; margin-right: 4px; }
+.obs { font-weight: 700; color: var(--ink); }
+.prd { color: var(--muted); }
+.prd.wk { color: var(--ink); font-weight: 600; background: #fbe3d6; border-radius: 4px; padding: 0 4px; margin: 0 -4px; }
+.none { color: #c3c2b7; }
 """

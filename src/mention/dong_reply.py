@@ -9,10 +9,12 @@ from src.common.text import day_label
 from src.kma.dong_forecast import DongError, fetch_dong
 from src.mention.foliage_note import _foliage_note
 from src.mention.parse import DONG_MAX_DAYS
+from src.mention.snow_note import _snow_note
 from src.mention.texts import NO_EMOJI, help_text, self_mention, sky_emoji
 from src.season.mountains import (
     in_zone,
 )
+from src.season.stations import stations_in_zone
 
 log = logging.getLogger("weather-mention")
 
@@ -88,4 +90,5 @@ def _dong_reply(zone: str, name: str, days: int = 4, start: dt.date | None = Non
                      f"예: {self_mention()} 수도권_")
     if today is not None:
         lines += _foliage_note(in_zone(zone), summary[0][0], summary[-1][0], today)
+        lines += _snow_note(stations_in_zone(zone), [(row[0], row[3]) for row in summary], today)
     return "\n".join(lines)

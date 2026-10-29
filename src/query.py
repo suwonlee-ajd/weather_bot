@@ -1,6 +1,6 @@
-"""이번 주 날씨·단풍을 슬랙 게시 없이 터미널에 찍는 조회 CLI.
+"""이번 주 날씨·단풍·첫눈을 슬랙 게시 없이 터미널에 찍는 조회 CLI.
 
-    python -m src.query [지역] [--json]    /    python -m src.query --foliage [산]
+    python -m src.query [지역] [--json]    /    python -m src.query --foliage [산]    /    python -m src.query --snow [지점]
 """
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from src.common.text import WEEKDAY_KO, day_label, range_text, short_date
 from src.kma.page import ScrapeError
 from src.kma.regions import REGION_HELP, find_region
 from src.kma.scrape import scrape_week
+from src.season import snow, stations
 from src.season.foliage import (
     CRITERIA_TEXT,
     KINDS,
@@ -29,6 +30,8 @@ from src.season.foliage import (
 )
 from src.season.foliage_text import sources
 from src.season.mountains import MOUNTAINS, find_mountain
+from src.season.snow_text import gap_text, season_text, waiting_text
+from src.season.snow_text import sources as snow_sources
 from src.season.sources import OUTLOOK_SOURCE
 
 
@@ -82,6 +85,42 @@ def _foliage(name: str, as_json: bool) -> int:
     return 0
 
 
+def _snow(name: str, as_json: bool) -> int:
+    today = dt.datetime.now(tz=KST).date()
+    picked = stations.STATIONS
+    if name:
+        st = stations.find_station(name)
+        if st is None:
+            print(f"기상청이 첫눈을 관측하는 {len(stations.STATIONS)}곳에 없습니다: {name}\n"
+                  + " · ".join(s.name for s in stations.STATIONS), file=sys.stderr)
+            return 2
+        picked = (st,)
+    try:
+        status = snow.fetch_status(today)
+    except snow.SnowError as exc:
+        print(f"조회 실패: {exc}", file=sys.stderr)
+        return 1
+
+    if as_json:
+        def day(d):
+            return d.isoformat() if d else None
+        print(json.dumps({
+            "as_of": today.isoformat(), "season": status.year,
+            "stations": [{"name": s.name, "stn": s.stn, "first": day(status.first.get(s.name)),
+                          "normal": day(snow.normal_of(s, status.year)), "last": day(status.last.get(s.name))}
+                         for s in picked],
+        }, ensure_ascii=False, indent=2))
+        return 0
+
+    print(f"■ 첫눈 {today:%m/%d} 기준 · {season_text(status)} — {snow_sources()}\n")
+    for s in picked:
+        if d := status.first.get(s.name):
+            print(f"  {s.name:<4} {short_date(d)} 관측  {gap_text(s, d)}")
+        else:
+            print(f"  {s.name:<4} 아직  {waiting_text(s, status)}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="기상청 이번 주 예보 조회")
     parser.add_argument("region", nargs="?", default="전국", help=f"지역 ({REGION_HELP})")
@@ -89,12 +128,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--week-offset", type=int, default=0, help="0=이번 주, 1=다음 주")
     parser.add_argument("--foliage", action="store_true",
                         help="단풍 현황·예상. region 자리에 산 이름을 주면 그 산만")
+    parser.add_argument("--snow", action="store_true",
+                        help="첫눈 관측·평년. region 자리에 지점 이름을 주면 그 지점만")
     args = parser.parse_args(argv)
     # 결과는 stdout 이라 로그는 기본 WARNING
     setup("query", level=os.environ.get("LOG_LEVEL") or "WARNING")
 
     if args.foliage:
         return _foliage("" if args.region == "전국" else args.region, args.json)
+    if args.snow:
+        return _snow("" if args.region == "전국" else args.region, args.json)
 
     region = find_region(args.region)
     if region is None:

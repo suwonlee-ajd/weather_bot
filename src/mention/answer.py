@@ -33,6 +33,7 @@ from src.mention.parse import (
     _period,
 )
 from src.mention.region_reply import CACHE_TTL_SEC, region_reply
+from src.mention.snow_reply import snow_theme
 from src.mention.texts import (
     NO_EMOJI,
     YES_EMOJI,
@@ -44,6 +45,7 @@ from src.season.foliage_map import render_png as render_foliage_png
 from src.season.mountains import (
     find_mountain,
 )
+from src.season.snow_map import render_png as render_snow_png
 
 log = logging.getLogger("weather-mention")
 
@@ -83,29 +85,40 @@ def _outlook_reply(region, query: str) -> str:
 class Reply:
     text: str
     image: bytes | None = None
+    slug: str = "map"              # 올릴 파일 이름 앞부분 (foliage-20261102.png)
+    title: str = "지도"
 
 
 def answer(text: str, now: dt.datetime | None = None) -> Reply:
-    """멘션 진입점. 단풍·꽃을 먼저 가르고 나머지는 build_reply 로.
+    """멘션 진입점. 첫눈·단풍·꽃을 먼저 가르고 나머지는 build_reply 로.
 
-    단풍을 인사·과거·전망보다 먼저 봄 — '물들었나' 는 과거로, '올가을' 은 전망으로 샘.
+    철 소식을 인사·과거·전망보다 먼저 봄 — '물들었나'·'첫눈 왔나' 는 과거로, '올가을' 은 전망으로 샘.
     """
     now = now or dt.datetime.now(tz=KST)
-    theme = _theme(MENTION_RE.sub(" ", text).strip(), now)
+    query = MENTION_RE.sub(" ", text).strip()
+    if (snow := snow_theme(query, now)) is not None:
+        reply, drawn = snow
+        if drawn is None:
+            return Reply(reply)
+        status, days = drawn
+        return _with_map(reply, "snow", "첫눈 지도", ("snow-map", now.date(), status.signature()),
+                         lambda: render_snow_png(status, now.date(), days, span_label="앞으로 7일"))
+    theme = _theme(query, now)
     if theme is None:
         return Reply(build_reply(text, now))
     reply, snap = theme
     if snap is None:
         return Reply(reply)
+    return _with_map(reply, "foliage", "단풍 지도", ("foliage-map", now.date(), snap.signature()),
+                     lambda: render_foliage_png(snap, now.date(), span_label="앞으로 7일"))
+
+
+def _with_map(reply: str, slug: str, title: str, key: tuple, render) -> Reply:
     try:
         # 현황이 같으면 그림 재사용(Chromium 렌더링이 느림). 키에 현황을 넣어 글과 어긋나지 않게 함
-        image = get_or_set(
-            ("foliage-map", now.date(), snap.signature()), CACHE_TTL_SEC,
-            lambda: render_foliage_png(snap, now.date(), span_label="앞으로 7일"),
-        )
-        return Reply(reply, image)
+        return Reply(reply, get_or_set(key, CACHE_TTL_SEC, render), slug, title)
     except Exception:
-        log.warning("단풍 지도 렌더링 실패 — 글로만 답합니다", exc_info=True)
+        log.warning("%s 렌더링 실패 — 글로만 답합니다", title, exc_info=True)
         return Reply(reply)
 
 

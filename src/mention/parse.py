@@ -158,8 +158,11 @@ def _period(query: str, now: dt.datetime) -> tuple[dt.date, int, str]:
     return start, days, title
 
 
-# --- 단풍 ---------------------------------------------------------------------
+# --- 단풍·첫눈 ----------------------------------------------------------------
 FOLIAGE_RE = re.compile(r"단풍|물들|물드")
+
+
+SNOW_RE = re.compile(r"첫\s*눈")
 
 
 FLOWER_RE = re.compile(

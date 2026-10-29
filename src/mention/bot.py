@@ -147,7 +147,7 @@ def _upload_map(client, where: Thread, res: Reply, loading_ts: str | None) -> bo
     try:
         client.files_upload_v2(
             channel=where.channel, thread_ts=where.ts, initial_comment=res.text, file=res.image,
-            filename=f"foliage-{dt.datetime.now(tz=KST):%Y%m%d}.png", title="단풍 지도",
+            filename=f"{res.slug}-{dt.datetime.now(tz=KST):%Y%m%d}.png", title=res.title,
         )
     except Exception as exc:
         error = exc.response.get("error") if isinstance(exc, SlackApiError) else repr(exc)

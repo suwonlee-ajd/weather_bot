@@ -4,16 +4,13 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import re
-from dataclasses import dataclass
 
 from src.advice.rules import detect_topic
-from src.common.cache import get_or_set
 from src.common.config import KST
 from src.kma.dong_zone import find_wide, search_dong
 from src.kma.outlook import OutlookError, fetch_outlook
 from src.kma.regions import NATIONWIDE, Region, extract_region, resolve_region
-from src.mention.dong_reply import _dong_reply
-from src.mention.foliage_reply import _mountain_reply, _theme
+from src.mention.foliage.reply import _mountain_reply, foliage_theme
 from src.mention.parse import (
     DONG_MAX_DAYS,
     EXPLICIT_DATE_RE,
@@ -32,8 +29,8 @@ from src.mention.parse import (
     TOO_FAR_RE,
     _period,
 )
-from src.mention.region_reply import CACHE_TTL_SEC, region_reply
-from src.mention.snow_reply import snow_theme
+from src.mention.reply import Reply
+from src.mention.snow.reply import snow_theme
 from src.mention.texts import (
     NO_EMOJI,
     YES_EMOJI,
@@ -41,11 +38,11 @@ from src.mention.texts import (
     help_text,
     self_mention,
 )
-from src.season.foliage_map import render_png as render_foliage_png
-from src.season.mountains import (
+from src.mention.weather.dong import _dong_reply
+from src.mention.weather.region import region_reply
+from src.season.foliage.mountains import (
     find_mountain,
 )
-from src.season.snow_map import render_png as render_snow_png
 
 log = logging.getLogger("weather-mention")
 
@@ -81,49 +78,21 @@ def _outlook_reply(region, query: str) -> str:
     return "\n".join(lines)
 
 
-@dataclass
-class Reply:
-    text: str
-    image: bytes | None = None
-    slug: str = "map"              # 올릴 파일 이름 앞부분 (foliage-20261102.png)
-    title: str = "지도"
-
-
 def answer(text: str, now: dt.datetime | None = None) -> Reply:
-    """멘션 진입점. 첫눈·단풍·꽃을 먼저 가르고 나머지는 build_reply 로.
+    """멘션 진입점. 철 소식(첫눈·단풍·꽃)을 먼저 가르고 나머지는 build_reply 로.
 
     철 소식을 인사·과거·전망보다 먼저 봄 — '물들었나'·'첫눈 왔나' 는 과거로, '올가을' 은 전망으로 샘.
     """
     now = now or dt.datetime.now(tz=KST)
     query = MENTION_RE.sub(" ", text).strip()
-    if (snow := snow_theme(query, now)) is not None:
-        reply, drawn = snow
-        if drawn is None:
-            return Reply(reply)
-        status, days = drawn
-        return _with_map(reply, "snow", "첫눈 지도", ("snow-map", now.date(), status.signature()),
-                         lambda: render_snow_png(status, now.date(), days, span_label="앞으로 7일"))
-    theme = _theme(query, now)
-    if theme is None:
-        return Reply(build_reply(text, now))
-    reply, snap = theme
-    if snap is None:
-        return Reply(reply)
-    return _with_map(reply, "foliage", "단풍 지도", ("foliage-map", now.date(), snap.signature()),
-                     lambda: render_foliage_png(snap, now.date(), span_label="앞으로 7일"))
-
-
-def _with_map(reply: str, slug: str, title: str, key: tuple, render) -> Reply:
-    try:
-        # 현황이 같으면 그림 재사용(Chromium 렌더링이 느림). 키에 현황을 넣어 글과 어긋나지 않게 함
-        return Reply(reply, get_or_set(key, CACHE_TTL_SEC, render), slug, title)
-    except Exception:
-        log.warning("%s 렌더링 실패 — 글로만 답합니다", title, exc_info=True)
-        return Reply(reply)
+    for theme in (snow_theme, foliage_theme):
+        if (reply := theme(query, now)) is not None:
+            return reply
+    return Reply(build_reply(text, now))
 
 
 def build_reply(text: str, now: dt.datetime | None = None) -> str:
-    """단풍·꽃을 뺀 날씨 질문의 답. 진입점은 answer()."""
+    """철 소식(첫눈·단풍·꽃)을 뺀 날씨 질문의 답. 진입점은 answer()."""
     now = now or dt.datetime.now(tz=KST)
     query = MENTION_RE.sub(" ", text).strip()
     if (reply := _small_talk(query)) is not None:

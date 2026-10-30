@@ -2,8 +2,8 @@
 
 | 항목 | 값 |
 | --- | --- |
-| 문서 버전 | 0.2.0 |
-| 최종 수정 | 2026-10-07 |
+| 문서 버전 | 0.3.0 |
+| 최종 수정 | 2026-10-29 |
 
 `.claude/` 가 gitignore 라 저장소에 커밋되는 유일한 코드 스타일 문서임. 봇이 내보내는 문장의 문체는
 [`writing-style.md`](writing-style.md).
@@ -33,13 +33,24 @@
 
 ### 구조
 
-기능별 패키지. 각 패키지 안은 평평하게 둠.
+기능별 패키지. 주제가 여럿인 `season` · `mention` 은 주제마다 하위 패키지를 두고 안의 이름을 맞춤.
+그 밖의 패키지 안은 평평하게 둠.
+
+| 하위 패키지 | 안의 모듈 |
+| --- | --- |
+| `season/foliage` · `season/snow` · `season/blossom` | `data` 수집·읽기·기간 · `text` 문장 · `map` 지도(벚꽃은 없음) · 지점 목록(`mountains` · `stations`) |
+| `mention/weather` | `region` 광역 답 · `dong` 동네예보 답 |
+| `mention/foliage` · `mention/snow` | `reply` 단독 답 · `note` 날씨 답 끝의 한 줄 |
+
+- 주제 사이에 함께 쓰는 것(`season/sources` · `basemap` · `summary` · `weeks`, `mention/reply` · `forecast`)은 상위에 둠
+- `__init__.py` 는 비워 둠. 모듈은 `from src.season.foliage import data as foliage` 처럼 주제 이름으로 가져옴 —
+  바꿔치기도 이 이름으로 함
 
 | 패키지 | 내용 | 가져다 쓰는 곳 |
 | --- | --- | --- |
 | `common/` | 설정 · 로그 · 캐시 · 보존 · 표기 · HTML → PNG | 어디서나 |
 | `kma/` | 기상청 수집 (광역 · 동네 · 전망 · 일기도) | `common` |
-| `season/` | 단풍 · 벚꽃 자료와 문장 · 지도 | `common` |
+| `season/` | 단풍 · 첫눈 · 벚꽃 자료와 문장 · 지도 | `common` |
 | `advice/` | 수치에서 생활 조언 | (없음) |
 | `weekly/` | 주간 게시 | `common` · `kma` · `season` · `advice` |
 | `mention/` | 멘션 봇 | `common` · `kma` · `season` · `advice` |

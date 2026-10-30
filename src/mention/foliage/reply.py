@@ -7,8 +7,7 @@ import logging
 from src.advice.rules import detect_topic
 from src.common.text import bold, short_date
 from src.kma.regions import extract_region
-from src.mention.dong_reply import _dong_reply
-from src.mention.foliage_note import _snapshot_quietly
+from src.mention.foliage.note import _snapshot_quietly
 from src.mention.parse import (
     DONG_MAX_DAYS,
     FLOWER_RE,
@@ -19,9 +18,12 @@ from src.mention.parse import (
     WEATHER_ASK_RE,
     _period,
 )
+from src.mention.reply import Reply, with_map
 from src.mention.texts import NO_EMOJI
-from src.season import foliage
-from src.season.foliage import (
+from src.mention.weather.dong import _dong_reply
+from src.season.foliage import data as foliage
+from src.season.foliage import map as foliage_map
+from src.season.foliage.data import (
     CRITERIA_TEXT,
     KINDS,
     NOT_STARTED_TEXT,
@@ -32,14 +34,14 @@ from src.season.foliage import (
     in_season,
     next_season,
 )
-from src.season.foliage import KMA_PAGE as KMA_FOLIAGE_PAGE
-from src.season.foliage_text import gap_text, observed_line, sources, week_line
-from src.season.mountains import (
+from src.season.foliage.data import KMA_PAGE as KMA_FOLIAGE_PAGE
+from src.season.foliage.mountains import (
     MOUNTAINS,
     Mountain,
     find_mountain,
     unknown_mountain,
 )
+from src.season.foliage.text import gap_text, observed_line, sources, week_line
 from src.season.sources import OUTLOOK_SOURCE
 
 log = logging.getLogger("weather-mention")
@@ -93,15 +95,15 @@ def _overview_text(snap: Snapshot, today: dt.date, unknown: str | None) -> str:
     return "\n".join(lines)
 
 
-def _theme(query: str, now: dt.datetime) -> tuple[str, Snapshot | None] | None:
-    """단풍·꽃 질문이면 (답, 지도로 그릴 현황 또는 None), 아니면 None."""
+def foliage_theme(query: str, now: dt.datetime) -> Reply | None:
+    """단풍·꽃 질문이면 답(전국 현황은 지도와 함께), 아니면 None."""
     today = now.date()
     asks_weather = bool(WEATHER_ASK_RE.search(query))
     if FLOWER_RE.search(query) and not FOLIAGE_RE.search(query):
         if asks_weather:
             return None                   # 꽃구경 날의 날씨 — 날씨로 답함
-        return (f"꽃 개화 소식은 다루지 않습니다. {NO_EMOJI}\n"
-                f"기상청 봄꽃 개화 현황(3월 초~5월 하순)에서 보실 수 있어요 — {FLOWER_URL}"), None
+        return Reply(f"꽃 개화 소식은 다루지 않습니다. {NO_EMOJI}\n"
+                     f"기상청 봄꽃 개화 현황(3월 초~5월 하순)에서 보실 수 있어요 — {FLOWER_URL}")
     if not FOLIAGE_RE.search(query):
         return None
 
@@ -115,17 +117,19 @@ def _theme(query: str, now: dt.datetime) -> tuple[str, Snapshot | None] | None:
         # 단풍철은 늘 월요일(9월 둘째 월요일)에 시작
         when = (f"올해는 {short_date(start)}(월)부터입니다" if start.year == today.year
                 else f"다음은 {start.year}년 {short_date(start)}(월)부터입니다")
-        return f"단풍 소식은 *{SEASON_TEXT}* 에만 전해드립니다. {NO_EMOJI}\n_{when}._", None
+        return Reply(f"단풍 소식은 *{SEASON_TEXT}* 에만 전해드립니다. {NO_EMOJI}\n_{when}._")
 
     try:
         snap = foliage.fetch_snapshot(today)
     except FoliageError as exc:
         log.warning("단풍 현황 실패: %s", exc)
-        return ("기상청 단풍 현황을 가져오지 못했습니다. 잠시 뒤 다시 불러 주세요.\n"
-                f"기상청에서 직접 보실 수 있어요 — {KMA_FOLIAGE_PAGE}"), None
+        return Reply("기상청 단풍 현황을 가져오지 못했습니다. 잠시 뒤 다시 불러 주세요.\n"
+                     f"기상청에서 직접 보실 수 있어요 — {KMA_FOLIAGE_PAGE}")
 
     if mountain is None:
-        return _overview_text(snap, today, unknown_mountain(query)), snap
+        return with_map(_overview_text(snap, today, unknown_mountain(query)), foliage_map.INFO,
+                        ("foliage-map", today, snap.signature()),
+                        lambda: foliage_map.render_png(snap, today, span_label="앞으로 7일"))
 
     text = _mountain_text(snap, mountain, today)
     # '요즘' 은 '지금' 처럼 단풍 상태를 묻는 말 — 이번 주로 읽어 날씨를 붙이지 않음
@@ -135,7 +139,7 @@ def _theme(query: str, now: dt.datetime) -> tuple[str, Snapshot | None] | None:
         if not trip:
             start, days = today, DONG_MAX_DAYS - 1
         text += f"\n\n{_mountain_weather(mountain, start, days)}"
-    return text, None
+    return Reply(text)
 
 
 def _mountain_weather(m: Mountain, start: dt.date, days: int) -> str:

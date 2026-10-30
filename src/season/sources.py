@@ -1,4 +1,4 @@
-"""단풍·벚꽃 공통 수집 — 기상청 계절 관측(JSONP)과 웨더아이 예상 게시물(PDF)."""
+"""철 소식 공통 수집 — 요청(get), 기상청 계절 관측(JSONP), 웨더아이 예상 게시물(PDF)."""
 from __future__ import annotations
 
 import datetime as dt

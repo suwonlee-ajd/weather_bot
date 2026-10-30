@@ -3,41 +3,25 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-import os
 from dataclasses import replace
 
 from src.advice.rules import build_advice, topic_advice
-from src.common.cache import get_or_set
 from src.common.text import day_label, range_text
 from src.kma.notice import lines_for_dates
-from src.kma.page import Scrape, ScrapeError
-from src.kma.regions import NATIONWIDE, Region
-from src.kma.scrape import scrape_range
-from src.mention.foliage_note import _foliage_note
-from src.mention.parse import MAX_FORECAST_DAYS
-from src.mention.snow_note import _snow_note
+from src.kma.page import ScrapeError
+from src.kma.regions import Region
+from src.mention.foliage.note import _foliage_note
+from src.mention.forecast import cached_scrape, days_in
+from src.mention.snow.note import _snow_note
 from src.mention.texts import NO_EMOJI, sky_emoji
-from src.season.mountains import MOUNTAINS, in_region
-from src.season.stations import STATIONS, stations_in_region
 
 log = logging.getLogger("weather-mention")
-
-CACHE_TTL_SEC = int(os.environ.get("MENTION_CACHE_TTL", "3600"))
-
-
-def cached_scrape(region: Region, now: dt.datetime) -> Scrape:
-    """오늘부터 열흘. 캐시는 지역당 한 항목이라 통째로 담고 기간은 쓰는 쪽에서 자름 — 자른 값을 담으면
-    «다음 주» 를 먼저 물은 뒤 «앞으로 7일» 에 오늘·내일이 빠짐."""
-    return get_or_set(region.key, CACHE_TTL_SEC,
-                      lambda: scrape_range(now, now.date(), MAX_FORECAST_DAYS, region))
-
 
 def region_reply(region: Region, note: str, title: str, start: dt.date, days: int, topic: str | None,
                  now: dt.datetime) -> str:
     try:
         cached = cached_scrape(region, now)
-        window = {start + dt.timedelta(days=i) for i in range(days)}
-        scrape = replace(cached, days={d: v for d, v in cached.days.items() if d in window})
+        scrape = replace(cached, days=days_in(cached, start, days))
     except ScrapeError as exc:
         log.warning("수집 실패: %s", exc)
         return "기상청 예보를 가져오지 못했습니다. 잠시 뒤 다시 불러 주세요."
@@ -104,8 +88,6 @@ def region_reply(region: Region, note: str, title: str, start: dt.date, days: in
         stamp = f"{narrative.issued_at:%m/%d %H시}" if narrative.issued_at else "발표시각 미상"
         lines.append(f"_{narrative.title} · {stamp} 발표_")
 
-    mountains = MOUNTAINS if region is NATIONWIDE else in_region(region.key)
-    lines += _foliage_note(mountains, start, shown_end, now.date())
-    stations = STATIONS if region is NATIONWIDE else stations_in_region(region.key)
-    lines += _snow_note(stations, [(d.date, d.sky) for d in shown if d.date <= shown_end], now.date())
+    lines += _foliage_note(region, start, shown_end, now.date())
+    lines += _snow_note(region, [(d.date, d.sky) for d in shown if d.date <= shown_end], now.date())
     return "\n".join(lines)

@@ -2,13 +2,27 @@
 from __future__ import annotations
 
 import functools
+import html
 import json
 import math
+from dataclasses import dataclass
 from pathlib import Path
 
 from src.common.browser import CARD_WIDTH
 
 ASSET = Path(__file__).parent / "assets" / "korea_provinces.json"
+
+
+@dataclass(frozen=True)
+class MapInfo:
+    """지도마다 다른 이름표. slug 는 올릴 파일 이름 앞부분이자 보존 정리 패턴(slug-*.png)임."""
+    name: str
+    slug: str
+    alt: str
+
+    @property
+    def title(self) -> str:
+        return f"{self.name} 지도"
 
 # 위도 36° 기준 등장방형 — 남한만 그려 이것으로 충분함
 LON0, LON1, LAT0, LAT1 = 124.55, 130.35, 33.05, 38.68
@@ -17,6 +31,7 @@ _S = 74.0
 MAP_W = (LON1 - LON0) * _K * _S
 MAP_H = (LAT1 - LAT0) * _S
 INSET = {"x": MAP_W - 60, "y": 70.0, "w": 56.0, "h": 46.0}
+INSET_LON = 130.5            # 이보다 동쪽(울릉도·독도)은 상자 안에 그림
 
 
 def proj(lon: float, lat: float) -> tuple[float, float]:
@@ -28,10 +43,27 @@ def proj_inset(lon: float, lat: float) -> tuple[float, float]:
     return INSET["x"] + 10 + (lon - 130.80) * _K * _S, INSET["y"] + 12 + (37.56 - lat) * _S
 
 
-def _path(ring: list[list[float]], inset: bool = False) -> str:
-    f = proj_inset if inset else proj
-    pts = [f(lon, lat) for lon, lat in ring]
-    return "M" + "L".join(f"{x:.1f},{y:.1f}" for x, y in pts) + "Z"
+def place(lon: float, lat: float) -> tuple[float, float]:
+    return proj_inset(lon, lat) if lon > INSET_LON else proj(lon, lat)
+
+
+def _path(ring: list[list[float]]) -> str:
+    return "M" + "L".join(f"{x:.1f},{y:.1f}" for x, y in (place(lon, lat) for lon, lat in ring)) + "Z"
+
+
+def label(x: float, y: float, name: str, side: str, strong: bool) -> str:
+    """점 옆 이름. side 는 점의 어느 쪽에 붙는지 r/l/t/b."""
+    dx, dy, anchor = {"r": (11, 4, "start"), "l": (-11, 4, "end"),
+                      "t": (0, -11, "middle"), "b": (0, 19, "middle")}[side]
+    cls = "lbl strong" if strong else "lbl"
+    return (f'<text class="{cls}" x="{x + dx:.1f}" y="{y + dy:.1f}" text-anchor="{anchor}">'
+            f'{html.escape(name)}</text>')
+
+
+def frame(inner: str, aria_label: str) -> str:
+    """바탕 지도를 깐 SVG. 지도 끝에 붙은 점(백령도)이 잘리지 않게 카드 여백까지 그림."""
+    return (f'<svg width="{MAP_W:.0f}" height="{MAP_H:.0f}" viewBox="0 0 {MAP_W:.0f} {MAP_H:.0f}" '
+            f'overflow="visible" role="img" aria-label="{aria_label}">{basemap()}{inner}</svg>')
 
 
 @functools.cache
@@ -39,8 +71,8 @@ def basemap() -> str:
     doc = json.loads(ASSET.read_text(encoding="utf-8"))
     main, islands = [], []
     for prov in doc["provinces"]:
-        d_main = "".join(_path(r) for r in prov["rings"] if r[0][0] <= 130.5)
-        d_isl = "".join(_path(r, inset=True) for r in prov["rings"] if r[0][0] > 130.5)
+        d_main = "".join(_path(r) for r in prov["rings"] if r[0][0] <= INSET_LON)
+        d_isl = "".join(_path(r) for r in prov["rings"] if r[0][0] > INSET_LON)
         if d_main:
             main.append(f'<path d="{d_main}"/>')
         if d_isl:
@@ -94,6 +126,8 @@ tbody tr {{ line-height: 1.4; }}
 tbody th {{ text-align: left; font-weight: 600; padding: 1px 4px; white-space: nowrap; }}
 tbody td {{ padding: 1px 4px; white-space: nowrap; }}
 tbody tr + tr > * {{ border-top: 1px solid #f0efec; }}
+.obs {{ font-weight: 700; color: var(--ink); }}
+.none {{ color: #c3c2b7; }}
 .foot {{ margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--hair);
          font-size: 11.5px; color: var(--muted); line-height: 1.55; }}
 """

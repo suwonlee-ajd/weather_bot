@@ -2,21 +2,19 @@
 from __future__ import annotations
 
 import datetime as dt
-import html
+from collections.abc import Sequence
 
 from src.common.browser import capture
 from src.common.text import day_label, short_date
-from src.season.basemap import BASE_CSS, MAP_H, MAP_W, basemap, proj, proj_inset
-from src.season.snow import Status, gap_days, normal_of
-from src.season.snow_text import observed_line, sources, week_line
-from src.season.stations import STATIONS, Station
+from src.season.basemap import BASE_CSS, INSET_LON, MapInfo, frame, label, place
+from src.season.snow.data import Status, gap_days, normal_of
+from src.season.snow.stations import STATIONS, Station
+from src.season.snow.text import SOURCES, observed_line, season_text, week_line
+
+INFO = MapInfo("첫눈", "snow", "계절관측 24곳의 올해 첫눈과 평년·지난겨울 지도(기상청)")
 
 # 관측은 파랑으로 채우고 아직은 회색 빈 원 — 모양으로도 가름(대비·색각 검증 통과, 회색은 «없음» 의 중립)
 BLUE, GRAY = "#2a78d6", "#898781"
-
-
-def _xy(st: Station) -> tuple[float, float]:
-    return proj_inset(st.lon, st.lat) if st.lon > 130.5 else proj(st.lon, st.lat)
 
 
 def _marker(x: float, y: float, seen: bool, r: float = 6.5) -> str:
@@ -30,14 +28,6 @@ def _icon(seen: bool) -> str:
     return f'<svg width="14" height="14" viewBox="-7 -7 14 14">{_marker(0, 0, seen, r=5)}</svg>'
 
 
-def _label(x: float, y: float, st: Station, strong: bool) -> str:
-    dx, dy, anchor = {"r": (11, 4, "start"), "l": (-11, 4, "end"),
-                      "t": (0, -11, "middle"), "b": (0, 19, "middle")}[st.label]
-    cls = "lbl strong" if strong else "lbl"
-    return (f'<text class="{cls}" x="{x + dx:.1f}" y="{y + dy:.1f}" text-anchor="{anchor}">'
-            f'{html.escape(st.name)}</text>')
-
-
 def _this_year(status: Status, st: Station) -> str:
     day = status.first.get(st.name)
     if day is None:
@@ -47,19 +37,19 @@ def _this_year(status: Status, st: Station) -> str:
     return f'<span class="obs">{short_date(day)}</span>{tail}'
 
 
-def build_html(status: Status, week_start: dt.date, days=(), span_label: str = "이번 주") -> str:
+def build_html(status: Status, week_start: dt.date, days: Sequence | None, span_label: str = "이번 주") -> str:
+    """days 는 lead 의 «이번 주»(또는 span_label) 줄에 쓸 예보 — 머리의 기간 밖 날은 뺌. None 이면 못 받음."""
     week_end = week_start + dt.timedelta(days=6)
+    if days is not None:
+        days = [d for d in days if week_start <= d.date <= week_end]
     marks, labels = [], []
     for st in STATIONS:
-        x, y = _xy(st)
+        x, y = place(st.lon, st.lat)
         seen = st.name in status.first
         marks.append(_marker(x, y, seen))
-        if st.lon <= 130.5:          # 울릉도는 상자 이름(울릉도·독도)이 라벨을 대신함
-            labels.append(_label(x, y, st, strong=seen))
-    # 백령도가 지도 왼쪽 끝에 붙어 있어 점이 잘리지 않게 카드 여백까지 그림
-    svg = (f'<svg width="{MAP_W:.0f}" height="{MAP_H:.0f}" viewBox="0 0 {MAP_W:.0f} {MAP_H:.0f}" '
-           f'overflow="visible" role="img" aria-label="전국 {len(STATIONS)}개 관측 지점 첫눈 현황 지도">'
-           f'{basemap()}{"".join(marks)}{"".join(labels)}</svg>')
+        if st.lon <= INSET_LON:      # 울릉도는 상자 이름(울릉도·독도)이 라벨을 대신함
+            labels.append(label(x, y, st.name, st.label, strong=seen))
+    svg = frame("".join(marks) + "".join(labels), f"전국 {len(STATIONS)}개 관측 지점 첫눈 현황 지도")
 
     def order(st: Station):
         # 올해 관측일 순, 아직인 곳은 평년 순, 평년도 없는 곳은 맨 뒤
@@ -81,7 +71,7 @@ def build_html(status: Status, week_start: dt.date, days=(), span_label: str = "
   <div class="head"><h1>첫눈 지도</h1><span class="period">{day_label(week_start)} ~ {day_label(week_end)}</span></div>
   <div class="lead">
     <div><span class="k">관측</span><span>{observed_line(status)}</span></div>
-    <div><span class="k">{span_label}</span><span>{week_line(status, days, week_start, week_end)}</span></div>
+    <div><span class="k">{span_label}</span><span>{week_line(status, days)}</span></div>
   </div>
   <div class="body">
     <div class="map">{svg}
@@ -93,18 +83,16 @@ def build_html(status: Status, week_start: dt.date, days=(), span_label: str = "
       <tbody>{rows}</tbody>
     </table>
   </div>
-  <div class="foot">{sources(status, detail=True)}<br>첫눈은 관측자가 눈으로 보고 정하며, 진눈깨비도 첫눈으로 칩니다.</div>
+  <div class="foot">{SOURCES} ({season_text(status)})<br>첫눈은 관측자가 눈으로 보고 정하며, 진눈깨비도 첫눈으로 칩니다.</div>
 </div></body></html>"""
 
 
-def render_png(status: Status, week_start: dt.date, days=(), *, span_label: str = "이번 주",
+def render_png(status: Status, week_start: dt.date, days: Sequence | None, *, span_label: str = "이번 주",
                scale: int = 2) -> bytes:
     return capture(build_html(status, week_start, days, span_label), scale=scale)
 
 
 CSS = BASE_CSS + """
 .lead { background: #eef4fb; }
-.obs { font-weight: 700; color: var(--ink); }
 .gap { color: var(--ink2); font-size: 11.5px; }
-.none { color: #c3c2b7; }
 """

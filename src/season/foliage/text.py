@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import datetime as dt
 
-from src.common.text import short_date
-from src.season.foliage import KINDS, NOT_STARTED_TEXT, STAGES, Snapshot
-from src.season.mountains import MOUNTAINS
+from src.common.text import html_bold, html_muted, short_date
+from src.season.foliage.data import KINDS, NOT_STARTED_TEXT, STAGES, Snapshot
+from src.season.foliage.mountains import MOUNTAINS
 from src.season.sources import OUTLOOK_SOURCE
+from src.season.summary import observed_summary
 
 
 def gap_text(predicted: dt.date | None, observed: dt.date, *, show_date: bool = False) -> str:
@@ -43,11 +44,7 @@ def week_changes(snap: Snapshot, start: dt.date, end: dt.date) -> dict[str, list
     return out
 
 
-def _html_bold(text: str) -> str:
-    return f"<b>{text}</b>"
-
-
-def observed_line(snap: Snapshot, bold=_html_bold) -> str:
+def observed_line(snap: Snapshot, bold=html_bold) -> str:
     """관측 한 줄 — 물든 곳이 적으면 이름·날짜, 많으면 개수·최근 변화. bold 로 HTML·슬랙을 가름."""
     s = snap.status
     if not s.in_service:
@@ -69,18 +66,12 @@ def observed_line(snap: Snapshot, bold=_html_bold) -> str:
         gap = gap_text(snap.predicted(KINDS[stage - 1], name), day)
         return f"{text} {short_date(day)}" + (f" ({gap})" if gap else "")
 
-    def latest(e):
-        return e[0] or dt.date.min
-
-    if len(events) <= 2:
-        head = " · ".join(event_text(e) for e in sorted(events, key=latest))
-        return f"{head}, 나머지 {counts[2]}곳은 단풍 전" if counts[2] else head
     tally = " · ".join(f"{STAGES[k]} {n}곳" for k, n in zip((2, 1, 0), counts) if n)
-    return f"{tally} — 최근 " + " · ".join(event_text(e) for e in sorted(events, key=latest, reverse=True)[:2])
+    return observed_summary([(e[0], event_text(e)) for e in events],
+                            f"나머지 {counts[2]}곳은 단풍 전" if counts[2] else "", tally)
 
 
-def week_line(snap: Snapshot, start: dt.date, end: dt.date, bold=_html_bold,
-              muted=lambda s: f'<span class="muted">{s}</span>') -> str:
+def week_line(snap: Snapshot, start: dt.date, end: dt.date, bold=html_bold, muted=html_muted) -> str:
     if snap.outlook is None:
         return (f"{OUTLOOK_SOURCE} 예상을 읽지 못해 현황만 표시합니다" if snap.outlook_error
                 else "올해 예상이 아직 나오지 않았습니다")

@@ -17,8 +17,9 @@ from slack_sdk.errors import SlackApiError
 
 from src.common.config import KST
 from src.common.logsetup import setup
-from src.mention.answer import Reply, answer
-from src.mention.region_reply import CACHE_TTL_SEC
+from src.mention.answer import answer
+from src.mention.forecast import CACHE_TTL_SEC
+from src.mention.reply import Reply
 from src.mention.texts import _SELF
 
 log = logging.getLogger("weather-mention")

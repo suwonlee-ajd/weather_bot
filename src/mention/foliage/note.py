@@ -5,19 +5,22 @@ import datetime as dt
 import logging
 
 from src.common.text import bold, short_date
-from src.season import foliage
-from src.season.foliage import (
+from src.kma.regions import NATIONWIDE, Region
+from src.season.foliage import data as foliage
+from src.season.foliage.data import (
     KINDS,
     STAGES,
     FoliageError,
     Snapshot,
     in_season,
 )
-from src.season.foliage_text import observed_line, sources, week_changes, week_line
-from src.season.mountains import (
+from src.season.foliage.mountains import (
     MOUNTAINS,
     Mountain,
+    in_region,
+    in_zone,
 )
+from src.season.foliage.text import observed_line, sources, week_changes, week_line
 
 log = logging.getLogger("weather-mention")
 
@@ -32,9 +35,10 @@ def _snapshot_quietly(today: dt.date) -> Snapshot | None:
     return None
 
 
-def _foliage_brief(snap: Snapshot, mountains: tuple[Mountain, ...], start: dt.date, end: dt.date) -> str:
+def _foliage_brief(snap: Snapshot, mountains: tuple[Mountain, ...], start: dt.date, end: dt.date,
+                   nationwide: bool) -> str:
     # 전국은 산마다 적지 않고 단풍 현황 답과 같은 요약 — 스무 곳이 넘음
-    if len(mountains) == len(MOUNTAINS):
+    if nationwide:
         parts = []
         if any(snap.stage(m.name) for m in MOUNTAINS):
             parts.append(observed_line(snap, bold))
@@ -59,12 +63,16 @@ def _foliage_brief(snap: Snapshot, mountains: tuple[Mountain, ...], start: dt.da
     return " · ".join(bits)
 
 
-def _foliage_note(mountains: tuple[Mountain, ...], start: dt.date, end: dt.date,
-                  today: dt.date) -> list[str]:
+def _foliage_note(where: Region | str, start: dt.date, end: dt.date, today: dt.date) -> list[str]:
+    """where 는 광역 구역 또는 동네예보 코드 — 그 안의 산을 여기서 고름."""
+    if isinstance(where, str):
+        mountains = in_zone(where)
+    else:
+        mountains = MOUNTAINS if where is NATIONWIDE else in_region(where.key)
     if not mountains or not in_season(today) or not (snap := _snapshot_quietly(today)):
         return []
     # 이미 지난 날의 예상은 꺼내지 않음 — 그날 물들었으면 관측으로 나옴
-    brief = _foliage_brief(snap, mountains, max(start, today), end)
+    brief = _foliage_brief(snap, mountains, max(start, today), end, where is NATIONWIDE)
     if not brief:
         return []
     return ["", f":maple_leaf: *단풍* — {brief}", f"_{sources(snap)}_"]

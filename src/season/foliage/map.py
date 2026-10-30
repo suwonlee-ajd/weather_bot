@@ -1,18 +1,19 @@
 """단풍 지도 — 기상청 현황과 웨더아이 예상을 한 장에 그림.
 
-날씨누리 지도는 320×418 GIF 라 슬랙에서 흐리고 예상일이 없음. 윤곽은 Natural Earth(퍼블릭 도메인).
+날씨누리 지도는 320×418 GIF 라 슬랙에서 흐리고 예상일이 없음. 바탕 지도는 season/basemap.
 """
 from __future__ import annotations
 
 import datetime as dt
-import html
 
 from src.common.browser import capture
 from src.common.text import day_label, short_date
-from src.season.basemap import BASE_CSS, MAP_H, MAP_W, basemap, proj
-from src.season.foliage import CRITERIA_TEXT, KINDS, STAGES, Snapshot
-from src.season.foliage_text import observed_line, sources, week_changes, week_line
-from src.season.mountains import MOUNTAINS, Mountain
+from src.season.basemap import BASE_CSS, MapInfo, frame, label, place
+from src.season.foliage.data import CRITERIA_TEXT, KINDS, STAGES, Snapshot
+from src.season.foliage.mountains import MOUNTAINS, Mountain
+from src.season.foliage.text import observed_line, sources, week_changes, week_line
+
+INFO = MapInfo("단풍", "foliage", "전국 21개 명산의 단풍 현황(기상청)과 예상 시기(웨더아이) 지도")
 
 # 주황→진홍 순서형이라 색맹 검증 통과. 상태는 모양(빈 원·아래 반원·채운 원)으로도 가름
 ORANGE, RED, GRAY = "#eb6834", "#a8321f", "#898781"
@@ -38,27 +39,17 @@ def _icon(stage: int) -> str:
     return f'<svg width="14" height="14" viewBox="-7 -7 14 14">{_marker(0, 0, stage, r=5)}</svg>'
 
 
-def _label(x: float, y: float, m: Mountain, strong: bool) -> str:
-    dx, dy, anchor = {"r": (11, 4, "start"), "l": (-11, 4, "end"),
-                      "t": (0, -11, "middle"), "b": (0, 19, "middle")}[m.label]
-    cls = "lbl strong" if strong else "lbl"
-    return (f'<text class="{cls}" x="{x + dx:.1f}" y="{y + dy:.1f}" text-anchor="{anchor}">'
-            f'{html.escape(m.name)}</text>')
-
-
 def build_html(snap: Snapshot, week_start: dt.date, span_label: str = "이번 주") -> str:
     week_end = week_start + dt.timedelta(days=6)
     flagged = {n for changes in week_changes(snap, week_start, week_end).values() for n, _ in changes}
 
     marks, labels = [], []
     for m in MOUNTAINS:
-        x, y = proj(m.lon, m.lat)
+        x, y = place(m.lon, m.lat)
         stage = snap.stage(m.name)
         marks.append(_marker(x, y, stage, ring=m.name in flagged))
-        labels.append(_label(x, y, m, strong=m.name in flagged or stage > 0))
-    svg = (f'<svg width="{MAP_W:.0f}" height="{MAP_H:.0f}" viewBox="0 0 {MAP_W:.0f} {MAP_H:.0f}" '
-           f'role="img" aria-label="전국 {len(MOUNTAINS)}개 명산 단풍 현황 지도">'
-           f'{basemap()}{"".join(marks)}{"".join(labels)}</svg>')
+        labels.append(label(x, y, m.name, m.label, strong=m.name in flagged or stage > 0))
+    svg = frame("".join(marks) + "".join(labels), f"전국 {len(MOUNTAINS)}개 명산 단풍 현황 지도")
 
     def cell(kind: str, name: str) -> str:
         day, observed = snap.when(kind, name)
@@ -114,8 +105,6 @@ CSS = BASE_CSS + """
 .lead { background: #fbf3ee; }
 td.st { color: var(--ink2); }
 td.st svg { vertical-align: -2px; margin-right: 4px; }
-.obs { font-weight: 700; color: var(--ink); }
 .prd { color: var(--muted); }
 .prd.wk { color: var(--ink); font-weight: 600; background: #fbe3d6; border-radius: 4px; padding: 0 4px; margin: 0 -4px; }
-.none { color: #c3c2b7; }
 """

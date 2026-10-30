@@ -104,7 +104,7 @@ set -a && . ./.env && set +a
 | `CHART_PRODUCT` | `surf` | `surf`=지상일기도, `ghmd_s24`=24시간 예상일기도 |
 | `WRITER` | `none` | 문장을 쓸 모델. `none`(규칙 기반) · `gemini` · `claude`. **키나 패키지가 없으면 규칙 기반으로 떨어짐** |
 | `CARD_SCALE` | `2` | 카드 PNG 배율 |
-| `MENTION_CACHE_TTL` | `3600` | 멘션 봇이 광역 예보·단풍 지도를 들고 있는 시간(초). 시도·동 동네예보는 멘션마다 새로 받음 |
+| `MENTION_CACHE_TTL` | `3600` | 멘션 봇이 광역 예보·단풍 지도·첫눈 지도를 들고 있는 시간(초). 시도·동 동네예보는 멘션마다 새로 받음 |
 | `LOG_LEVEL` | `INFO` | `DEBUG` 면 요청 URL·응답 크기까지 남음 |
 | `CARD_KEEP_DAYS` · `CHART_KEEP_DAYS` | `14` · `30` | dry-run 산출물 보존일. `0` 이면 지우지 않음 |
 | `LOG_KEEP_DAYS` | `90` | 로그 보존일 — `bin/cleanup.py`(정리 타이머)만 씀. 주간 게시·정리 로그는 이 값으로만 지워짐. 멘션 봇 로그는 loguru 가 이 값과 무관하게 90일 뒤 지움. `0` 이면 정리 타이머가 로그를 지우지 않음 |
@@ -180,16 +180,17 @@ systemd timer (월 07:50 KST 기동) — 또는 크론을 넣은 GitHub Actions 
 src/common/     설정 · 로그 · 캐시 · 산출물 보존 · 날짜·기온 표기 · HTML → PNG
 src/kma/        기상청 수집 — 광역 구역(regions) · 통보문(notice) · 중기예보(mid_term) · 합치기(scrape)
                 · 동네예보(dong_zone · dong_forecast) · 1개월 전망(outlook) · 일기도(chart)
-src/season/     철 소식 자료 — 단풍(foliage · foliage_text · foliage_map · mountains)
-                · 첫눈(snow · snow_text · snow_map · stations) · 벚꽃(blossom) · 지도 바탕(basemap)
-                · 공통 수집(sources)
+src/season/     철 소식 자료 — 주제마다 자료(data) · 문장(text) · 지도(map)
+                · 단풍(foliage/ + 명산 mountains) · 첫눈(snow/ + 관측 지점 stations) · 벚꽃(blossom/)
+                · 공통 — 수집(sources) · 지도 바탕(basemap) · 관측 한 줄 꼴(summary) · 철 기간 월요일(weeks)
 src/advice/     수치에서 생활 조언 — 규칙(rules) · 문구 표(phrases)
 src/weekly/     주간 게시 — 진입점(post) · 7일 조립(forecast) · 본문(body · writer) · 카드(card)
                 · 문단(paragraph) · 철 소식(themes)
-src/mention/    멘션 봇 — 슬랙 연결(bot) · 답 고르기(answer) · 질문 해석(parse) · 광역 답(region_reply)
-                · 동네예보 답(dong_reply) · 단풍 답(foliage_reply · foliage_note)
-                · 첫눈 답(snow_reply · snow_note) · 문구(texts)
-src/query.py    조회 CLI (게시 없이 결과만)
+src/mention/    멘션 봇 — 슬랙 연결(bot) · 답 고르기(answer) · 질문 해석(parse) · 문구(texts)
+                · 답의 꼴(reply) · 광역 예보 캐시(forecast)
+                · 날씨 답(weather/ 광역 region · 동네 dong) · 단풍 답(foliage/ reply · note)
+                · 첫눈 답(snow/ reply · note) — reply 는 단독 답, note 는 날씨 답 끝의 한 줄
+src/query/      조회 CLI (게시 없이 결과만) — 날씨·인자(week) · 단풍·첫눈(season)
 bin/            멘션 봇·타이머 켜고 끄기(start.sh · stop.sh) · data/ · logs/ 정리(cleanup.py, --dry-run 먼저)
 deploy/         systemd 유닛 · 실행 스크립트 · 배포 가이드
 docs/           예보 자료 구조 · 로그 · 문체 기준 · 코드 스타일
@@ -214,9 +215,7 @@ uv run ruff check src tests bin
 2027년 벚꽃철(2월 22일 시작) 전에 함.
 
 - **군락지 상세를 동시에, 캐시해서 받음.** 지금은 13곳을 하나씩 불러 기상청이 느리면 최대 13×20초
-  걸리고, 목록 응답에 딸려 온 한 곳도 다시 부름. `src/season/foliage.py` 의 `fetch_status` 처럼 바꿈.
-- **관측 한 줄 함수를 합침.** `blossom.observed_line` 이 `foliage_text.observed_line` 의
-  «둘 이하면 이름, 많으면 개수 + 최근» 규칙을 그대로 베꼈음.
+  걸리고, 목록 응답에 딸려 온 한 곳도 다시 부름. `src/season/foliage/data.py` 의 `fetch_status` 처럼 바꿈.
 - **주간 벚꽃 문단 구성을 다시 봄.** 3줄이라 길고, 관측(군락지 13곳)과 예상(도시 19곳)의 장소가 섞여
   읽힘. 줄 구성은 `src/weekly/themes.py`, 문단 모양은 `src/weekly/paragraph.py` 에 있음.
 

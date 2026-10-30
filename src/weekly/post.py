@@ -119,7 +119,7 @@ def _compose(cfg: Config, now: dt.datetime, week_offset: int) -> Post | None:
     log.info("카드 %s bytes / 일기도 %s (%s bytes)", f"{len(card_png):,}", chart.url, f"{len(chart.png):,}")
 
     message = Message(written.body, credits=[f"{chart.label} · 기상청"])
-    for block in themes.blocks_for(week.week_start, now.date(), cfg.card_scale, week.days):
+    for block in themes.blocks_for(week, now.date(), cfg.card_scale):
         message.add(block)
 
     post = Post(week, message.to_slack())

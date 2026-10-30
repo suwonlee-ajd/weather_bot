@@ -14,7 +14,8 @@ import requests
 
 from src.common.cache import get_or_set
 from src.season import sources as shared
-from src.season.mountains import BY_NAME
+from src.season.foliage.mountains import BY_NAME
+from src.season.weeks import first_monday
 
 log = logging.getLogger(__name__)
 
@@ -50,14 +51,9 @@ class _NotPublished(Exception):
 
 # --- 기간 ------------------------------------------------------------------
 
-def _second_monday(year: int, month: int) -> dt.date:
-    first = dt.date(year, month, 1)
-    return first + dt.timedelta(days=(7 - first.weekday()) % 7 + 7)
-
-
 def season_bounds(year: int) -> tuple[dt.date, dt.date]:
     """9월 둘째 월요일 ~ 11월 둘째 월요일이 든 주 — 예상 발표(9월 첫 주) 뒤부터 남부 절정(11월 초~중순)까지."""
-    return _second_monday(year, 9), _second_monday(year, 11) + dt.timedelta(days=6)
+    return first_monday(year, 9) + dt.timedelta(weeks=1), first_monday(year, 11) + dt.timedelta(weeks=1, days=6)
 
 
 def in_season(day: dt.date) -> bool:

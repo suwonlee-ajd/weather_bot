@@ -147,7 +147,7 @@ def test_find_dong() -> None:
 def test_greeting() -> None:
     """인사·잡담은 자기소개로, 감사는 짧게. 지역이 섞이면 날씨가 우선."""
     import src.mention.answer as answer_mod
-    import src.mention.region_reply as region_reply
+    import src.mention.forecast as forecast
 
     calls: list = []
 
@@ -158,8 +158,8 @@ def test_greeting() -> None:
 
     from src.common.cache import clear
 
-    orig_scrape, orig_dong = region_reply.scrape_range, answer_mod.search_dong
-    region_reply.scrape_range = fake_scrape
+    orig_scrape, orig_dong = forecast.scrape_range, answer_mod.search_dong
+    forecast.scrape_range = fake_scrape
     answer_mod.search_dong = lambda q, limit=5: []
     now = dt.datetime(2026, 9, 14, 9, 0, tzinfo=KST)
     try:
@@ -181,14 +181,14 @@ def test_greeting() -> None:
         assert calls == ["경남"], calls
         print("[ok] 인사 응답 — 자기소개/감사/도움말 구분, 지역 우선")
     finally:
-        region_reply.scrape_range, answer_mod.search_dong = orig_scrape, orig_dong
+        forecast.scrape_range, answer_mod.search_dong = orig_scrape, orig_dong
         clear()
 
 
 def test_long_range_routing() -> None:
     """10일 너머 요청의 세 갈래: 1개월 전망 / 너무 먼 미래 / 정상 조회."""
     import src.mention.answer as answer_mod
-    import src.mention.region_reply as region_reply
+    import src.mention.forecast as forecast
     from src.common.cache import clear
     from src.kma.page import Scrape
 
@@ -211,8 +211,8 @@ def test_long_range_routing() -> None:
             url="https://example.invalid",
         )
 
-    orig = (region_reply.scrape_range, answer_mod.search_dong, answer_mod.fetch_outlook, answer_mod.find_wide)
-    region_reply.scrape_range, answer_mod.search_dong = fake_scrape, lambda q, limit=5: []
+    orig = (forecast.scrape_range, answer_mod.search_dong, answer_mod.fetch_outlook, answer_mod.find_wide)
+    forecast.scrape_range, answer_mod.search_dong = fake_scrape, lambda q, limit=5: []
     answer_mod.find_wide = lambda q: None               # 행정구역 목록을 받으러 가지 않게
     answer_mod.fetch_outlook = fake_outlook
     now = dt.datetime(2026, 9, 14, 9, 0, tzinfo=KST)
@@ -248,7 +248,7 @@ def test_long_range_routing() -> None:
         assert calls == ["경남"], calls
         print("[ok] 장기 요청 분기 — 1개월 전망 / 먼 미래 거절 / 주간 정상")
     finally:
-        region_reply.scrape_range, answer_mod.search_dong, answer_mod.fetch_outlook, answer_mod.find_wide = orig
+        forecast.scrape_range, answer_mod.search_dong, answer_mod.fetch_outlook, answer_mod.find_wide = orig
         clear()
 
 
@@ -285,7 +285,7 @@ def test_topic_advice() -> None:
 def test_cache_shared_across_spans() -> None:
     """지역 캐시 하나를 «이번 주»·«다음 주»·«기본» 이 나눠 써도 날이 빠지지 않음."""
     import src.mention.answer as answer_mod
-    import src.mention.region_reply as region_reply
+    import src.mention.forecast as forecast
     from src.common.cache import clear
     from src.kma.page import Narrative, Scrape, ScrapedDay
 
@@ -299,8 +299,8 @@ def test_cache_shared_across_spans() -> None:
         return Scrape(days={d: v for d, v in full.items() if d in window},
                       narratives=[Narrative("통보문", "", None, [])])
 
-    orig = region_reply.scrape_range
-    region_reply.scrape_range = fake_scrape
+    orig = forecast.scrape_range
+    forecast.scrape_range = fake_scrape
     try:
         now = dt.datetime(2026, 9, 12, 9, 0, tzinfo=KST)   # 토요일
         clear()
@@ -308,7 +308,7 @@ def test_cache_shared_across_spans() -> None:
         answer_mod.build_reply("<@U123> 경남 다음주", now)
         reply = answer_mod.build_reply("<@U123> 경남 날씨", now)
     finally:
-        region_reply.scrape_range = orig
+        forecast.scrape_range = orig
         clear()
 
     for day in ("09/12", "09/13", "09/18"):
@@ -319,7 +319,7 @@ def test_cache_shared_across_spans() -> None:
 def test_city_uses_dong_forecast() -> None:
     """'부산' 은 구역이 아니라 부산광역시 값으로 답함 — 기간이 닿는 한."""
     import src.mention.answer as answer_mod
-    import src.mention.region_reply as region_reply
+    import src.mention.forecast as forecast
     from src.common.cache import clear
     from src.kma.page import Scrape
 
@@ -335,8 +335,8 @@ def test_city_uses_dong_forecast() -> None:
         dong_calls.append((name, days, start))
         return f"*{name}* 동네예보"
 
-    orig = (region_reply.scrape_range, answer_mod._dong_reply, answer_mod.find_wide)
-    region_reply.scrape_range = fake_scrape
+    orig = (forecast.scrape_range, answer_mod._dong_reply, answer_mod.find_wide)
+    forecast.scrape_range = fake_scrape
     answer_mod._dong_reply = fake_dong_reply
     answer_mod.find_wide = lambda q: ("2600000000", "부산광역시") if "부산" in q else None
     now = dt.datetime(2026, 9, 14, 9, 0, tzinfo=KST)   # 월요일
@@ -357,7 +357,7 @@ def test_city_uses_dong_forecast() -> None:
         answer_mod.build_reply("<@U1> 부산 다음주", now)
         assert calls and not dong_calls, (dong_calls, calls)
     finally:
-        region_reply.scrape_range, answer_mod._dong_reply, answer_mod.find_wide = orig
+        forecast.scrape_range, answer_mod._dong_reply, answer_mod.find_wide = orig
         clear()
     print("[ok] 시도 조회 — 가까운 날은 시 단위, 주 단위는 광역")
 
@@ -365,8 +365,8 @@ def test_city_uses_dong_forecast() -> None:
 def test_partial_week_is_declared() -> None:
     """예보가 기간을 못 채우면 머리글이 실제 범위를 말하고, 왜 짧은지 밝힘."""
     import src.mention.answer as answer_mod
-    import src.mention.region_reply as region_reply
-    import src.season.foliage as foliage_mod
+    import src.mention.forecast as forecast
+    import src.season.foliage.data as foliage_mod
     from src.common.cache import clear
     from src.kma.page import Narrative, Scrape, ScrapedDay
 
@@ -379,8 +379,8 @@ def test_partial_week_is_declared() -> None:
                 for i in range(span) if (d := start + dt.timedelta(days=i)) in horizon}
         return Scrape(days=days, narratives=[Narrative("중기예보", "", None, [])])
 
-    orig = (region_reply.scrape_range, answer_mod.find_wide, foliage_mod.fetch_snapshot)
-    region_reply.scrape_range = fake_scrape
+    orig = (forecast.scrape_range, answer_mod.find_wide, foliage_mod.fetch_snapshot)
+    forecast.scrape_range = fake_scrape
     answer_mod.find_wide = lambda q: None
     foliage_mod.fetch_snapshot = lambda today: fake_snapshot(outlook=False)   # 단풍철 — 기상청을 부르지 않게
     now = dt.datetime(2026, 9, 14, 9, 0, tzinfo=KST)
@@ -388,7 +388,7 @@ def test_partial_week_is_declared() -> None:
         clear()
         reply = answer_mod.build_reply("<@U1> 다음주 날씨", now)
     finally:
-        region_reply.scrape_range, answer_mod.find_wide, foliage_mod.fetch_snapshot = orig
+        forecast.scrape_range, answer_mod.find_wide, foliage_mod.fetch_snapshot = orig
         clear()
 
     assert "09/23" in reply.split("\n")[0], reply.split("\n")[0]
@@ -572,7 +572,7 @@ def test_forecast_validation() -> None:
 def test_mention_parsing() -> None:
     """멘션 문장에서 지역과 수집 범위를 읽고, 모르는 지명은 수집하지 않음."""
     import src.mention.answer as answer_mod
-    import src.mention.region_reply as region_reply
+    import src.mention.forecast as forecast
     from src.common.cache import clear
     from src.kma.page import Scrape
 
@@ -582,8 +582,8 @@ def test_mention_parsing() -> None:
         calls.append((region.key, start, span))
         return Scrape(days={}, narratives=[])
 
-    orig = region_reply.scrape_range
-    region_reply.scrape_range = fake_scrape
+    orig = forecast.scrape_range
+    forecast.scrape_range = fake_scrape
     try:
         now = dt.datetime(2026, 9, 12, 9, 0, tzinfo=KST)   # 토요일
         # 구역명으로 — 시도 이름은 동네예보로 빠짐(find_wide)
@@ -614,7 +614,7 @@ def test_mention_parsing() -> None:
             answer_mod.search_dong = orig
         print("[ok] 멘션 파싱 — 기본 '오늘부터 7일', 이번주/다음주 인식, '요즘' 은 전국, 미지원 지역 거절")
     finally:
-        region_reply.scrape_range = orig
+        forecast.scrape_range = orig
         clear()
 
 
@@ -734,7 +734,7 @@ def test_mention_delivery() -> None:
     import time
 
     import src.mention.bot as bot
-    from src.mention.answer import Reply
+    from src.mention.reply import Reply
 
     class FakeClient:
         def __init__(self, upload_fails=False):
@@ -809,7 +809,7 @@ def test_footer_and_region_variation() -> None:
     """동네예보 꼬리말은 자료 끝까지 보여 줄 때만 붙고, 조언 문장은 지역마다 갈림."""
     from types import SimpleNamespace
 
-    import src.mention.dong_reply as dong_reply
+    import src.mention.weather.dong as dong
 
     def fake_fetch(zone, name, days_n):
         base = dt.date(2026, 9, 16)
@@ -820,21 +820,21 @@ def test_footer_and_region_variation() -> None:
             daily_summary=lambda: rows,
         )
 
-    orig = dong_reply.fetch_dong
+    orig = dong.fetch_dong
     try:
-        dong_reply.fetch_dong = lambda z, n: fake_fetch(z, n, 1)
-        one = dong_reply._dong_reply("1100000000", "서울특별시", days=1)
+        dong.fetch_dong = lambda z, n: fake_fetch(z, n, 1)
+        one = dong._dong_reply("1100000000", "서울특별시", days=1)
         assert "더 먼 날이 필요" not in one, one
         assert "발표" in one, one
 
-        dong_reply.fetch_dong = lambda z, n: fake_fetch(z, n, dong_reply.DONG_MAX_DAYS)
-        full = dong_reply._dong_reply("1100000000", "서울특별시", days=dong_reply.DONG_MAX_DAYS)
+        dong.fetch_dong = lambda z, n: fake_fetch(z, n, dong.DONG_MAX_DAYS)
+        full = dong._dong_reply("1100000000", "서울특별시", days=dong.DONG_MAX_DAYS)
         assert "더 먼 날이 필요" in full, full
         # 오전·낮 발표(4일치)도 자료 끝까지 보여 주면 광역 안내가 붙음
-        dong_reply.fetch_dong = lambda z, n: fake_fetch(z, n, 4)
-        four = dong_reply._dong_reply("1100000000", "서울특별시", days=dong_reply.DONG_MAX_DAYS)
+        dong.fetch_dong = lambda z, n: fake_fetch(z, n, 4)
+        four = dong._dong_reply("1100000000", "서울특별시", days=dong.DONG_MAX_DAYS)
         assert "더 먼 날이 필요" in four, four
-        part = dong_reply._dong_reply("1100000000", "서울특별시", days=2)
+        part = dong._dong_reply("1100000000", "서울특별시", days=2)
         assert "더 먼 날이 필요" not in part, part
 
         # 오늘 줄은 남은 시간의 값 — «N시 이후» 를 붙이고 굵게(주 최저·최고)에서 뺌
@@ -846,37 +846,37 @@ def test_footer_and_region_variation() -> None:
         rows = late.daily_summary()
         rows[0] = (first, 10.0, 12.0, "맑음", 0)             # 밤 몇 시간 값이 주 최저처럼 보임
         late.daily_summary = lambda: rows
-        dong_reply.fetch_dong = lambda z, n: late
-        tonight = dong_reply._dong_reply("1100000000", "서울특별시", days=3)
-        assert f"`{dong_reply.day_label(first)}` 21시 이후 10~12℃" in tonight, tonight
+        dong.fetch_dong = lambda z, n: late
+        tonight = dong._dong_reply("1100000000", "서울특별시", days=3)
+        assert f"`{dong.day_label(first)}` 21시 이후 10~12℃" in tonight, tonight
         assert "시 이후" not in tonight.split("\n")[2], tonight
         # 오늘 줄의 밤 기온은 조언에 쓰지 않음
         rows[0] = (first, 2.0, 4.0, "맑음", 0)
-        cold_night = dong_reply._dong_reply("1100000000", "서울특별시", days=3)
+        cold_night = dong._dong_reply("1100000000", "서울특별시", days=3)
         assert ":cold_face:" not in cold_night and "아침 최저" not in cold_night, cold_night
 
-        dong_reply.fetch_dong = lambda z, n: fake_fetch(z, n, 4)
-        mountain = dong_reply._dong_reply("5121060000", "설악산 아래 속초시 대포동", 4,
+        dong.fetch_dong = lambda z, n: fake_fetch(z, n, 4)
+        mountain = dong._dong_reply("5121060000", "설악산 아래 속초시 대포동", 4,
                                        dt.date(2026, 9, 16), quiet=True)
         assert mountain and "더 먼 날이 필요" not in mountain, mountain
 
-        dong_reply.fetch_dong = lambda z, n: fake_fetch(z, n, 3)
-        seoul = dong_reply._dong_reply("1100000000", "서울특별시", days=3)
-        busan = dong_reply._dong_reply("2600000000", "부산광역시", days=3)
+        dong.fetch_dong = lambda z, n: fake_fetch(z, n, 3)
+        seoul = dong._dong_reply("1100000000", "서울특별시", days=3)
+        busan = dong._dong_reply("2600000000", "부산광역시", days=3)
         def tip(r):
             return [ln for ln in r.split("\n") if ln.startswith(":")]
         assert tip(seoul) and tip(busan), (seoul, busan)
         assert tip(seoul) != tip(busan), (tip(seoul), tip(busan))
     finally:
-        dong_reply.fetch_dong = orig
+        dong.fetch_dong = orig
     print("[ok] 꼬리말은 필요할 때만, 조언은 지역마다 다르게")
 
 
 # --- 단풍 -------------------------------------------------------------------
 
 def fake_snapshot(stages=None, first=None, peak=None, *, in_service=True, outlook=True):
-    from src.season.foliage import Outlook, Snapshot, Status
-    from src.season.mountains import MOUNTAINS
+    from src.season.foliage.data import Outlook, Snapshot, Status
+    from src.season.foliage.mountains import MOUNTAINS
 
     d = dt.date
     status = Status(
@@ -895,7 +895,7 @@ def fake_snapshot(stages=None, first=None, peak=None, *, in_service=True, outloo
 
 def test_foliage_season() -> None:
     """9월 둘째 월요일 ~ 11월 둘째 월요일이 든 주. 해마다 날짜가 다름."""
-    from src.season.foliage import in_season, next_season, season_bounds
+    from src.season.foliage.data import in_season, next_season, season_bounds
 
     d = dt.date
     assert season_bounds(2026) == (d(2026, 9, 14), d(2026, 11, 15))
@@ -911,7 +911,7 @@ def test_foliage_parse() -> None:
     """기상청 JSONP 와 웨더아이 표. 지난 시즌 값·잘못 읽은 표는 버림."""
     import json
 
-    from src.season.foliage import FoliageError, parse_outlook_text, parse_status
+    from src.season.foliage.data import FoliageError, parse_outlook_text, parse_status
     from src.season.sources import shot_date
 
     def jsonp(service: bool, statuses: dict[str, str], flower: dict) -> str:
@@ -960,7 +960,7 @@ def test_foliage_parse() -> None:
 
 def test_mountain_lookup() -> None:
     from src.season.basemap import LAT0, LAT1, LON0, LON1
-    from src.season.mountains import MOUNTAINS, find_mountain, unknown_mountain
+    from src.season.foliage.mountains import MOUNTAINS, find_mountain, unknown_mountain
 
     assert len(MOUNTAINS) == 21 and len({m.zone for m in MOUNTAINS}) == 21
     assert all(LON0 < m.lon < LON1 and LAT0 < m.lat < LAT1 for m in MOUNTAINS), "지도 밖 좌표"
@@ -987,12 +987,10 @@ def test_mountain_lookup() -> None:
     assert find_mountain("주말 설악 날씨").name == "설악산"
 
     from src.kma.regions import REGIONS
-    from src.season.mountains import REGION_MOUNTAINS, in_region, in_zone
+    from src.season.foliage.mountains import in_region, in_zone
 
-    names = {m.name for m in MOUNTAINS}
-    assert set(REGION_MOUNTAINS) <= {r.key for r in REGIONS}, "없는 구역 이름"
-    assert all(set(v) <= names for v in REGION_MOUNTAINS.values()), "없는 산 이름"
-    assert names == {n for v in REGION_MOUNTAINS.values() for n in v}, "어느 구역에도 없는 산"
+    assert {k for m in MOUNTAINS for k in m.regions} <= {r.key for r in REGIONS}, "없는 구역 이름"
+    assert all(m.regions for m in MOUNTAINS), "어느 구역에도 없는 산"
     assert [m.name for m in in_region("강원")] == ["설악산", "오대산", "치악산"]
     for code, want in (("1100000000", ["북한산"]), ("2700000000", ["팔공산"]), ("1230000000", ["무등산"]),
                        ("5000000000", ["한라산"]), ("2600000000", [])):
@@ -1005,9 +1003,10 @@ def test_foliage_routing() -> None:
     from types import SimpleNamespace
 
     import src.mention.answer as answer_mod
-    import src.mention.dong_reply as dong_reply
-    import src.mention.region_reply as region_reply
-    import src.season.foliage as foliage_mod
+    import src.mention.forecast as forecast
+    import src.mention.weather.dong as dong
+    import src.season.foliage.data as foliage_mod
+    import src.season.foliage.map as foliage_map
 
     snap = fake_snapshot({"설악산": 1}, first={"설악산": dt.date(2026, 9, 28)})
     dong_calls: list = []
@@ -1032,11 +1031,11 @@ def test_foliage_routing() -> None:
         scraped.append(region.key)
         return Scrape(days={}, narratives=[])
 
-    orig = (foliage_mod.fetch_snapshot, dong_reply.fetch_dong, answer_mod.render_foliage_png, region_reply.scrape_range)
+    orig = (foliage_mod.fetch_snapshot, dong.fetch_dong, foliage_map.render_png, forecast.scrape_range)
     foliage_mod.fetch_snapshot = lambda today: snap
-    dong_reply.fetch_dong = fake_dong
-    answer_mod.render_foliage_png = fake_render          # Chromium 없이
-    region_reply.scrape_range = fake_scrape
+    dong.fetch_dong = fake_dong
+    foliage_map.render_png = fake_render                 # Chromium 없이
+    forecast.scrape_range = fake_scrape
     now = dt.datetime(2026, 10, 1, 15, 0, tzinfo=KST)
     clear()
     try:
@@ -1092,10 +1091,10 @@ def test_foliage_routing() -> None:
                   "설악산 단풍 절정 10/25 맞아?"):
             assert "동네예보" not in ask(q), q
         assert not dong_calls, dong_calls
-        dong_reply.fetch_dong = lambda z, n: (_ for _ in ()).throw(dong_reply.DongError("점검"))
+        dong.fetch_dong = lambda z, n: (_ for _ in ()).throw(dong.DongError("점검"))
         failed = ask("주말 설악산 단풍")
         assert "가져오지 못했습니다" in failed and "광역" not in failed, failed
-        dong_reply.fetch_dong = fake_dong
+        dong.fetch_dong = fake_dong
         # '다음 주 주말' 은 10/10 — 동네예보(5일) 밖이라 안내만
         next_weekend = ask("다음 주 주말 설악산 단풍")
         assert "10/03" not in next_weekend and "5일까지" in next_weekend, next_weekend
@@ -1106,8 +1105,8 @@ def test_foliage_routing() -> None:
         assert "*관측* (촬영일은" in bare and "예상이었지만" not in bare, bare
         assert ask("단풍 어디까지").count("*설악산* 첫단풍") == 1
     finally:
-        (foliage_mod.fetch_snapshot, dong_reply.fetch_dong, answer_mod.render_foliage_png,
-         region_reply.scrape_range) = orig
+        (foliage_mod.fetch_snapshot, dong.fetch_dong, foliage_map.render_png,
+         forecast.scrape_range) = orig
         clear()
     print("[ok] 단풍 멘션 — 현황 · 산별 · 산 날씨 · 목록 밖 산 · 꽃/기간 밖 거절")
 
@@ -1117,12 +1116,13 @@ def test_foliage_in_weather() -> None:
     from types import SimpleNamespace
 
     import src.mention.answer as answer_mod
-    import src.mention.dong_reply as dong_reply
-    import src.mention.region_reply as region_reply
-    import src.season.foliage as foliage_mod
+    import src.mention.forecast as forecast
+    import src.mention.weather.dong as dong
+    import src.season.foliage.data as foliage_mod
     from src.common.cache import clear
     from src.kma.page import Scrape, ScrapedDay
-    from src.season.foliage import FoliageError
+    from src.season.foliage.data import FoliageError
+    from src.season.snow import data as snow
 
     now = dt.datetime(2026, 10, 1, 15, 0, tzinfo=KST)        # 단풍철, 목요일
     snaps = [fake_snapshot({"설악산": 1}, first={"설악산": dt.date(2026, 9, 28)})]
@@ -1147,10 +1147,12 @@ def test_foliage_in_weather() -> None:
 
     wide = {"제주": ("5000000000", "제주특별자치도"), "서울": ("1100000000", "서울특별시")}
     snaps_base = [now.date()]
-    orig = (foliage_mod.fetch_snapshot, dong_reply.fetch_dong, region_reply.scrape_range, answer_mod.find_wide)
+    orig = (foliage_mod.fetch_snapshot, dong.fetch_dong, forecast.scrape_range, answer_mod.find_wide,
+            snow.fetch_status)
+    snow.fetch_status = lambda day: snow.Status(day.year)   # 12월 질문은 첫눈 한 줄을 탐
     foliage_mod.fetch_snapshot = fake_snap
-    dong_reply.fetch_dong = fake_dong
-    region_reply.scrape_range = fake_scrape
+    dong.fetch_dong = fake_dong
+    forecast.scrape_range = fake_scrape
     answer_mod.find_wide = lambda q: wide.get(q.strip())
     try:
         def ask(q, when=now):
@@ -1194,7 +1196,8 @@ def test_foliage_in_weather() -> None:
         assert "설악산 아래" in ask("설악산") and "단풍 —" not in ask("설악산")
         assert ":maple_leaf:" not in ask("강원 날씨", dt.datetime(2026, 12, 1, 9, 0, tzinfo=KST))
     finally:
-        foliage_mod.fetch_snapshot, dong_reply.fetch_dong, region_reply.scrape_range, answer_mod.find_wide = orig
+        (foliage_mod.fetch_snapshot, dong.fetch_dong, forecast.scrape_range, answer_mod.find_wide,
+         snow.fetch_status) = orig
         clear()
     print("[ok] 날씨 속 단풍 — 산 이름은 산 날씨와 단풍, 지역 날씨는 그 지역 산 한 줄")
 
@@ -1218,7 +1221,7 @@ def test_foliage_fetch() -> None:
     """산별 날짜: 목록에 딸려 온 상세는 다시 부르지 않고, 촬영일이 빈 상세는 캐시하지 않음."""
     import json
 
-    import src.season.foliage as foliage
+    import src.season.foliage.data as foliage
     from src.common.cache import clear
 
     def jsonp(places: dict[str, str], flower: dict) -> str:
@@ -1304,15 +1307,58 @@ def test_cache_failures() -> None:
     time.sleep(0.02)
     cache.get_or_set("new", 60, lambda: "y")
     assert "old" not in cache._STORE and "new" in cache._STORE
+
+    # 같은 키를 동시에 찾으면 한 번만 만들고 뒤에 온 쪽은 그 값을 씀
+    import threading
+    made, started, got = [], threading.Event(), []
+
+    def slow():
+        made.append(1)
+        started.set()
+        time.sleep(0.05)
+        return "v"
+
+    first = threading.Thread(target=lambda: got.append(cache.get_or_set("s", 60, slow)))
+    first.start()
+    started.wait(1)
+    got.append(cache.get_or_set("s", 60, slow))
+    first.join()
+    assert made == [1] and got == ["v", "v"], (made, got)
+
+    # 기억하지 않는 실패도 기다린 쪽은 같은 실패를 받음 — 줄지어 다시 만들지 않음
+    made.clear()
+    started.clear()
+
+    def slow_fail():
+        made.append(1)
+        started.set()
+        time.sleep(0.05)
+        raise ValueError("점검 중")
+
+    failed: list[str] = []
+
+    def ask():
+        try:
+            cache.get_or_set("f", 60, slow_fail)
+        except ValueError as exc:
+            failed.append(str(exc))
+
+    first = threading.Thread(target=ask)
+    first.start()
+    started.wait(1)
+    ask()
+    first.join()
+    assert made == [1] and failed == ["점검 중", "점검 중"], (made, failed)
+    assert not cache._FLIGHTS and "f" not in cache._STORE
     cache.clear()
-    print("[ok] 캐시 — 실패 기억, 지난 항목 정리")
+    print("[ok] 캐시 — 실패 기억, 지난 항목 정리, 동시에 찾은 같은 키는 한 번만")
 
 
 def test_foliage_render() -> None:
-    from src.season.foliage import STAGES
-    from src.season.foliage_map import build_html
-    from src.season.foliage_map import render_png as render_map
-    from src.season.foliage_text import observed_line
+    from src.season.foliage.data import STAGES
+    from src.season.foliage.map import build_html
+    from src.season.foliage.map import render_png as render_map
+    from src.season.foliage.text import observed_line
 
     d = dt.date
     early = fake_snapshot({"설악산": 1}, first={"설악산": d(2026, 9, 28)})
@@ -1373,7 +1419,7 @@ def test_paragraph() -> None:
 
 def test_blossom_season() -> None:
     """2월 마지막 월요일 ~ 3월 마지막 월요일이 든 주. 윤년·월말 요일에 따라 달라짐."""
-    from src.season.blossom import in_season, season_bounds
+    from src.season.blossom.data import in_season, season_bounds
 
     d = dt.date
     assert season_bounds(2026) == (d(2026, 2, 23), d(2026, 4, 5))
@@ -1388,7 +1434,7 @@ def test_blossom_parse() -> None:
     """기상청 JSONP 와 웨더아이 표. 해마다 바뀐 날짜 표기, 군락지·평균 줄, 깨진 표."""
     import json
 
-    from src.season.blossom import BlossomError, parse_outlook_text, parse_status
+    from src.season.blossom.data import BlossomError, parse_outlook_text, parse_status
     from src.season.sources import posted_on
 
     def jsonp(service: bool) -> str:
@@ -1434,14 +1480,8 @@ def test_blossom_parse() -> None:
 
 def test_blossom_text() -> None:
     """벚꽃 줄 문구. 예상 전엔 평년, 이번 주가 비면 다음 개화, 출처는 받은 쪽만."""
-    from src.season.blossom import (
-        Outlook,
-        Status,
-        observed_line,
-        sources,
-        week_line,
-        year_line,
-    )
+    from src.season.blossom.data import Outlook, Status
+    from src.season.blossom.text import observed_line, sources, week_line, year_line
 
     d = dt.date
     normal = {"서귀포": d(2026, 3, 24), "부산": d(2026, 3, 28), "서울": d(2026, 4, 8)}
@@ -1471,11 +1511,11 @@ def test_blossom_text() -> None:
 
 def test_weekly_themes() -> None:
     """주간 게시의 철 소식. 단풍은 글과 지도, 벚꽃은 글. 못 만들어도 날씨 게시는 나감."""
-    import src.season.blossom as blossom
-    import src.season.foliage as foliage
-    import src.season.foliage_map as foliage_map
-    from src.season.blossom import BlossomError, Outlook, Status
-    from src.season.foliage import FoliageError
+    import src.season.blossom.data as blossom
+    import src.season.foliage.data as foliage
+    import src.season.foliage.map as foliage_map
+    from src.season.blossom.data import BlossomError, Outlook, Status
+    from src.season.foliage.data import FoliageError
     from src.weekly import themes
 
     d = dt.date
@@ -1498,7 +1538,7 @@ def test_weekly_themes() -> None:
     blossom.fetch_outlook = lambda year: Outlook(expected={"서귀포": d(2026, 3, 25)},
                                                 normal={"서귀포": d(2026, 3, 24)}, published=d(2026, 2, 26))
     try:
-        (autumn,) = themes.blocks_for(d(2026, 10, 5), d(2026, 10, 2), 2)
+        (autumn,) = themes.blocks_for(WeekForecast("전국", d(2026, 10, 5), []), d(2026, 10, 2), 2)
         assert autumn.paragraph.title == "이번 주 단풍" and labels(autumn) == ["관측", "이번 주"]
         text = autumn.paragraph.to_slack()
         assert "*설악산* 첫단풍 9/28" in text and "첫단풍 *오대산* 10/7 · *치악산* 10/10 (예상)" in text, text
@@ -1506,48 +1546,49 @@ def test_weekly_themes() -> None:
         assert autumn.credit.startswith("단풍 지도 · "), autumn.credit
         # 지도를 못 그려도 글은 남고, 출처에서 '지도' 가 빠짐
         fail_render[0] = True
-        (autumn,) = themes.blocks_for(d(2026, 10, 5), d(2026, 10, 2), 2)
+        (autumn,) = themes.blocks_for(WeekForecast("전국", d(2026, 10, 5), []), d(2026, 10, 2), 2)
         assert autumn.attachment is None and autumn.credit.startswith("단풍 · ") and autumn.paragraph.rows
 
-        (spring,) = themes.blocks_for(d(2026, 3, 23), d(2026, 3, 23), 2)
+        (spring,) = themes.blocks_for(WeekForecast("전국", d(2026, 3, 23), []), d(2026, 3, 23), 2)
         assert spring.paragraph.title == "이번 주 벚꽃" and spring.attachment is None
         assert labels(spring) == ["관측", "이번 주", "올해"], labels(spring)
         assert "*서귀포* 3/25" in spring.paragraph.to_slack() and spring.credit.startswith("벚꽃 · ")
         blossom.fetch_outlook = lambda year: Outlook(expected={}, normal={"서귀포": d(2026, 3, 24)})
-        (spring,) = themes.blocks_for(d(2026, 2, 23), d(2026, 2, 23), 2)
+        (spring,) = themes.blocks_for(WeekForecast("전국", d(2026, 2, 23), []), d(2026, 2, 23), 2)
         assert labels(spring) == ["관측", "이번 주", "평년"], labels(spring)
         # 관측만 실패하면 예상 줄만, 둘 다 실패하면 벚꽃 소식 없이
         blossom.fetch_status = lambda today: (_ for _ in ()).throw(BlossomError("점검"))
-        (spring,) = themes.blocks_for(d(2026, 3, 23), d(2026, 3, 23), 2)
+        (spring,) = themes.blocks_for(WeekForecast("전국", d(2026, 3, 23), []), d(2026, 3, 23), 2)
         assert labels(spring) == ["이번 주", "평년"], labels(spring)
         blossom.fetch_outlook = lambda year: (_ for _ in ()).throw(BlossomError("점검"))
-        assert themes.blocks_for(d(2026, 3, 23), d(2026, 3, 23), 2) == []
+        assert themes.blocks_for(WeekForecast("전국", d(2026, 3, 23), []), d(2026, 3, 23), 2) == []
         foliage.fetch_snapshot = lambda today: (_ for _ in ()).throw(FoliageError("점검"))
-        assert themes.blocks_for(d(2026, 10, 5), d(2026, 10, 2), 2) == []
+        assert themes.blocks_for(WeekForecast("전국", d(2026, 10, 5), []), d(2026, 10, 2), 2) == []
 
         renders.clear()
-        assert themes.blocks_for(d(2026, 6, 1), d(2026, 6, 1), 2) == [] and not renders
+        assert themes.blocks_for(WeekForecast("전국", d(2026, 6, 1), []), d(2026, 6, 1), 2) == [] and not renders
     finally:
         foliage.fetch_snapshot, foliage_map.render_png, blossom.fetch_status, blossom.fetch_outlook = orig
     print("[ok] 철 소식 — 단풍 글·지도, 벚꽃 글, 실패해도 날씨는 나간다")
 
 
-def snow_html(rows: dict[str, list[tuple[str, str]]]) -> str:
-    """계절관측 조회 화면 꼴 — 지점 머리 뒤에 표 하나, caption 은 지점과 무관한 고정 문구."""
-    parts = []
-    for name, cells in rows.items():
-        body = "".join(f"<tr><td> {y}</td><td> {d}</td><td> 1일</td><td></td><td></td></tr>" for y, d in cells)
-        parts.append(f'<div class="info_tbl"><dl><dt>조회기간</dt><dd>2025 ~ 2026년</dd></dl>'
-                     f'<dl><dt><b>지점</b></dt><dd>{name}</dd></dl></div><div class="wrap_tbl">'
-                     f'<table class="tbl"><caption>코스모스, 매화</caption><thead><tr><th>년도</th>'
-                     f'<th>눈</th></tr></thead><tbody>{body}</tbody></table></div>')
-    return "<html>" + "".join(parts) + "</html>"
-
-
 def test_snow_data() -> None:
     """첫눈 관측 읽기 — 시즌 연도, 이상 행, 형식 변경, 주간 게시 기간, 지점 찾기."""
-    from src.season import snow, stations
-    from src.season.basemap import LAT0, LAT1, LON0, LON1
+    from src.kma.regions import REGIONS
+    from src.season.basemap import INSET_LON, LAT0, LAT1, LON0, LON1
+    from src.season.snow import data as snow
+    from src.season.snow import stations
+
+    def snow_html(rows: dict[str, list[tuple[str, str]]]) -> str:
+        """계절관측 조회 화면 꼴 — 지점 머리 뒤에 표 하나, caption 은 지점과 무관한 고정 문구."""
+        parts = []
+        for name, cells in rows.items():
+            body = "".join(f"<tr><td> {y}</td><td> {d}</td><td> 1일</td><td></td><td></td></tr>" for y, d in cells)
+            parts.append(f'<div class="info_tbl"><dl><dt>조회기간</dt><dd>2025 ~ 2026년</dd></dl>'
+                         f'<dl><dt><b>지점</b></dt><dd>{name}</dd></dl></div><div class="wrap_tbl">'
+                         f'<table class="tbl"><caption>코스모스, 매화</caption><thead><tr><th>년도</th>'
+                         f'<th>눈</th></tr></thead><tbody>{body}</tbody></table></div>')
+        return "<html>" + "".join(parts) + "</html>"
 
     d = dt.date
     status = snow.parse_status(snow_html({
@@ -1559,6 +1600,11 @@ def test_snow_data() -> None:
     }), 2026)
     assert status.first == {"서울": d(2026, 11, 26), "홍성": d(2026, 11, 18)}, status.first
     assert status.last == {"서울": d(2025, 12, 4), "부산": d(2026, 2, 7)}, status.last
+    # 표가 빠진 지점은 다음 지점의 표를 집지 않고, 머리와 표 사이에 다른 칸이 끼어도 읽음
+    odd = ('<dl><dt><b>지점</b></dt><dd>광주</dd></dl>'
+           '<dl><dt><b>지점</b></dt><dd>서울</dd></dl><dl><dt>요소</dt><dd>눈</dd></dl>'
+           '<table><tr><td>2026</td><td>2026-11-26</td></tr></table>')
+    assert snow.parse_status(odd, 2026).first == {"서울": d(2026, 11, 26)}
     try:
         snow.parse_status("<html>점검 중입니다</html>", 2026)
         raise AssertionError("형식이 바뀐 응답을 읽었습니다")
@@ -1578,7 +1624,8 @@ def test_snow_data() -> None:
 
     assert len(stations.STATIONS) == 24 and len({s.stn for s in stations.STATIONS}) == 24
     assert [s.name for s in stations.STATIONS if s.normal is None] == ["홍성"]
-    assert all(LAT0 < s.lat < LAT1 and (LON0 < s.lon < LON1 or s.lon > 130.5) for s in stations.STATIONS)
+    assert all(LAT0 < s.lat < LAT1 and (LON0 < s.lon < LON1 or s.lon > INSET_LON) for s in stations.STATIONS)
+    assert {k for s in stations.STATIONS for k in s.regions} <= {r.key for r in REGIONS}
     assert [s.name for s in stations.stations_in_region("영동")] == ["속초", "북강릉"]
     assert [s.name for s in stations.stations_in_zone("1168064000")] == ["서울"]
     assert stations.stations_in_zone("3611000000") == ()                  # 세종 — 관측 지점 없음
@@ -1590,8 +1637,8 @@ def test_snow_text() -> None:
     from types import SimpleNamespace
 
     from src.common.text import bold, short_day_label
-    from src.season.snow import Status
-    from src.season.snow_text import observed_line, week_line
+    from src.season.snow.data import Status
+    from src.season.snow.text import observed_line, week_line
 
     d = dt.date
     last = {"서울": d(2025, 12, 4)}
@@ -1607,9 +1654,9 @@ def test_snow_text() -> None:
     days = [SimpleNamespace(date=week + dt.timedelta(days=i), sky=s)
             for i, s in enumerate(["맑음", "흐리고 비/눈", "흐림", "흐리고 눈", "맑음", "맑음", "맑음"])]
     snowy = f"{short_day_label(d(2026, 12, 1))} · {short_day_label(d(2026, 12, 3))} 눈 예보"
-    assert week_line(many, days, week, week + dt.timedelta(days=6), muted=lambda s: s) == \
+    assert week_line(many, days, muted=lambda s: s) == \
         f"{snowy} (첫눈이 될 수 있음)"
-    assert week_line(many, days[:1], week, week, muted=lambda s: s) == "예보에 눈 소식이 없습니다"
+    assert week_line(many, days[:1], muted=lambda s: s) == "예보에 눈 소식이 없습니다"
     print("[ok] 첫눈 문장 — 관측 0·1·여러 곳, 서울 기준, 눈 예보")
 
 
@@ -1617,7 +1664,8 @@ def test_snow_weekly() -> None:
     """주간 게시의 첫눈 덩어리 — 서울 관측 다음 주까지, 수집·지도 실패에도 게시는 나감."""
     from types import SimpleNamespace
 
-    from src.season import snow, snow_map
+    from src.season.snow import data as snow
+    from src.season.snow import map as snow_map
     from src.weekly import themes
 
     d = dt.date
@@ -1625,20 +1673,20 @@ def test_snow_weekly() -> None:
     days = [SimpleNamespace(date=week + dt.timedelta(days=1), sky="흐리고 눈")]
     status = snow.Status(2026, {"서울": d(2026, 11, 26)})
     orig = (snow.fetch_status, snow_map.render_png)
-    snow.fetch_status = lambda today: status
+    snow.fetch_status = lambda today, timeout=None: status
     snow_map.render_png = lambda st, start, days=(), scale=2: b"PNG"
     try:
         assert [t.name for t in themes.THEMES] == ["단풍", "첫눈", "벚꽃"]
-        block = themes.snow_block(week, week, 2, days)
+        block = themes.snow_block(WeekForecast("전국", week, days), week, 2)
         assert block.paragraph.title == "이번 주 첫눈" and [r.label for r in block.paragraph.rows] == ["관측", "이번 주"]
         assert "*서울* 11/26 (평년보다 6일 늦음)" in block.paragraph.to_slack()
         assert block.attachment.slug == "snow" and block.credit.startswith("첫눈 지도 · ")
-        assert themes.snow_block(d(2026, 12, 7), week, 2, days) is None          # 서울 관측 다다음 주
+        assert themes.snow_block(WeekForecast("전국", d(2026, 12, 7), days), week, 2) is None   # 서울 관측 다다음 주
         snow_map.render_png = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("Chromium 없음"))
-        block = themes.snow_block(week, week, 2, days)
+        block = themes.snow_block(WeekForecast("전국", week, days), week, 2)
         assert block.attachment is None and block.credit.startswith("첫눈 · ")
-        snow.fetch_status = lambda today: (_ for _ in ()).throw(snow.SnowError("점검"))
-        assert themes.snow_block(week, week, 2, days) is None
+        snow.fetch_status = lambda today, timeout=None: (_ for _ in ()).throw(snow.SnowError("점검"))
+        assert themes.snow_block(WeekForecast("전국", week, days), week, 2) is None
     finally:
         snow.fetch_status, snow_map.render_png = orig
     print("[ok] 첫눈 주간 게시 — 서울 관측 다음 주까지, 지도·수집 실패에도 게시")
@@ -1647,11 +1695,13 @@ def test_snow_weekly() -> None:
 def test_snow_mention() -> None:
     """첫눈 멘션 — 전국 현황(지도), 지점·지역, 날씨 질문은 날씨로, 지역 답 한 줄."""
     import src.mention.answer as answer_mod
-    import src.mention.region_reply as region_reply
+    import src.mention.forecast as forecast
     from src.common.cache import clear
-    from src.kma.page import Narrative, Scrape, ScrapedDay
-    from src.mention.snow_note import _snow_note
-    from src.season import snow, stations
+    from src.kma.page import Narrative, Scrape, ScrapedDay, ScrapeError
+    from src.kma.regions import NATIONWIDE
+    from src.mention.snow.note import _snow_note
+    from src.season.snow import data as snow
+    from src.season.snow import map as snow_map
 
     d = dt.date
     now = dt.datetime(2026, 11, 25, 9, 0, tzinfo=KST)
@@ -1664,10 +1714,10 @@ def test_snow_mention() -> None:
                 for i in range(span)}
         return Scrape(days=days, narratives=[Narrative("중기예보", "", None, [])])
 
-    orig = (snow.fetch_status, region_reply.scrape_range, answer_mod.render_snow_png, answer_mod.find_wide)
+    orig = (snow.fetch_status, forecast.scrape_range, snow_map.render_png, answer_mod.find_wide)
     snow.fetch_status = lambda day: status
-    region_reply.scrape_range = fake_scrape
-    answer_mod.render_snow_png = lambda *a, **k: b"PNG"
+    forecast.scrape_range = fake_scrape
+    snow_map.render_png = lambda *a, **k: b"PNG"
     answer_mod.find_wide = lambda q: None
     try:
         clear()
@@ -1679,7 +1729,7 @@ def test_snow_mention() -> None:
 
         busan = answer_mod.answer("<@U1> 부산 첫눈 왔어?", now)
         assert busan.text.startswith("*부산 첫눈*") and busan.image is None, busan.text
-        assert "• *부산* — 아직 (평년 12/23, 지난겨울 2/7)" in busan.text, busan.text
+        assert "• *부산* 아직 (평년 12/23, 지난겨울 2/7)" in busan.text, busan.text
         assert "눈 예보 (첫눈이 될 수 있음)" in busan.text, busan.text
         gangwon = answer_mod.answer("<@U1> 강원 첫눈", now).text
         assert gangwon.startswith("*강원 첫눈*") and all(n in gangwon for n in ("속초", "북춘천", "북강릉"))
@@ -1690,8 +1740,13 @@ def test_snow_mention() -> None:
         snow.fetch_status = lambda day: (_ for _ in ()).throw(snow.SnowError("점검"))
         assert "가져오지 못했습니다" in answer_mod.answer("<@U1> 첫눈", now).text
         snow.fetch_status = lambda day: status
+        # 예보를 못 받으면 «눈 소식이 없다» 고 단정하지 않음
+        clear()
+        forecast.scrape_range = lambda *a: (_ for _ in ()).throw(ScrapeError("점검"))
+        assert "• 앞으로 7일 — 예보를 받지 못했습니다" in answer_mod.answer("<@U1> 첫눈", now).text
+        forecast.scrape_range = fake_scrape
 
-        seoul = (stations.BY_NAME["서울"],)
+        seoul = "1168064000"                                          # 역삼동 — 서울 지점
         snowy = [(d(2026, 11, 27), "흐리고 눈")]
         (_, line, _) = _snow_note(seoul, snowy, today)
         assert line.startswith(":snowflake: *첫눈* — *서울* 아직 (평년 11/20, 지난겨울 12/4) — 11/27("), line
@@ -1699,12 +1754,12 @@ def test_snow_mention() -> None:
         assert _snow_note(seoul, snowy, d(2026, 3, 1)) == []                     # 철 밖
         status.first["서울"] = d(2026, 11, 24)
         (_, line, _) = _snow_note(seoul, [], today)
-        assert line == ":snowflake: *첫눈* — *서울* 11/24 첫눈 관측 (평년보다 4일 늦음)", line
+        assert line == ":snowflake: *첫눈* — *서울* 11/24 (평년보다 4일 늦음)", line
         assert _snow_note(seoul, [], d(2026, 12, 2)) == []                       # 7일 지나면 그만
-        (_, line, _) = _snow_note(stations.STATIONS, snowy, today)
+        (_, line, _) = _snow_note(NATIONWIDE, snowy, today)
         assert "*서울* 11/24" in line and "나머지 23곳은 아직" in line, line
     finally:
-        snow.fetch_status, region_reply.scrape_range, answer_mod.render_snow_png, answer_mod.find_wide = orig
+        snow.fetch_status, forecast.scrape_range, snow_map.render_png, answer_mod.find_wide = orig
         clear()
     print("[ok] 첫눈 멘션 — 전국 현황·지도, 지점·지역, 날씨 질문은 날씨로, 지역 답 한 줄")
 
@@ -1712,17 +1767,24 @@ def test_snow_mention() -> None:
 def test_snow_render() -> None:
     from types import SimpleNamespace
 
-    from src.season.snow import Status
-    from src.season.snow_map import build_html
+    from src.season.snow.data import Status
+    from src.season.snow.map import build_html
 
     d = dt.date
     status = Status(2026, {"서울": d(2026, 11, 26)}, {"서울": d(2025, 12, 4)})
-    days = [SimpleNamespace(date=d(2026, 12, 1), sky="흐리고 비/눈")]
+    days = [SimpleNamespace(date=d(2026, 12, 1), sky="흐리고 비/눈"),
+            SimpleNamespace(date=d(2026, 12, 9), sky="눈")]           # 머리의 기간 밖 — 빠져야 함
     html_text = build_html(status, d(2026, 11, 30), days)
+    assert "12/9" not in html_text, "지도 기간 밖의 눈 예보가 실렸습니다"
+    assert "예보를 받지 못했습니다" in build_html(status, d(2026, 11, 30), None)
     assert html_text.count('<tr><th scope="row">') == 24
     assert '<span class="obs">11/26</span> <span class="gap">+6일</span>' in html_text
     assert "<b>서울</b> 11/26 (평년보다 6일 늦음)" in html_text and "눈 예보" in html_text
     assert "2026~27년 겨울" in html_text and html_text.count("울릉도") == 2   # 표 한 줄 + 상자 이름(점 라벨 없음)
+    from src.season.foliage.map import INFO as FOLIAGE_MAP
+    from src.season.snow.map import INFO as SNOW_MAP
+    cleanup = (pathlib.Path(__file__).resolve().parents[1] / "bin" / "cleanup.py").read_text(encoding="utf-8")
+    assert all(f'"{m.slug}-*.png"' in cleanup for m in (FOLIAGE_MAP, SNOW_MAP)), "정리 패턴이 지도 이름과 다릅니다"
     print("[ok] 첫눈 지도 — 24곳 표 · 관측일·평년차 · 눈 예보")
 
 

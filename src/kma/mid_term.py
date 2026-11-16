@@ -75,18 +75,8 @@ def _temperatures(tbl, ref: dt.date, region: Region) -> dict[dt.date, ScrapedDay
             mins[date].append(lo)
             maxs[date].append(hi)
 
-    return {
-        date: ScrapedDay(
-            date=date,
-            tmin_lo=min(mins[date]),
-            tmin_hi=max(mins[date]),
-            tmax_lo=min(maxs[date]),
-            tmax_hi=max(maxs[date]),
-            source="중기예보",
-        )
-        for _, date in dates
-        if mins[date]
-    }
+    return {d: ScrapedDay(d, min(mins[d]), max(mins[d]), min(maxs[d]), max(maxs[d]), source="중기예보")
+            for _, d in dates if mins[d]}
 
 
 def _sky_cells(tbl, sky_dates: list[dt.date], region: Region) -> dict[dt.date, tuple[list[str], list[int]]]:
@@ -127,9 +117,7 @@ def _add_sky(tbl, ref: dt.date, region: Region, days: dict[dt.date, ScrapedDay])
             days[date].pop = max(pops)
 
 
-def fetch_mid_term(
-    now: dt.datetime, region: Region = NATIONWIDE
-) -> tuple[dict[dt.date, ScrapedDay], Narrative]:
+def fetch_mid_term(now: dt.datetime, region: Region = NATIONWIDE) -> tuple[dict[dt.date, ScrapedDay], Narrative]:
     url = f"{MID_URL}?stnId1={region.mid_stn1}"
     if region.mid_stn2:
         url += f"&stnId2={region.mid_stn2}"

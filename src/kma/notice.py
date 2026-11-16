@@ -89,7 +89,7 @@ def _temp_table(soup) -> tuple[list[str], dict[str, list[str]]]:
             if cells and ("최저기온" in cells[0] or "최고기온" in cells[0]):
                 rows[cells[0][:4]] = cells
         return header, rows
-    return [], rows
+    return [], {}
 
 
 def _column_dates(header: list[str], ref: dt.date) -> dict[int, dt.date]:
@@ -127,9 +127,7 @@ def _temperatures(col_dates: dict[int, dt.date], rows: dict[str, list[str]]) -> 
     return days
 
 
-def fetch_notice(
-    now: dt.datetime, region: Region = NATIONWIDE
-) -> tuple[dict[dt.date, ScrapedDay], Narrative]:
+def fetch_notice(now: dt.datetime, region: Region = NATIONWIDE) -> tuple[dict[dt.date, ScrapedDay], Narrative]:
     url = f"{NOTICE_URL}?stnId={region.notice_stn}"
     soup = _get_soup(url)
     issued = _issued_at(soup)

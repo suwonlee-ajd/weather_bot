@@ -191,7 +191,7 @@ systemd timer (월 07:50 KST 기동) — 또는 크론을 넣은 GitHub Actions 
 기능별 패키지. 의존은 `common` ← `kma` · `season` · `advice` ← `weekly` · `mention` 방향으로만.
 
 ```
-src/common/     설정 · 로그 · 캐시 · 산출물 보존 · 날짜·기온 표기 · HTML → PNG
+src/common/     설정 · 로그 · 캐시(메모리 cache · 디스크 store) · 산출물 보존 · 날짜·기온 표기 · HTML → PNG
 src/kma/        기상청 수집 — 광역 구역(regions) · 통보문(notice) · 중기예보(mid_term) · 합치기(scrape)
                 · 동네예보(dong_zone · dong_forecast) · 1개월 전망(outlook) · 일기도(chart)
 src/season/     철 소식 자료 — 주제마다 자료(data) · 문장(text) · 지도(map)

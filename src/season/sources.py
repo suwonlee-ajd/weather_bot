@@ -93,6 +93,15 @@ def posted_on(post_html: str, year: int) -> dt.date | None:
     return dt.date(*map(int, m.groups())) if m else None
 
 
+def iso_dates(days: dict[str, dt.date]) -> dict[str, str]:
+    """읽은 표를 디스크 캐시(common.store)에 남길 꼴로 — 날짜는 ISO 글자."""
+    return {name: day.isoformat() for name, day in days.items()}
+
+
+def parse_dates(raw: dict[str, str]) -> dict[str, dt.date]:
+    return {name: dt.date.fromisoformat(day) for name, day in raw.items()}
+
+
 def pdf_text(blob: bytes, error: type[Exception]) -> str:
     try:
         from pypdf import PdfReader

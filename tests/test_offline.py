@@ -1,17 +1,22 @@
 """API 키 없이 도는 검증 — python -m tests.test_offline (일기도만 실제 기상청을 부름)."""
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import os
 import pathlib
+import tempfile
 
 os.environ.setdefault("SLACK_BOT_TOKEN", "xoxb-test")
 os.environ.setdefault("SLACK_CHANNEL_ID", "C_TEST")
+# 디스크 캐시(data/cache)가 실제 실행이 남긴 웨더아이 표를 돌려주지 않게 — 덮어씀(setdefault 아님)
+_DATA_DIR = tempfile.TemporaryDirectory(prefix="weather-bot-test-")
+os.environ["DATA_DIR"] = _DATA_DIR.name
 
 from src.common.config import KST  # noqa: E402
 from src.kma.chart import PNG_MAGIC, fetch_latest_chart  # noqa: E402
-from src.kma.page import Narrative, ScrapedDay, _resolve_date
-from src.kma.regions import find_region, resolve_region
+from src.kma.page import Narrative, ScrapedDay, _resolve_date  # noqa: E402
+from src.kma.regions import find_region, resolve_region  # noqa: E402
 from src.mention.answer import build_reply  # noqa: E402
 from src.weekly.body import fallback  # noqa: E402
 from src.weekly.card import render_png  # noqa: E402
@@ -21,6 +26,18 @@ from src.weekly.writer import extract_json  # noqa: E402
 # 본 실행과 같은 자리 — .gitignore·보존 정리가 이곳만 봄
 IMG = pathlib.Path("data/img")
 WEEK_START = dt.date(2026, 9, 7)
+
+
+@contextlib.contextmanager
+def fresh_data_dir():
+    """DATA_DIR 을 빈 임시 디렉터리로 — 디스크 캐시가 테스트끼리 섞이지 않게."""
+    before = os.environ["DATA_DIR"]
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["DATA_DIR"] = tmp
+        try:
+            yield pathlib.Path(tmp)
+        finally:
+            os.environ["DATA_DIR"] = before
 
 
 def fake_week() -> WeekForecast:
@@ -1296,12 +1313,31 @@ def test_foliage_fetch() -> None:
 
     foliage._get = fake_get
     try:
-        assert foliage.fetch_outlook(2026) is None and foliage.fetch_outlook(2026) is None
-        assert len(gets) == 1, f"아직 없는 예상을 {len(gets)}번 받으러 갔습니다"
+        with fresh_data_dir() as tmp:
+            assert foliage.fetch_outlook(2026) is None and foliage.fetch_outlook(2026) is None
+            assert len(gets) == 1, f"아직 없는 예상을 {len(gets)}번 받으러 갔습니다"
+            assert not (tmp / "cache").exists(), "미발표를 디스크에 남겼습니다"
     finally:
         foliage._get = orig_get
         clear()
-    print("[ok] 단풍 수집 — 목록 상세 재사용 · 빈 상세 미캐시 · 미발표 짧게 기억")
+
+    # 읽은 표는 디스크에 남김 — 다음 실행(메모리 캐시가 빈 새 프로세스)은 웨더아이 목록·게시물·PDF 를 받지 않음
+    d = dt.date
+    table = foliage.Outlook({"설악산": d(2026, 10, 3)}, {"설악산": d(2026, 10, 25)}, published=d(2026, 9, 4),
+                            url="https://example.invalid/post")
+    loads: list = []
+    orig_load = foliage._load_outlook
+    foliage._load_outlook = lambda year, timeout: loads.append(year) or table
+    try:
+        with fresh_data_dir() as tmp:
+            assert foliage.fetch_outlook(2026) == table
+            clear()
+            assert foliage.fetch_outlook(2026) == table and loads == [2026], loads
+            assert (tmp / "cache" / "weatheri-foliage-2026.json").is_file()
+    finally:
+        foliage._load_outlook = orig_load
+        clear()
+    print("[ok] 단풍 수집 — 목록 상세 재사용 · 빈 상세 미캐시 · 미발표 짧게 기억 · 읽은 예상표는 디스크에")
 
 
 def test_cache_failures() -> None:
@@ -1379,6 +1415,37 @@ def test_cache_failures() -> None:
     assert not cache._FLIGHTS and "f" not in cache._STORE
     cache.clear()
     print("[ok] 캐시 — 실패 기억, 지난 항목 정리, 동시에 찾은 같은 키는 한 번만")
+
+
+def test_disk_cache() -> None:
+    """디스크 캐시 — 한 번 만든 값은 다음 실행이 파일에서 읽음. 아직 없음(None)·실패는 남기지 않고, 깨진 파일은 다시 만듦."""
+    import json
+
+    from src.common import store
+
+    def again():
+        raise AssertionError("디스크에 있는데 다시 만들었습니다")
+
+    codec = {"dump": lambda v: {"v": v}, "load": lambda raw: raw["v"]}
+    with fresh_data_dir() as tmp:
+        cache = tmp / "cache"
+        assert store.cache_dir() == cache
+        assert store.kept("t-2026", lambda: "표", **codec) == "표"
+        assert store.kept("t-2026", again, **codec) == "표"
+        assert json.loads((cache / "t-2026.json").read_text(encoding="utf-8")) == {"v": "표"}
+        assert store.kept("t-none", lambda: None, **codec) is None
+        try:
+            store.kept("t-fail", lambda: (_ for _ in ()).throw(ValueError("점검")), **codec)
+            raise AssertionError("만들기 실패가 묻혔습니다")
+        except ValueError:
+            pass
+        assert [p.name for p in cache.iterdir()] == ["t-2026.json"], list(cache.iterdir())
+        (cache / "t-2026.json").write_text("{", encoding="utf-8")
+        assert store.kept("t-2026", lambda: "새 표", **codec) == "새 표"
+        assert store.kept("t-2026", again, **codec) == "새 표"
+        os.environ["DATA_DIR"] = "data"                     # 상대 경로는 저장소 기준 — 어디서 띄워도 같은 자리
+        assert store.cache_dir() == pathlib.Path(__file__).resolve().parents[1] / "data" / "cache"
+    print("[ok] 디스크 캐시 — 다음 실행은 파일에서, None·실패는 남기지 않음, 깨진 파일은 다시 만듦")
 
 
 def test_foliage_render() -> None:
@@ -1626,7 +1693,31 @@ def test_blossom_fetch() -> None:
                 pass
     finally:
         blossom._kma = orig
-    print("[ok] 벚꽃 수집 — 기상청 목록 한 번 · 형식 변경은 BlossomError")
+
+    # 웨더아이 표 — 읽은 해는 디스크에 남겨 다음 실행은 목록도 받지 않음. 아직 없는 해는 남기지 않음
+    from types import SimpleNamespace
+
+    d = dt.date
+    table = blossom.Outlook(expected={"서귀포": d(2026, 3, 25)}, normal={"서귀포": d(2026, 3, 24)},
+                            published=d(2026, 2, 26), url="https://example.invalid/2026")
+    gets, posts = [], []
+    orig = (blossom._get, blossom._load_post)
+    blossom._get = lambda url, **k: gets.append(url) or SimpleNamespace(text="목록", encoding="utf-8")
+    blossom._load_post = lambda html, year: posts.append(year) or (table if year == 2026 else None)
+    try:
+        with fresh_data_dir() as tmp:
+            assert blossom.fetch_outlook(2026) == table and blossom.fetch_outlook(2026) == table
+            assert posts == [2026] and len(gets) == 1, (posts, gets)
+            # 올해 표 전 — 목록은 올해 것을 찾으러 한 번, 평년을 빌릴 지난해 표는 디스크에서
+            gets.clear()
+            posts.clear()
+            borrowed = blossom.fetch_outlook(2027)
+            assert borrowed.normal == {"서귀포": d(2027, 3, 24)} and not borrowed.expected
+            assert posts == [2027] and len(gets) == 1, (posts, gets)
+            assert [p.name for p in (tmp / "cache").iterdir()] == ["weatheri-blossom-2026.json"]
+    finally:
+        blossom._get, blossom._load_post = orig
+    print("[ok] 벚꽃 수집 — 기상청 목록 한 번 · 형식 변경은 BlossomError · 읽은 웨더아이 표는 디스크에")
 
 
 def test_blossom_spots() -> None:
@@ -2767,6 +2858,7 @@ if __name__ == "__main__":
     test_period_next_weekend()
     test_foliage_fetch()
     test_cache_failures()
+    test_disk_cache()
     test_foliage_render()
     test_map_emoji()
     test_foliage_after_peak()

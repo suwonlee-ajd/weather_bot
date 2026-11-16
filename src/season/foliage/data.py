@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 import requests
 
 from src.common.cache import get_or_set
+from src.common.store import kept
 from src.season import sources as shared
 from src.season.foliage.mountains import BY_NAME
 
@@ -154,6 +155,16 @@ class Outlook:
     published: dt.date | None = None
     url: str = ""
 
+    def to_json(self) -> dict:
+        return {"first": shared.iso_dates(self.first), "peak": shared.iso_dates(self.peak),
+                "published": self.published.isoformat() if self.published else None, "url": self.url}
+
+    @classmethod
+    def from_json(cls, data: dict) -> Outlook:
+        published = data["published"]
+        return cls(shared.parse_dates(data["first"]), shared.parse_dates(data["peak"]),
+                   dt.date.fromisoformat(published) if published else None, data["url"])
+
 
 # 산이름 해발고도 첫단풍(예상일 평년차 작년차) 절정(…). 날짜는 '09.27'(~2024), '10/3'(2025~).
 _ROW = re.compile(
@@ -193,9 +204,15 @@ def _find_post(list_html: str, year: int) -> str | None:
 
 
 def fetch_outlook(year: int, *, timeout: float = TIMEOUT_SEC) -> Outlook | None:
-    """아직 안 올라왔으면 None, 읽다 실패하면 FoliageError."""
+    """아직 안 올라왔으면 None, 읽다 실패하면 FoliageError.
+
+    한 번 읽은 해의 표는 디스크에 남겨 다시 받지 않음 — 주간 게시는 철 밖에도 매주 돎. 미발표·실패는 남기지 않음.
+    """
+    def load() -> Outlook | None:
+        return kept(f"weatheri-foliage-{year}", lambda: _load_outlook(year, timeout),
+                    dump=Outlook.to_json, load=Outlook.from_json)
     try:
-        return get_or_set(("foliage-outlook", year), OUTLOOK_TTL_SEC, lambda: _load_outlook(year, timeout),
+        return get_or_set(("foliage-outlook", year), OUTLOOK_TTL_SEC, load,
                           errors=(FoliageError, _NotPublished), error_ttl=OUTLOOK_RETRY_SEC)
     except _NotPublished:
         return None

@@ -57,9 +57,9 @@ def _row_group(cells, current: str | None) -> str | None:
 PAIR_RE = re.compile(r"-?\d+(\.\d+)?\s*/\s*-?\d+(\.\d+)?")
 
 
-def _city_name(raw_cells) -> str:
-    """도시 칸 — 그룹 첫 행은 앞에 rowspan 지역 칸이 붙어 그것을 건너뜀."""
-    texts = [c.get_text(" ", strip=True) for c in raw_cells if not c.get("rowspan")]
+def _city_name(raw_cells, cells: list[str]) -> str:
+    """도시 칸 — 그룹 첫 행은 앞에 rowspan 지역 칸이 붙어 그것을 건너뜀. cells 는 raw_cells 의 글자."""
+    texts = [text for c, text in zip(raw_cells, cells, strict=True) if not c.get("rowspan")]
     return texts[0] if texts and not PAIR_RE.fullmatch(texts[0]) else ""
 
 
@@ -80,7 +80,7 @@ def _temperatures(tbl, ref: dt.date, region: Region) -> dict[dt.date, ScrapedDay
         pairs = [c for c in cells if PAIR_RE.fullmatch(c)]
         if len(pairs) < n_dates:
             continue
-        name = _city_name(raw_cells)
+        name = _city_name(raw_cells, cells)
         for (_, date), cell in zip(dates, pairs[:n_dates]):
             lo, hi = (float(x) for x in cell.split("/"))
             mins[date].append(lo)

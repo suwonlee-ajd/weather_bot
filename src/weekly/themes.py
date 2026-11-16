@@ -54,16 +54,18 @@ def _with_map(ctx: Context, paragraph: Paragraph, info: MapInfo, render: Callabl
 
 
 def foliage_block(ctx: Context) -> Block | None:
+    """절정 뒤 지난 날수는 ctx.as_of(첫눈과 같은 기준일)로, 예상 변화는 그 주 월~일로 셈."""
     snap = foliage.fetch_snapshot(ctx.today)
     if not snap.showing(ctx.week_start):
         return None
     paragraph = (Paragraph("이번 주 단풍", emoji=":maple_leaf:")
-                 .add("관측", foliage_text.observed_line(snap, bold, day=ctx.week_start))
+                 .add("관측", foliage_text.observed_line(snap, bold, day=ctx.as_of))
                  .add("이번 주", foliage_text.week_line(snap, ctx.week_start, ctx.week_end, bold,
-                                                         muted=lambda s: s)))
+                                                         muted=lambda s: s, day=ctx.as_of)))
     # 출처는 실린 것에 맞춤 — 예상을 못 읽었으면 예상 출처도 뺌
     return _with_map(ctx, paragraph, foliage_map.INFO,
-                     lambda: foliage_map.render_png(snap, ctx.week_start, scale=ctx.scale), foliage_text.sources(snap))
+                     lambda: foliage_map.render_png(snap, ctx.week_start, day=ctx.as_of, scale=ctx.scale),
+                     foliage_text.sources(snap))
 
 
 def blossom_block(ctx: Context) -> Block | None:
@@ -119,9 +121,7 @@ def snow_block(ctx: Context) -> Block | None:
     """«이번 주» 줄과 다룰지는 1번 날씨 예보의 하늘상태에서 눈을 셈."""
     status = snow.fetch_status(ctx.today, timeout=snow.WEEKLY_TIMEOUT_SEC, retries=1)
     days = ctx.forecast().days
-    # «최근» 은 오늘까지 — 주 중간에 돌리면 월요일 뒤의 관측도 셈. 다음 주 미리 보기는 그 월요일 기준
-    as_of = max(ctx.today, ctx.week_start)
-    if not snow.showing(status, as_of, snowy=bool(snow_text.snow_days(days))):
+    if not snow.showing(status, ctx.as_of, snowy=bool(snow_text.snow_days(days))):
         return None
     paragraph = (Paragraph("이번 주 첫눈", emoji=":snowflake:")
                  .add("관측", snow_text.observed_line(status, bold))

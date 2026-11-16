@@ -103,7 +103,9 @@ def observed_line(snap: Snapshot, bold=html_bold, *, day: dt.date | None = None)
                             f"나머지 {counts[2]}곳은 단풍 전" if counts[2] else "", tally)
 
 
-def week_line(snap: Snapshot, start: dt.date, end: dt.date, bold=html_bold, muted=html_muted) -> str:
+def week_line(snap: Snapshot, start: dt.date, end: dt.date, bold=html_bold, muted=html_muted, *,
+              day: dt.date | None = None) -> str:
+    """start~end 의 예상 변화. 없으면 day(기본 start) 기준 절정 뒤 지난 날수."""
     if snap.outlook is None:
         return (f"{OUTLOOK_SOURCE} 예상을 읽지 못해 현황만 표시합니다" if snap.outlook_error
                 else "올해 예상이 아직 나오지 않았습니다")
@@ -111,7 +113,7 @@ def week_line(snap: Snapshot, start: dt.date, end: dt.date, bold=html_bold, mute
             for stage, changes in enumerate(week_changes(snap, start, end).values(), start=1) if changes]
     if bits:
         return " / ".join(bits) + " " + muted("(예상)")
-    return _after_peak(snap, start, bold)
+    return _after_peak(snap, day or start, bold)
 
 
 def _after_peak(snap: Snapshot, day: dt.date, bold) -> str:

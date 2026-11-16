@@ -57,6 +57,11 @@ class Context:
         return week_end_of(self.week_start)
 
     @property
+    def as_of(self) -> dt.date:
+        """관측의 «최근»·«지난 날수» 기준일 — 주 중간에 돌리면 오늘(월요일 뒤의 관측도 셈), 다음 주 미리 보기는 그 월요일."""
+        return max(self.today, self.week_start)
+
+    @property
     def scale(self) -> int:
         return self.cfg.card_scale
 

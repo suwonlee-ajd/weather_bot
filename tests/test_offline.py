@@ -1465,6 +1465,8 @@ def test_foliage_after_peak() -> None:
 
     html_text = build_html(snap, monday)
     assert "절정 2주 넘음" in html_text and "(2주 넘음 19곳)" in html_text
+    # 기준일을 따로 주면(주 중간 실행) 지도도 그날로 셈 — 금오산이 11/21 에는 절정 2주를 넘김
+    assert "(2주 넘음 20곳)" in build_html(snap, monday, day=d(2026, 11, 21))
     assert "절정 2주 넘음" not in build_html(fake_snapshot({"설악산": 1}), d(2026, 10, 5)), "옅은 표지가 없으면 범례도 없음"
 
     IMG.mkdir(parents=True, exist_ok=True)
@@ -1738,14 +1740,15 @@ def test_weekly_themes() -> None:
     import src.season.foliage.map as foliage_map
     from src.season.blossom.data import BlossomError, Outlook
     from src.season.foliage.data import FoliageError
+    from src.season.foliage.mountains import MOUNTAINS
     from src.weekly import pipeline, themes
 
     d = dt.date
     renders: list = []
     fail_render = [False]
 
-    def fake_render(snap, start, scale=2):
-        renders.append(start)
+    def fake_render(snap, start, *, day=None, scale=2):
+        renders.append((start, day))
         if fail_render[0]:
             raise RuntimeError("Chromium 없음")
         return b"PNG"
@@ -1762,7 +1765,7 @@ def test_weekly_themes() -> None:
     foliage.fetch_snapshot = lambda today, **k: fake_snapshot({"설악산": 1}, first={"설악산": d(2026, 9, 28)})
     foliage_map.render_png = fake_render
     # 실제와 같은 인자 꼴로 받음 — 부르는 쪽 인자가 어긋나면 그림이 빠져 아래 단언에 걸림
-    blossom_map.render_png = lambda outlook, start, *, scale=2: fake_render(outlook, start, scale)
+    blossom_map.render_png = lambda outlook, start, *, scale=2: fake_render(outlook, start, scale=scale)
     blossom.fetch_status = lambda: False
     blossom.fetch_outlook = lambda year, **k: Outlook(expected={"서귀포": d(2026, 3, 25)},
                                                 normal={"서귀포": d(2026, 3, 24)}, published=d(2026, 2, 26))
@@ -1783,6 +1786,15 @@ def test_weekly_themes() -> None:
         renders.clear()
         autumn = themes.foliage_block(weekly_ctx(d(2026, 10, 5), d(2026, 10, 2), can_render=False))
         assert autumn.attachment is None and autumn.credit.startswith("단풍 · ") and not renders
+        # 주 중간에 돌리면 절정 뒤 지난 날수는 오늘 기준(첫눈과 같은 ctx.as_of) — 월요일 뒤의 절정도 셈
+        peaks = {m.name: d(2026, 10, 20) for m in MOUNTAINS} | {"두륜산": d(2026, 11, 17), "금오산": d(2026, 11, 4)}
+        foliage.fetch_snapshot = lambda today, **k: fake_snapshot({m.name: 2 for m in MOUNTAINS}, peak=peaks)
+        monday = themes.foliage_block(weekly_ctx(d(2026, 11, 16))).paragraph.to_slack()
+        assert "절정 21곳(2주 넘음 19곳)" in monday and "절정 2주 안 *금오산* 11/4" in monday, monday
+        renders.clear()
+        thursday = themes.foliage_block(weekly_ctx(d(2026, 11, 16), d(2026, 11, 19))).paragraph.to_slack()
+        assert "절정 21곳(2주 넘음 20곳)" in thursday and "절정 2주 안 *두륜산* 11/17" in thursday, thursday
+        assert renders == [(d(2026, 11, 16), d(2026, 11, 19))], renders     # 지도도 같은 기준일
 
         spring = themes.blossom_block(spring_ctx)
         assert spring.paragraph.title == "이번 주 벚꽃" and spring.attachment.title == "벚꽃 지도"

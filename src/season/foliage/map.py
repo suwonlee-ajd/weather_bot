@@ -94,24 +94,27 @@ def _rows(snap: Snapshot, week_start: dt.date, week_end: dt.date, faded: set[str
     )
 
 
-def build_html(snap: Snapshot, week_start: dt.date, span_label: str = "이번 주") -> str:
+def build_html(snap: Snapshot, week_start: dt.date, span_label: str = "이번 주", *, day: dt.date | None = None) -> str:
+    """day 는 절정 뒤 지난 날수의 기준일(기본 week_start) — 글(text.observed_line · week_line)과 같은 날을 줌."""
     week_end = week_end_of(week_start)
+    day = day or week_start
     flagged = {n for changes in week_changes(snap, week_start, week_end).values() for n, _ in changes}
     faded = {m.name for m in MOUNTAINS
-             if (age := peak_age(snap, m.name, week_start)) is not None and age > FRESH_PEAK_DAYS}
+             if (age := peak_age(snap, m.name, day)) is not None and age > FRESH_PEAK_DAYS}
     marks = [(_icon(0), "단풍전"), (_icon(1), "첫단풍"), (_icon(2), "절정")]
     marks += [(_icon(2, faded=True), "절정 2주 넘음")] if faded else []
     marks += [(icon(ring(0, 0, 7), 18), "이번 주 예상")]
     table = ('<table><caption><b>굵게</b> 관측 · <span class="muted">흐리게</span> 예상</caption>'
              '<thead><tr><th>산</th><th>현황</th><th>첫단풍</th><th>절정</th></tr></thead>'
              f'<tbody>{_rows(snap, week_start, week_end, faded)}</tbody></table>')
-    rows = (("관측", observed_line(snap, day=week_start)), (span_label, week_line(snap, week_start, week_end)))
+    rows = (("관측", observed_line(snap, day=day)), (span_label, week_line(snap, week_start, week_end, day=day)))
     foot = f"{sources(snap, detail=True)}<br>{CRITERIA_TEXT}입니다."
     return Card("단풍 지도", week_start, rows, body(_svg(snap, flagged, faded) + legend(marks), table), foot).html(CSS)
 
 
-def render_png(snap: Snapshot, week_start: dt.date, *, span_label: str = "이번 주", scale: int = 2) -> bytes:
-    return capture(build_html(snap, week_start, span_label), scale=scale)
+def render_png(snap: Snapshot, week_start: dt.date, *, span_label: str = "이번 주", day: dt.date | None = None,
+               scale: int = 2) -> bytes:
+    return capture(build_html(snap, week_start, span_label, day=day), scale=scale)
 
 
 CSS = BASE_CSS + """

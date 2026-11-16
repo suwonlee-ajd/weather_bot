@@ -3,7 +3,7 @@
 모델에 맡기지 않음 — 지어낸 개화일·단풍일·태풍 이름은 그럴듯해서 알아채기 어려움. 수집이 실패하면 예외를 그대로
 올려 pipeline 이 그 영역만 빼고 게시함. 기간은 우리가 정하지 않음 — 다룰 때인지는 자료가 정함:
 
-  벚꽃  기상청 관측 중이거나, 관측 전 올해 첫 개화 예상일까지   관측 기상청 · 예상 웨더아이 + 지도
+  벚꽃  기상청 관측 중이거나, 관측 전 올해 첫 개화 예상일까지   예상 웨더아이 + 지도 (기상청은 기간만)
   장마  예보관 서술에 장마·정체전선이 있을 때                     그 주 예보 (따로 받지 않음)
   폭염  기준(낮 최고 33℃·아침 최저 25℃)에 닿는 날이나 예보관 언급이 있을 때  그 주 예보 (따로 받지 않음)
   태풍  예보관이 태풍을 말하고 기상청 목록에 진행 중일 때     현재·예상 기상청 태풍정보 · 예보관 서술 + 예상 경로 지도
@@ -62,31 +62,22 @@ def foliage_block(ctx: Context) -> Block | None:
 
 
 def blossom_block(ctx: Context) -> Block | None:
-    status = outlook = None
+    """싣는 것은 웨더아이 도시 예상뿐 — 기상청 목록은 다룰 때인지만 가름. 예상 수집 실패는 예외로 올림."""
     try:
-        status = blossom.fetch_status(ctx.today)
-    except Exception:
-        log.warning("기상청 벚꽃 관측을 받지 못했습니다", exc_info=True)
-    try:
-        # 지난해 표의 평년은 기상청이 관측 중일 때만 실음 — 그 밖엔 받지 않음(철 밖에도 매주 돌기 때문)
-        outlook = blossom.fetch_outlook(ctx.week_start.year, borrow_normal=bool(status and status.in_service))
-    except Exception:
-        log.warning("웨더아이 벚꽃 예상을 받지 못했습니다", exc_info=True)
-    if status is None and outlook is None:
-        raise blossom.BlossomError("기상청 관측과 웨더아이 예상을 모두 받지 못했습니다")
-    if not blossom.showing(status, outlook, ctx.week_start):
+        status = blossom.fetch_status()
+    except blossom.BlossomError as exc:
+        log.warning("기상청 벚꽃 관측 기간을 받지 못해 웨더아이 예상만으로 가릅니다 — %s", exc)
+        status = None
+    # 지난해 표의 평년은 기상청이 관측 중일 때만 실음 — 그 밖엔 받지 않음(철 밖에도 매주 돌기 때문)
+    outlook = blossom.fetch_outlook(ctx.week_start.year, borrow_normal=bool(status and status.in_service))
+    if not (outlook.expected or outlook.normal) or not blossom.showing(status, outlook, ctx.week_start):
         return None
-
-    paragraph = Paragraph("이번 주 벚꽃", emoji=":cherry_blossom:")
-    if status is not None:
-        paragraph.add("관측", blossom_text.observed_line(status))
-    # 못 받은 예상은 "아직 나오지 않았습니다" 로 둘러대지 않고 뺌
-    if outlook is not None:
-        paragraph.add("이번 주", blossom_text.week_line(outlook, ctx.week_start, ctx.week_end))
-        paragraph.add("올해" if outlook.expected else "평년", blossom_text.year_line(outlook))
+    paragraph = (Paragraph("이번 주 벚꽃", emoji=":cherry_blossom:")
+                 .add("이번 주", blossom_text.week_line(outlook, ctx.week_start, ctx.week_end))
+                 .add("올해" if outlook.expected else "평년", blossom_text.year_line(outlook)))
     return _with_map(ctx, paragraph, blossom_map.INFO,
-                     lambda: blossom_map.render_png(status, outlook, ctx.week_start, scale=ctx.scale),
-                     blossom_text.sources(status, outlook))
+                     lambda: blossom_map.render_png(outlook, ctx.week_start, scale=ctx.scale),
+                     blossom_text.sources(outlook))
 
 
 def typhoon_block(ctx: Context) -> Block | None:

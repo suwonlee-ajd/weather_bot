@@ -1,39 +1,13 @@
-"""벚꽃 문장 — 주간 게시의 관측·이번 주·올해 줄과 출처. bold 로 슬랙(기본)·지도(HTML)를 가름."""
+"""벚꽃 문장 — 주간 게시의 이번 주·올해 줄과 출처. bold 로 슬랙(기본)·지도(HTML)를 가름."""
 from __future__ import annotations
 
 import datetime as dt
 
 from src.common.text import bold, short_date
-from src.season.blossom.data import STAGES, Outlook, Status
+from src.season.blossom.data import Outlook
 from src.season.sources import OUTLOOK_SOURCE
-from src.season.summary import observed_summary
 
-NOT_STARTED_TEXT = "기상청 벚꽃 관측이 아직 시작되지 않았습니다 (해마다 3월부터)"
 NOT_PUBLISHED_TEXT = f"올해 개화 예상은 아직 나오지 않았습니다 ({OUTLOOK_SOURCE}, 해마다 2월 말 발표)"
-
-
-def observed_line(status: Status, bold=bold) -> str:
-    """관측 한 줄 — 핀 곳이 적으면 이름·날짜, 많으면 개수·최근 변화."""
-    if not status.in_service:
-        return NOT_STARTED_TEXT
-    events = []   # (날짜 또는 None, 군락지, 단계)
-    for name, stage in status.stages.items():
-        if stage:
-            events.append(((status.full if stage == 2 else status.bloom).get(name), name, stage))
-    waiting = len(status.stages) - len(events)
-    if not events:
-        return f"아직 핀 곳이 없습니다 — {len(status.stages)}곳 모두 개화 전"
-
-    def text(e) -> str:
-        day, name, stage = e
-        return f"{bold(name)} {STAGES[stage]}" + (f" {short_date(day)}" if day else "")
-
-    counts = [(STAGES[k], sum(1 for e in events if e[2] == k)) for k in (2, 1)]
-    tally = " · ".join(f"{label} {n}곳" for label, n in counts if n)
-    if waiting:
-        tally += f" · 개화 전 {waiting}곳"
-    return observed_summary([(e[0], text(e)) for e in events],
-                            f"나머지 {waiting}곳은 개화 전" if waiting else "", tally)
 
 
 def _grouped(days: list[tuple[str, dt.date]], bold=bold) -> str:
@@ -44,8 +18,8 @@ def _grouped(days: list[tuple[str, dt.date]], bold=bold) -> str:
     return " · ".join(f"{'·'.join(cities)} {short_date(d)}" for d, cities in sorted(by_day.items()))
 
 
-def week_line(outlook: Outlook | None, start: dt.date, end: dt.date, bold=bold) -> str:
-    if outlook is None or not outlook.expected:
+def week_line(outlook: Outlook, start: dt.date, end: dt.date, bold=bold) -> str:
+    if not outlook.expected:
         return NOT_PUBLISHED_TEXT
     week = [(c, d) for c, d in outlook.expected.items() if start <= d <= end]
     if week:
@@ -57,9 +31,9 @@ def week_line(outlook: Outlook | None, start: dt.date, end: dt.date, bold=bold) 
     return f"개화 예상 없음 · 다음은 {_grouped([x for x in ahead if x[1] == first], bold)} (예상)"
 
 
-def year_line(outlook: Outlook | None, bold=bold) -> str:
+def year_line(outlook: Outlook, bold=bold) -> str:
     """평년보다 이른지 늦은지. 올해 예상이 없으면 평년 개화일."""
-    if outlook is None or not outlook.normal:
+    if not outlook.normal:
         return ""
     seoul_normal = outlook.normal.get("서울")
     if not outlook.expected:
@@ -78,11 +52,7 @@ def year_line(outlook: Outlook | None, bold=bold) -> str:
     return trend
 
 
-def sources(status: Status | None, outlook: Outlook | None) -> str:
-    bits = ["관측 기상청 날씨누리"] if status is not None else []
-    if outlook is not None:
-        if outlook.expected:
-            bits.append(f"예상 {OUTLOOK_SOURCE}" + (f"({short_date(outlook.published)} 발표)" if outlook.published else ""))
-        else:
-            bits.append(f"평년 {OUTLOOK_SOURCE}")
-    return " · ".join(bits)
+def sources(outlook: Outlook) -> str:
+    if outlook.expected:
+        return f"예상 {OUTLOOK_SOURCE}" + (f"({short_date(outlook.published)} 발표)" if outlook.published else "")
+    return f"평년 {OUTLOOK_SOURCE}"

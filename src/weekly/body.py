@@ -6,7 +6,14 @@ import re
 from dataclasses import dataclass, field
 
 from src.advice.phrases import TEMP_STEMS
-from src.advice.rules import BIG_SPREAD, RAIN, Advice, build_advice, first_three
+from src.advice.rules import (
+    BIG_SPREAD,
+    RAIN,
+    Advice,
+    build_advice,
+    first_three,
+    rainy_days,
+)
 from src.common.text import short_day_label
 from src.weekly.forecast import Section, Source, WeekForecast
 
@@ -17,14 +24,6 @@ class Written:
     sections: list[Section] = field(default_factory=list)
     alerts: list[dict[str, str]] = field(default_factory=list)
     body: str = ""
-
-
-def _rainy_days(week: WeekForecast):
-    return [
-        d
-        for d in week.days
-        if (d.pop or 0) >= 60 or any(w in (d.sky or "") for w in ("비", "눈", "소나기"))
-    ]
 
 
 MAX_SECTIONS = 5  # 많으면 원본 캡처처럼 보이지 않음
@@ -57,40 +56,44 @@ def official_sections(week: WeekForecast) -> list[Section]:
     return sections[:MAX_SECTIONS]
 
 
-def fallback(week: WeekForecast) -> Written:
-    """카드는 예보관 원문, 본문은 규칙 기반 2문단."""
+def _lead(week: WeekForecast) -> str:
     morning, noon = week.morning_range, week.noon_range
     if morning and noon:
-        lead = (
+        return (
             f"이번 주 {week.area} 아침 기온은 {morning[0]:.0f}~{morning[1]:.0f}℃, "
             f"낮 기온은 {noon[0]:.0f}~{noon[1]:.0f}℃ 분포가 예상됩니다."
         )
-    else:
-        lead = f"이번 주 {week.area} 예보입니다."
+    return f"이번 주 {week.area} 예보입니다."
 
-    sections = official_sections(week)
-    if not sections:
-        for label, lo, hi in (("초반", 0, 2), ("중후반", 2, 5), ("주말 전망", 5, 7)):
-            chunk = [d for d in week.days[lo:hi] if d.is_complete]
-            if not chunk:
-                continue
-            mins = [v for d in chunk for v in (d.tmin_lo, d.tmin_hi) if v is not None]
-            maxs = [v for d in chunk for v in (d.tmax_lo, d.tmax_hi) if v is not None]
-            sections.append(
-                Section(
-                    label,
-                    f"{chunk[0].date:%-m월 %-d일}~{chunk[-1].date:%-d일}",
-                    f"아침 기온은 {min(mins):.0f}~{max(mins):.0f}℃, "
-                    f"낮 기온은 {max(maxs):.0f}℃ 안팎까지 오르겠습니다.",
-                    week.sources,
-                )
+
+def _range_sections(week: WeekForecast) -> list[Section]:
+    """예보관 서술이 없을 때의 카드 불릿 — 초반·중후반·주말의 기온 범위."""
+    sections: list[Section] = []
+    for label, lo, hi in (("초반", 0, 2), ("중후반", 2, 5), ("주말 전망", 5, 7)):
+        chunk = [d for d in week.days[lo:hi] if d.is_complete]
+        if not chunk:
+            continue
+        mins = [v for d in chunk for v in (d.tmin_lo, d.tmin_hi) if v is not None]
+        maxs = [v for d in chunk for v in (d.tmax_lo, d.tmax_hi) if v is not None]
+        sections.append(
+            Section(
+                label,
+                f"{chunk[0].date:%-m월 %-d일}~{chunk[-1].date:%-d일}",
+                f"아침 기온은 {min(mins):.0f}~{max(mins):.0f}℃, "
+                f"낮 기온은 {max(maxs):.0f}℃ 안팎까지 오르겠습니다.",
+                week.sources,
             )
+        )
+    return sections
 
-    # 1문단은 문장으로 맺음 — 규칙 기반 2문단(조언)은 모델처럼 «~사오니» 를 이어받지 못함
+
+def _weather_paragraph(week: WeekForecast) -> str:
+    """1문단은 문장으로 맺음 — 규칙 기반 2문단(조언)은 모델처럼 «~사오니» 를 이어받지 못함."""
+    morning, noon = week.morning_range, week.noon_range
     spreads = [
         d.tmax_mid - d.tmin_mid for d in week.days if d.tmin_mid is not None and d.tmax_mid is not None
     ]
-    rainy = _rainy_days(week)
+    rainy = rainy_days(week.days)
 
     weather: list[str] = []
     if morning and noon:
@@ -115,10 +118,15 @@ def fallback(week: WeekForecast) -> Written:
         weather.append("중간중간 비가 지나가겠습니다.")
     else:
         weather.append("날씨는 큰 변화 없이 이어지겠습니다.")
+    return " ".join(weather)
 
+
+def fallback(week: WeekForecast) -> Written:
+    """카드는 예보관 원문, 본문은 규칙 기반 2문단."""
+    sections = official_sections(week) or _range_sections(week)
     tips = build_advice(week.days, [line for n in week.narratives for line in n.lines])
-    body = " ".join(weather) + "\n\n" + theme_paragraph(tips)
-    return Written(lead=lead, sections=sections, alerts=[], body=body)
+    body = _weather_paragraph(week) + "\n\n" + theme_paragraph(tips)
+    return Written(lead=_lead(week), sections=sections, alerts=[], body=body)
 
 
 def quote_josa(text: str) -> str:

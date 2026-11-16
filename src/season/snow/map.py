@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import math
 from collections.abc import Sequence
 
 from src.common.browser import capture
@@ -13,19 +14,33 @@ from src.season.snow.text import SOURCES, observed_line, season_text, week_line
 
 INFO = MapInfo("첫눈", "snow", "계절관측 24곳의 올해 첫눈과 평년·지난겨울 지도(기상청)")
 
-# 관측은 파랑으로 채우고 아직은 회색 빈 원 — 모양으로도 가름(대비·색각 검증 통과, 회색은 «없음» 의 중립)
+# 관측은 파란 육각 눈 결정, 아직은 회색 빈 원 — 모양으로도 가름(대비·색각 검증 통과, 회색은 «없음» 의 중립)
 BLUE, GRAY = "#2a78d6", "#898781"
+
+
+def _flake(x: float, y: float, r: float) -> str:
+    """육각 눈 결정 — 가지 여섯에 끝 가까이 V 잔가지. 흰 테두리를 먼저 그려 바탕 지도·이름 위에서도 또렷하게."""
+    parts = []
+    for k in range(6):
+        a = math.radians(60 * k - 90)
+        parts.append(f"M{x:.1f},{y:.1f}L{x + r * math.cos(a):.1f},{y + r * math.sin(a):.1f}")
+        bx, by = x + 0.55 * r * math.cos(a), y + 0.55 * r * math.sin(a)
+        for side in (-1, 1):
+            b = a + side * math.radians(42)
+            parts.append(f"M{bx:.1f},{by:.1f}L{bx + 0.4 * r * math.cos(b):.1f},{by + 0.4 * r * math.sin(b):.1f}")
+    d, w = "".join(parts), max(1.2, r / 5)
+    return (f'<path d="{d}" fill="none" stroke="#fcfcfb" stroke-width="{w + 2.2:.1f}" stroke-linecap="round"/>'
+            f'<path d="{d}" fill="none" stroke="{BLUE}" stroke-width="{w:.1f}" stroke-linecap="round"/>')
 
 
 def _marker(x: float, y: float, seen: bool, r: float = 6.5) -> str:
     if seen:
-        # 흰 테두리가 안쪽을 먹어 +1 해야 빈 원과 같은 크기로 보임
-        return f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r + 1}" fill="{BLUE}" stroke="#fcfcfb" stroke-width="1.5"/>'
+        return _flake(x, y, r + 2.5)     # 가지만 있어 같은 반지름이면 빈 원보다 작아 보임
     return f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r}" fill="#fcfcfb" stroke="{GRAY}" stroke-width="2"/>'
 
 
 def _icon(seen: bool) -> str:
-    return f'<svg width="14" height="14" viewBox="-7 -7 14 14">{_marker(0, 0, seen, r=5)}</svg>'
+    return f'<svg width="16" height="16" viewBox="-8 -8 16 16">{_marker(0, 0, seen, r=4.6)}</svg>'
 
 
 def _this_year(status: Status, st: Station) -> str:

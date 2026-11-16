@@ -15,7 +15,8 @@ ASSET = Path(__file__).parent / "assets" / "korea_provinces.json"
 # 지도 표지 그림 — Google Noto Emoji(Apache License 2.0, 같은 폴더의 LICENSE). 글꼴에 기대지 않아 서버에 이모지
 # 글꼴이 없어도 같은 그림이 나옴. 원본 파일은 고치지 않고 읽을 때만 다듬음
 EMOJI_DIR = Path(__file__).parent / "assets" / "noto-emoji"
-EMOJI = {"maple": "emoji_u1f341.svg", "fallen": "emoji_u1f342.svg", "snow": "emoji_u2744.svg"}   # 🍁 🍂 ❄️
+EMOJI = {"maple": "emoji_u1f341.svg", "fallen": "emoji_u1f342.svg", "snow": "emoji_u2744.svg",   # 🍁 🍂 ❄️
+         "blossom": "emoji_u1f338.svg"}                                                          # 🌸
 
 
 @dataclass(frozen=True)

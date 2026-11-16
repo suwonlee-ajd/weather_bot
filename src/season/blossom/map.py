@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 from src.common.browser import capture
 from src.common.text import day_label, html_bold, short_date
-from src.season.basemap import BASE_CSS, MAP_W, MapInfo, frame, label, place
+from src.season.basemap import BASE_CSS, MAP_W, MapInfo, emoji, frame, label, place
 from src.season.blossom.data import STAGES, Outlook, Status
 from src.season.blossom.spots import CITY_BY_NAME, SITE_BY_NAME
 from src.season.blossom.text import observed_line, week_line, year_line
@@ -17,9 +17,10 @@ from src.season.sources import OUTLOOK_SOURCE
 
 INFO = MapInfo("벚꽃", "blossom", "벚꽃 군락지 13곳의 관측(기상청)과 19개 도시의 개화 예상(웨더아이) 지도")
 
-# 분홍→진분홍 한 색상 순서형이라 색맹 검증 통과. 단계는 모양(빈 원·아래 반원·채운 원)으로도 가름.
-# 예상(도시) 표지는 이 색을 쓰지 않음 — 지도의 분홍은 관측만 뜻하게
-PINK, ROSE, GRAY, INK2, PALE = "#e06294", "#9e2457", "#898781", "#52514e", "#c3c2b7"
+# 군락지는 개화 전 회색 빈 원 · 개화 옅은 🌸 · 만발 🌸 (단풍 지도와 같은 짜임). 예상(도시)은 🌸 를 쓰지 않고
+# 마름모 — 지도의 꽃은 관측만 뜻하게
+GRAY, INK2, PALE = "#898781", "#52514e", "#c3c2b7"
+BLOOM_OPACITY = 0.65         # 🌸 는 원래 연분홍이라 단풍(0.45)보다 덜 옅게 — 더 옅으면 바탕에 묻힘
 PANEL_W = 316                 # 두 장일 때 — (카드 700 - 좌우 여백 48 - 사이 20) / 2
 NOTE = "관측은 기상청이 군락지에서, 예상은 웨더아이가 도시마다 기상관서 표준목을 기준으로 냅니다."
 
@@ -38,11 +39,8 @@ class _Panel:
 def _site_marker(x: float, y: float, stage: int, r: float = 6.5) -> str:
     if stage == 0:
         return f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r}" fill="#fcfcfb" stroke="{GRAY}" stroke-width="2"/>'
-    if stage == 1:
-        return (f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r}" fill="#fcfcfb" stroke="{PINK}" stroke-width="2"/>'
-                f'<path d="M{x - r:.1f},{y:.1f} A{r},{r} 0 0 0 {x + r:.1f},{y:.1f} Z" fill="{PINK}"/>')
-    # 흰 테두리가 안쪽을 먹어 +1 해야 빈 원과 같은 크기로 보임
-    return f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r + 1}" fill="{ROSE}" stroke="#fcfcfb" stroke-width="1.5"/>'
+    # 그림은 여백이 있어 같은 크기면 빈 원보다 작아 보임
+    return emoji("blossom", x, y, 2 * r + 7, opacity=BLOOM_OPACITY if stage == 1 else 1.0)
 
 
 def _city_marker(x: float, y: float, when: str, r: float = 4.5) -> str:
@@ -78,7 +76,7 @@ def _site_rows(status: Status) -> str:
 
     return "".join(
         f'<tr><th scope="row">{name}</th>'
-        f'<td class="st">{_icon(_site_marker(0, 0, stage, r=5))}<span>{STAGES[stage]}</span></td>'
+        f'<td class="st">{_icon(_site_marker(0, 0, stage, r=5), size=18)}<span>{STAGES[stage]}</span></td>'
         f'<td>{cell(status.bloom.get(name), stage >= 1)}</td><td>{cell(status.full.get(name), stage >= 2)}</td></tr>'
         for name, stage in sorted(status.stages.items(), key=order)
     )
@@ -93,7 +91,7 @@ def _site_panel(status: Status) -> _Panel:
         marks.append(_site_marker(x, y, stage))
         labels.append(label(x, y, name, spot.label, strong=stage > 0))
     n = len(status.stages)
-    legend = "".join(f"<span>{_icon(_site_marker(0, 0, k, r=5))}{STAGES[k]}</span>" for k in range(3))
+    legend = "".join(f"<span>{_icon(_site_marker(0, 0, k, r=5), size=18)}{STAGES[k]}</span>" for k in range(3))
     return _Panel("관측", f"기상청 군락지 {n}곳", "".join(marks) + "".join(labels),
                   f"벚꽃 군락지 {n}곳 관측 지도", legend,
                   f"<table><thead><tr><th>군락지</th><th>현황</th><th>개화</th><th>만발</th></tr></thead>"

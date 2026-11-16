@@ -243,7 +243,7 @@ uv run ruff check src tests bin
 | [기상자료개방포털](https://data.kma.go.kr) | 첫눈 관측(계절관측 24곳)과 평년값 |
 | [웨더아이](https://www.weatheri.co.kr) | 단풍·벚꽃 예상 시기 (해마다 올리는 PDF) |
 | [Natural Earth](https://www.naturalearthdata.com) | 단풍·첫눈·벚꽃 지도의 시도 윤곽 (퍼블릭 도메인) |
-| [Noto Emoji](https://github.com/googlefonts/noto-emoji) | 단풍·첫눈 지도 표지 🍁 🍂 ❄️ (Apache License 2.0, `src/season/assets/noto-emoji/`) |
+| [Noto Emoji](https://github.com/googlefonts/noto-emoji) | 단풍·첫눈·벚꽃 지도 표지 🍁 🍂 ❄️ 🌸 (Apache License 2.0, `src/season/assets/noto-emoji/`) |
 
 - 이 프로젝트는 기상청·웨더아이와 관계가 없는 비공식 도구.
 - 게시물마다 출처를 밝힘. 자료를 다시 퍼뜨리거나 상업적으로 쓰려면 각 출처의 이용 조건을 먼저 확인함.

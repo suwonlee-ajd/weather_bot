@@ -2281,8 +2281,9 @@ def test_snow_render() -> None:
     from src.season.blossom.map import INFO as BLOSSOM_MAP
     from src.season.foliage.map import INFO as FOLIAGE_MAP
     from src.season.snow.map import INFO as SNOW_MAP
+    from src.season.typhoon.map import INFO as TYPHOON_MAP
     cleanup = (pathlib.Path(__file__).resolve().parents[1] / "bin" / "cleanup.py").read_text(encoding="utf-8")
-    assert all(f'"{m.slug}-*.png"' in cleanup for m in (FOLIAGE_MAP, SNOW_MAP, BLOSSOM_MAP)), \
+    assert all(f'"{m.slug}-*.png"' in cleanup for m in (FOLIAGE_MAP, SNOW_MAP, BLOSSOM_MAP, TYPHOON_MAP)), \
         "정리 패턴이 지도 이름과 다릅니다"
     print("[ok] 첫눈 지도 — 24곳 표 · 관측일·평년차 · 눈 예보")
 
@@ -2435,6 +2436,11 @@ def test_typhoon_parse() -> None:
     assert storm.now.summary == "괌 남동쪽 약 1370 km 부근 해상 · 중심기압 990hPa · 최대풍속 24m/s"
     assert [p.at.day for p in storm.forecast] == [21, 22, 23, 24, 25]
     assert storm.forecast[-1].place == "괌 서북서쪽 약 530 km 부근 해상"
+    # 지도에 쓰는 값 — 좌표, 예상 위치의 70% 확률반경, 현재 위치의 강풍반경(예외 방위·반경 포함), 빈 폭풍반경은 없음
+    assert (storm.now.lat, storm.now.lon, storm.now.radius) == (4.9, 153.8, None)
+    assert [p.radius for p in storm.forecast] == [110, 170, 260, 370, 480]
+    assert storm.now.gale.text == "280km(남서쪽 230km)" and storm.now.storm is None
+    assert [p.at.hour for p in storm.past] == [9, 15, 21, 3, 9] and storm.past[0].gale is None   # TD 줄은 반경 0
     # 같은 시각이 두 줄이면 뒤의 것
     current = "201902201500,4.9,153.8,괌 남동쪽 약 1370 km 부근 해상,W,17,990,24,TS,,,,280,SW,230,0,,,"
     fixed = current.replace(",990,24,", ",992,23,")
@@ -2483,6 +2489,7 @@ def test_typhoon_weekly() -> None:
 
     from src.kma import typhoon
     from src.kma.typhoon import TyphoonError, parse_track
+    from src.season.typhoon import map as typhoon_map
     from src.weekly import pipeline, themes
 
     week = dt.date(2019, 2, 18)
@@ -2497,7 +2504,17 @@ def test_typhoon_weekly() -> None:
     def labels(block) -> list[str]:
         return [r.label for r in block.paragraph.rows]
 
-    orig = typhoon.fetch_active
+    drawn: list = []
+    fail_render = [False]
+
+    def fake_render(storms, week_start, scale=2):
+        drawn.append([s.no for s in storms])
+        if fail_render[0]:
+            raise RuntimeError("Chromium 없음")
+        return b"PNG"
+
+    orig = (typhoon.fetch_active, typhoon_map.render_png)
+    typhoon_map.render_png = fake_render
     try:
         assert [s.name for s in pipeline.SECTIONS] == ["카드", "일기도", "벚꽃", "장마", "폭염", "태풍", "단풍", "첫눈"]
         # 기상청 목록이 비면 해당 없음 — 서술의 «태풍» 은 발생 가능성만 말하는 줄일 수 있음
@@ -2508,15 +2525,25 @@ def test_typhoon_weekly() -> None:
         block = themes.typhoon_block(weekly_ctx(week, days=days, narratives=[mid, notice]))
         rows = block.paragraph.rows
         assert block.paragraph.title == "이번 주 태풍" and block.paragraph.emoji == ":cyclone:"
-        assert block.attachment is None and labels(block) == ["현재", "예상", "이번 주"]
+        assert labels(block) == ["현재", "예상", "이번 주"] and drawn == [[2]]
+        assert block.attachment.filename == "typhoon-20190218.png" and block.attachment.title == "태풍 예상 경로 지도"
+        assert block.attachment.pattern == "typhoon-*.png"
         assert rows[0].text == ("*제2호 태풍 우딥(WUTIP)* · 괌 남동쪽 약 1370 km 부근 해상 · 중심기압 990hPa · "
                                 "최대풍속 24m/s (2/20(수) 15시 기준)"), rows[0].text
         assert rows[1].text == "2/24(일) 15시 괌 서쪽 약 390 km 부근 해상", rows[1].text   # 2/25(월) 은 다음 주
         # 통보문(가까운 날)이 먼저, 같은 줄은 한 번, 원문 그대로
         assert rows[2].text == ('"(종합) 제2호 태풍 우딥 북상, 주 후반 남해안 너울 유의" / '
                                 '"(해상) 제2호 태풍 우딥의 영향으로 24일 남해상 물결 매우 높겠음"'), rows[2].text
-        assert block.credit == "태풍 · 기상청 태풍정보(2/20 16시 발표) · 기상청 예보 통보문 · 기상청 중기예보", \
+        assert block.credit == "태풍 예상 경로 지도 · 기상청 태풍정보(2/20 16시 발표) · 기상청 예보 통보문 · 기상청 중기예보", \
             block.credit
+        # 지도를 못 그려도 글은 남고 출처의 «예상 경로 지도» 가 빠짐, Chromium 이 없으면 그리지도 않음
+        fail_render[0] = True
+        block = themes.typhoon_block(weekly_ctx(week, days=days, narratives=[mid, notice]))
+        assert block.attachment is None and block.credit.startswith("태풍 · 기상청 태풍정보") and block.paragraph.rows
+        fail_render[0] = False
+        drawn.clear()
+        block = themes.typhoon_block(weekly_ctx(week, days=days, narratives=[notice], can_render=False))
+        assert block.attachment is None and not drawn and block.credit.startswith("태풍 · ")
         # 예보관이 태풍을 말하지 않으면 멀리 있는 태풍은 싣지 않음(사용자 결정) — 태풍정보도 받지 않음
         asked: list = []
         typhoon.fetch_active = lambda: asked.append(1) or [storm]
@@ -2524,20 +2551,59 @@ def test_typhoon_weekly() -> None:
         # 본문이 이미 인용한 줄은 «이번 주» 에서 빼되, 태풍 사실(현재·예상)은 실음
         quoted_body = '기상청은 "*제2호 태풍 우딥 북상, 주 후반 남해안 너울 유의*"이라고 전하고 있습니다.'
         block = themes.typhoon_block(weekly_ctx(week, days=days, narratives=[notice], body=quoted_body))
-        assert labels(block) == ["현재", "예상"] and block.credit == "태풍 · 기상청 태풍정보(2/20 16시 발표)"
+        assert labels(block) == ["현재", "예상"] and block.credit == "태풍 예상 경로 지도 · 기상청 태풍정보(2/20 16시 발표)"
         # 둘이면 «예상» 에 이름을 붙임
         typhoon.fetch_active = lambda: [storm, replace(storm, no=3, name="세파트", en_name="SEPAT")]
         block = themes.typhoon_block(weekly_ctx(week, days=days, narratives=[notice]))
         assert labels(block) == ["현재", "예상"] * 2 + ["이번 주"], labels(block)
         assert block.paragraph.rows[3].text.startswith("세파트 2/24(일)")
+        assert drawn[-1] == [2, 3]                                   # 태풍이 여럿이어도 지도는 한 장
         # 태풍정보를 못 받으면 예보관 서술만 — 위험 신호를 영역 실패로 묻지 않음
         typhoon.fetch_active = lambda: (_ for _ in ()).throw(TyphoonError("점검"))
+        drawn.clear()
         block = themes.typhoon_block(weekly_ctx(week, days=days, narratives=[notice]))
         assert labels(block) == ["이번 주"] and block.credit == "태풍 · 기상청 예보 통보문", block.credit
+        assert block.attachment is None and not drawn                # 그릴 경로가 없음
         assert themes.typhoon_block(weekly_ctx(week, days=days)) is None    # 서술에도 없으면 해당 없음
     finally:
-        typhoon.fetch_active = orig
+        typhoon.fetch_active, typhoon_map.render_png = orig
     print("[ok] 태풍 주간 게시 — 예보관이 말하고 진행 중일 때만, 이번 주 안의 예상, 본문과 안 겹치는 인용, 실패엔 서술만")
+
+
+def test_typhoon_map() -> None:
+    """태풍 예상 경로 지도 — 시각·중심기압 글자, 경로표에 있는 반경만 그리고 범례도 그만큼, 기압선은 일기도로."""
+    from dataclasses import replace
+
+    from src.kma import typhoon
+    from src.season.typhoon import pacific
+    from src.season.typhoon.map import build_html, render_png
+
+    storm = typhoon.parse_track(WUTIP_OSP, typhoon.issued_of(WUTIP_URL))
+    week = dt.date(2019, 2, 18)
+    html_text = build_html([storm], week)
+    assert "<h1>태풍 예상 경로</h1>" in html_text and "기상청 태풍정보 (2/20 16시 발표)" in html_text
+    assert "기압선은 함께 올린 지상일기도에서 볼 수 있습니다" in html_text
+    assert ">20일 15시 990hPa<" in html_text and ">제2호 우딥<" in html_text     # 현재 위치
+    assert '<text class="when" x="' in html_text and ">24일 15시 950hPa<" in html_text
+    assert 'class="when later"' in html_text and ">25일 15시 955hPa<" in html_text   # 다음 주 예상은 옅게
+    assert "강풍반경 280km(남서쪽 230km)" in html_text                              # 머리 줄에 원문 반경
+    assert "70% 확률반경 —" in html_text and "강풍반경 — 초속 15m" in html_text
+    assert "폭풍반경" not in html_text and 'class="storm"' not in html_text        # 경로표가 비워 둔 반경은 없음
+    assert "emoji" not in html_text and ">한국<" in html_text
+    # 반경이 하나도 없으면 범례 둘째 줄도 없음
+    bare = replace(storm, now=replace(storm.now, gale=None), forecast=tuple(replace(p, radius=None) for p in storm.forecast))
+    bare_html = build_html([bare], week)
+    assert "확률반경" not in bare_html and "강풍반경" not in bare_html and "<ellipse" not in bare_html
+    # 범위는 경로·반경과 한국을 다 담고, 카드 높이 안에 맞춤
+    view = pacific.fit([(160.6, 4.8), (140.0, 14.6)], 652, 560, 380)
+    assert view.lon0 < 124 and view.lon1 > 160.6 and view.lat0 < 4.8 and view.lat1 > 38.8, view
+    assert 380 - 1 <= view.height <= 560 + 1, view.height
+
+    IMG.mkdir(parents=True, exist_ok=True)
+    png = render_png([storm], week)
+    assert png.startswith(PNG_MAGIC)
+    (IMG / "typhoon-test.png").write_bytes(png)
+    print(f"[ok] 태풍 지도 — 시각·중심기압 글자, 있는 반경만 그림·범례, 기압선은 일기도로 {len(png):,}B -> {IMG / 'typhoon-test.png'}")
 
 
 if __name__ == "__main__":
@@ -2597,4 +2663,5 @@ if __name__ == "__main__":
     test_monsoon_weekly()
     test_typhoon_parse()
     test_typhoon_weekly()
+    test_typhoon_map()
     print("\n전부 통과")

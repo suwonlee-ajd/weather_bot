@@ -40,6 +40,7 @@
 | --- | --- |
 | `season/foliage` · `season/snow` · `season/blossom` | `data` 수집·읽기·다룰 때(`showing` — 고정 기간 없이 자료로) · `text` 문장 · `map` 지도 · 지점 목록(`mountains` · `stations` · `spots`) |
 | `season/heat` · `season/monsoon` | `data` 그 주 예보에서 읽기·다룰 때(`showing`) — 따로 받지 않음 · `text` 문장 (지도 없음) |
+| `season/typhoon` | `map` 예상 경로 지도 · `pacific` 북서태평양 바탕 — 자료는 `kma/typhoon`, 모양만 `Protocol` 로 받음(`kma` 를 가져다 쓰지 않음) |
 | `mention/weather` | `region` 광역 답 · `dong` 동네예보 답 |
 | `mention/foliage` · `mention/snow` | `reply` 단독 답 · `note` 날씨 답 끝의 한 줄 |
 
@@ -51,7 +52,7 @@
 | --- | --- | --- |
 | `common/` | 설정 · 로그 · 캐시 · 보존 · 표기 · HTML → PNG | 어디서나 |
 | `kma/` | 기상청 수집 (광역 · 동네 · 전망 · 일기도 · 태풍) | `common` |
-| `season/` | 단풍 · 첫눈 · 벚꽃 · 장마 · 더위 자료와 문장 · 지도 | `common` |
+| `season/` | 단풍 · 첫눈 · 벚꽃 · 장마 · 더위 자료와 문장 · 지도, 태풍 지도 | `common` |
 | `advice/` | 수치에서 생활 조언 | (없음) |
 | `weekly/` | 주간 게시 | `common` · `kma` · `season` · `advice` |
 | `mention/` | 멘션 봇 | `common` · `kma` · `season` · `advice` |

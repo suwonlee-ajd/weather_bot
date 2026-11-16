@@ -21,14 +21,18 @@ EMOJI = {"maple": "emoji_u1f341.svg", "fallen": "emoji_u1f342.svg", "snow": "emo
 
 @dataclass(frozen=True)
 class MapInfo:
-    """지도마다 다른 이름표. slug 는 올릴 파일 이름 앞부분이자 보존 정리 패턴(slug-*.png)임."""
+    """지도마다 다른 이름표. slug 는 올릴 파일 이름 앞부분이자 보존 정리 패턴(slug-*.png)임.
+
+    heading 은 «X 지도» 대신 쓸 그림 이름 — 그림이 빠지면 출처 줄은 name 만 씀.
+    """
     name: str
     slug: str
     alt: str
+    heading: str = ""
 
     @property
     def title(self) -> str:
-        return f"{self.name} 지도"
+        return self.heading or f"{self.name} 지도"
 
 # 위도 36° 기준 등장방형 — 남한만 그려 이것으로 충분함
 LON0, LON1, LAT0, LAT1 = 124.55, 130.35, 33.05, 38.68

@@ -1,4 +1,4 @@
-"""기상청 태풍정보 — 진행 중인 태풍의 현재 위치·중심기압·최대풍속과 예상 위치.
+"""기상청 태풍정보 — 진행 중인 태풍의 지난 경로, 현재 위치·중심기압·최대풍속·바람 반경과 예상 위치(70% 확률반경).
 
 날씨누리 태풍 지도(typhoon_02.jsp)가 읽는 정적 파일을 받음 — 목록 RTKO63.tbl 과 태풍마다 경로표 .osp(CSV).
 """
@@ -26,7 +26,10 @@ TTL_SEC = 1800
 RETRY_SEC = 120
 # 경로표 한 줄 19칸 — 칸 뜻은 날씨누리 typhoonContent.js(loadTyphoon) 그대로
 _AT, _LAT, _LON, _PLACE, _PRESSURE, _WIND, _KIND, _RADIUS, _LINKED = 0, 1, 2, 3, 6, 7, 8, 15, 18
+_STORM, _GALE = 9, 12           # 폭풍반경(초속 25m)·강풍반경(초속 15m) — 바로 뒤 두 칸이 예외 방위·예외반경
 _FIELDS = 19
+_DIRS = dict(zip("N NNE NE ENE E ESE SE SSE S SSW SW WSW W WNW NW NNW".split(),
+                 "북 북북동 북동 동북동 동 동남동 남동 남남동 남 남남서 남서 서남서 서 서북서 북서 북북서".split(), strict=True))
 # 날씨누리 지도가 약화된 태풍에 붙이는 문구 그대로 — 종류 칸이나 연관 칸의 «-END» 로 앎
 _WEAKENED = {"TD": "열대저압부로 약화", "LOW": "온대저기압으로 변질"}
 
@@ -36,11 +39,29 @@ class TyphoonError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class Reach:
+    """바람 반경 — 한 방위만 짧으면 그 방위와 반경(예외반경)이 따로 옴(«280km(남서쪽 230km)»)."""
+    km: int
+    except_dir: str = ""
+    except_km: int | None = None
+
+    @property
+    def text(self) -> str:
+        tail = f"({self.except_dir}쪽 {self.except_km}km)" if self.except_dir and self.except_km else ""
+        return f"{self.km}km{tail}"
+
+
+@dataclass(frozen=True)
 class Point:
     at: dt.datetime
+    lat: float
+    lon: float
     place: str                  # «괌 남동쪽 약 1370 km 부근 해상»
     pressure: int | None        # 중심기압 hPa
     wind: int | None            # 최대풍속 m/s
+    radius: int | None = None   # 70% 확률반경 km — 예상 위치에만
+    gale: Reach | None = None   # 강풍반경
+    storm: Reach | None = None  # 폭풍반경
 
     @property
     def when(self) -> str:
@@ -62,6 +83,7 @@ class Typhoon:
     now: Point
     forecast: tuple[Point, ...] = ()
     weakened: str = ""
+    past: tuple[Point, ...] = ()        # 현재 앞의 위치 — 시각순
 
     @property
     def title(self) -> str:
@@ -102,6 +124,17 @@ def _number(raw: str) -> float | None:
         return None
 
 
+def _positive(raw: str) -> int | None:
+    """빈 칸·0·-999 는 값 없음."""
+    value = _number(raw)
+    return int(value) if value is not None and value > 0 else None
+
+
+def _reach(row: list[str], at: int) -> Reach | None:
+    km = _positive(row[at])
+    return Reach(km, _DIRS.get(row[at + 1].strip(), ""), _positive(row[at + 2])) if km else None
+
+
 def _usable(row: list[str]) -> bool:
     """날씨누리 지도와 같은 기준 — 19칸이고 시각·위경도가 있음. 뒤에 붙는 빈 줄(,,,,…)을 거름."""
     if len(row) < _FIELDS or not row[_AT].strip():
@@ -114,9 +147,8 @@ def _point(row: list[str]) -> Point:
         at = dt.datetime.strptime(row[_AT].strip(), "%Y%m%d%H%M").replace(tzinfo=KST)
     except ValueError as exc:
         raise TyphoonError(f"기상청 태풍 경로표의 시각을 읽지 못했습니다: {row[_AT]!r}") from exc
-    # 빈 칸·0·-999 는 값 없음
-    pressure, wind = (int(v) if (v := _number(row[i])) and v > 0 else None for i in (_PRESSURE, _WIND))
-    return Point(at, row[_PLACE].strip(), pressure, wind)
+    return Point(at, float(row[_LAT]), float(row[_LON]), row[_PLACE].strip(), _positive(row[_PRESSURE]),
+                 _positive(row[_WIND]), _positive(row[_RADIUS]), _reach(row, _GALE), _reach(row, _STORM))
 
 
 def _is_forecast(row: list[str]) -> bool:
@@ -146,7 +178,8 @@ def parse_track(text: str, issued: dt.datetime | None = None) -> Typhoon:
         raise TyphoonError(f"기상청 태풍 경로표에 현재 위치가 없습니다 ({head[2]})")
     now = _point(observed[-1])          # 같은 시각이 두 줄이면 뒤의 것 — 날씨누리 지도도 뒤의 것을 씀
     forecast = tuple(p for row in rows if _is_forecast(row) and (p := _point(row)).at > now.at)
-    return Typhoon(int(head[0]), int(head[1]), head[2], head[3], issued, now, forecast, _weakened(observed[-1]))
+    past = tuple(p for row in observed[:-1] if (p := _point(row)).at < now.at)
+    return Typhoon(int(head[0]), int(head[1]), head[2], head[3], issued, now, forecast, _weakened(observed[-1]), past)
 
 
 def _decode(raw: bytes) -> str:

@@ -6,7 +6,7 @@
   벚꽃  기상청 관측 중이거나, 관측 전 올해 첫 개화 예상일까지   관측 기상청 · 예상 웨더아이 + 지도
   장마  예보관 서술에 장마·정체전선이 있을 때                     그 주 예보 (따로 받지 않음)
   폭염  기준(낮 최고 33℃·아침 최저 25℃)에 닿는 날이나 예보관 언급이 있을 때  그 주 예보 (따로 받지 않음)
-  태풍  예보관이 태풍을 말하고 기상청 목록에 진행 중일 때     현재·예상 기상청 태풍정보 · 예보관 서술 (글만)
+  태풍  예보관이 태풍을 말하고 기상청 목록에 진행 중일 때     현재·예상 기상청 태풍정보 · 예보관 서술 + 예상 경로 지도
   단풍  기상청 관측 중이거나, 관측 전 올해 첫 예상일까지        관측 기상청 · 예상 웨더아이 + 지도
   첫눈  지난 7일 안에 관측됐거나, 아직인 곳에 그 주 눈 예보가 있을 때  관측 기상청 계절관측 · 평년 + 지도
 """
@@ -34,6 +34,7 @@ from src.season.monsoon import text as monsoon_text
 from src.season.snow import data as snow
 from src.season.snow import map as snow_map
 from src.season.snow import text as snow_text
+from src.season.typhoon import map as typhoon_map
 from src.weekly.forecast import WeekForecast
 from src.weekly.paragraph import Block, Paragraph
 from src.weekly.sections import Context
@@ -89,10 +90,10 @@ def blossom_block(ctx: Context) -> Block | None:
 
 
 def typhoon_block(ctx: Context) -> Block | None:
-    """예보관이 태풍을 말하고 기상청 목록에 진행 중인 태풍이 있을 때만, 글만 — 태풍 위치는 2번 일기도가 보여 줌.
+    """예보관이 태풍을 말하고 기상청 목록에 진행 중인 태풍이 있을 때만. 예상 경로 지도는 태풍이 여럿이어도 한 장.
 
     멀리 있는 태풍(괌 근처 등)은 예보관이 말하지 않으면 싣지 않음(사용자 결정). 태풍정보를 받지 못했어도
-    예보관 서술에 태풍이 있으면 그 줄만 실음 — 위험 신호를 영역 실패로 묻지 않게.
+    예보관 서술에 태풍이 있으면 그 줄만 글로 실음 — 위험 신호를 영역 실패로 묻지 않게. 그때는 그릴 경로가 없음.
     """
     week = ctx.forecast()
     mentioned = _typhoon_lines(week.narratives if week else [])
@@ -117,7 +118,11 @@ def typhoon_block(ctx: Context) -> Block | None:
         name = f"{storm.name} " if len(storms) > 1 else ""
         paragraph.add("예상", f"{name}{ahead[-1].when} {ahead[-1].place}" if ahead else "")
     paragraph.add("이번 주", " / ".join(narrative.quote(text) for text, _ in quotes))
-    return Block(paragraph, f"태풍 · {_typhoon_sources(storms, quotes)}")
+    sources = _typhoon_sources(storms, quotes)
+    if not storms:
+        return Block(paragraph, f"태풍 · {sources}")
+    return _with_map(ctx, paragraph, typhoon_map.INFO,
+                     lambda: typhoon_map.render_png(storms, ctx.week_start, scale=ctx.scale), sources)
 
 
 def _notice_first(n: Narrative) -> int:

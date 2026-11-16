@@ -30,33 +30,14 @@ def _partial_start(fc, date: dt.date) -> int | None:
     return min(hours) if hours and min(hours) > 0 else None
 
 
-def _dong_reply(zone: str, name: str, days: int = 4, start: dt.date | None = None,
-                *, quiet: bool = False, today: dt.date | None = None) -> str:
-    """동·시도 단위 동네예보. quiet 이면 실패·빈 결과에 안내문 대신 빈 문자열(산 답에 붙일 때)."""
-    try:
-        fc = fetch_dong(zone, name)
-    except DongError as exc:
-        log.warning("동네예보 실패: %s", exc)
-        if quiet:
-            return ""
-        return (
-            f"*{name}* 동네예보를 가져오지 못했습니다.\n"
-            f"광역 구역으로는 7일치를 볼 수 있습니다 — 예: {self_mention()} 수도권\n\n{help_text()}"
-        )
+def _pick_days(available: list, days: int, start: dt.date | None) -> list:
+    if start is None:
+        return available[:max(1, days)]
+    return [row for row in available if row[0] >= start][:max(1, days)]
 
-    available = fc.daily_summary()
-    summary = available
-    if start is not None:
-        summary = [row for row in available if row[0] >= start][:max(1, days)]
-        if not summary:
-            if quiet:
-                return ""
-            return (
-                f"*{name}* 동네예보는 오늘부터 {DONG_MAX_DAYS}일까지만 제공됩니다. {NO_EMOJI}\n"
-                f"그 이후는 광역 구역으로 불러 주세요. 예: {self_mention()} 수도권"
-            )
-    else:
-        summary = summary[:max(1, days)]
+
+def _forecast_lines(fc, summary: list) -> list[str]:
+    """머리글 · 날짜별 줄 · 조언 · 발표 시각."""
     scope = (day_label(summary[0][0]) if len(summary) == 1
              else f"{day_label(summary[0][0])} ~ {day_label(summary[-1][0])}")
     lines = [f"*{fc.name}* 동네예보 ({scope})"]
@@ -79,12 +60,46 @@ def _dong_reply(zone: str, name: str, days: int = 4, start: dt.date | None = Non
         lines.append("")
         lines += [f"{t.emoji} {t.text}" for t in tips]
     lines.append(f"_기상청 동네예보 · {fc.issued} 발표_")
+    return lines
+
+
+def _dong_reply(zone: str, name: str, days: int = 4, start: dt.date | None = None,
+                *, today: dt.date | None = None) -> str:
+    """동·시도 단위 동네예보. today 를 주면 끝에 단풍·첫눈 한 줄."""
+    try:
+        fc = fetch_dong(zone, name)
+    except DongError as exc:
+        log.warning("동네예보 실패: %s", exc)
+        return (
+            f"*{name}* 동네예보를 가져오지 못했습니다.\n"
+            f"광역 구역으로는 7일치를 볼 수 있습니다 — 예: {self_mention()} 수도권\n\n{help_text()}"
+        )
+
+    available = fc.daily_summary()
+    summary = _pick_days(available, days, start)
+    if start is not None and not summary:
+        return (
+            f"*{name}* 동네예보는 오늘부터 {DONG_MAX_DAYS}일까지만 제공됩니다. {NO_EMOJI}\n"
+            f"그 이후는 광역 구역으로 불러 주세요. 예: {self_mention()} 수도권"
+        )
+    lines = _forecast_lines(fc, summary)
     # 광역 안내는 자료 끝날까지 보여 줬을 때만 — 끝날은 발표 시각마다 달라(글피·그글피) 일수로 못 잼.
-    # 하루치 답(본문이 짧음)과 산 답(quiet)에는 붙이지 않음.
-    if not quiet and len(summary) > 1 and summary[-1][0] == available[-1][0]:
+    # 하루치 답(본문이 짧음)에는 붙이지 않음.
+    if len(summary) > 1 and summary[-1][0] == available[-1][0]:
         lines.append(f"_더 먼 날이 필요하시면 광역 구역으로 불러 주세요 (최대 10일). "
                      f"예: {self_mention()} 수도권_")
     if today is not None:
         lines += _foliage_note(zone, summary[0][0], summary[-1][0], today)
         lines += _snow_note(zone, [(row[0], row[3]) for row in summary], today)
     return "\n".join(lines)
+
+
+def _quiet_dong_reply(zone: str, name: str, days: int, start: dt.date) -> str:
+    """산 답에 붙일 동네예보 — 실패·빈 결과면 안내문 대신 빈 문자열, 광역 안내·철 소식 없음."""
+    try:
+        fc = fetch_dong(zone, name)
+    except DongError as exc:
+        log.warning("동네예보 실패: %s", exc)
+        return ""
+    summary = _pick_days(fc.daily_summary(), days, start)
+    return "\n".join(_forecast_lines(fc, summary)) if summary else ""

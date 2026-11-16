@@ -5,7 +5,7 @@ import datetime as dt
 import logging
 import re
 
-from src.advice.rules import detect_topic
+from src.advice.topics import detect_topic
 from src.common.config import KST
 from src.kma.dong_zone import find_wide, search_dong
 from src.kma.outlook import OutlookError, fetch_outlook
@@ -27,6 +27,7 @@ from src.mention.parse import (
     TODAY_RE,
     TOMORROW_RE,
     TOO_FAR_RE,
+    Period,
     _period,
 )
 from src.mention.reply import Reply
@@ -45,8 +46,6 @@ from src.season.foliage.mountains import (
 )
 
 log = logging.getLogger("weather-mention")
-
-
 
 
 def _outlook_reply(region, query: str) -> str:
@@ -98,24 +97,24 @@ def build_reply(text: str, now: dt.datetime | None = None) -> str:
     if (reply := _small_talk(query)) is not None:
         return reply
 
-    start, days, title = _period(query, now)
+    period = _period(query, now)
     if mountain := find_mountain(query):
         # 산은 지역 목록에 없음 — 산 아래 마을 예보로
-        return _mountain_reply(mountain, start, days, title, now.date())
+        return _mountain_reply(mountain, period, now.date())
 
     for pattern in (EXPLICIT_DATE_RE, NEXT_WEEK_RE, THIS_WEEK_RE, TODAY_RE, TOMORROW_RE, RECENT_RE,
                     NOISE_RE):
         query = pattern.sub(" ", query)
     query = query.strip()
 
-    if (reply := _city_reply(query, start, days, title, now)) is not None:
+    if (reply := _city_reply(query, period, now)) is not None:
         return reply
     topic = detect_topic(text)
-    found = _find_region(query, text, topic, start, days, now)
+    found = _find_region(query, text, topic, period, now)
     if isinstance(found, str):
         return found
     region, note = found
-    return region_reply(region, note, title, start, days, topic, now)
+    return region_reply(region, note, period, topic, now)
 
 
 def _small_talk(query: str) -> str | None:
@@ -151,12 +150,13 @@ def _small_talk(query: str) -> str | None:
     return None
 
 
-def _city_reply(query: str, start: dt.date, days: int, title: str, now: dt.datetime) -> str | None:
+def _city_reply(query: str, period: Period, now: dt.datetime) -> str | None:
     """시도를 물으면 동네예보로 답함(광역 '부산·울산·경남' 은 부산 값이 아님). 못 채우면 None → 광역."""
     wide = find_wide(query) or next(
         (w for tok in re.split(r"[\s,]+", query) if (w := find_wide(tok))), None)
     if not wide:
         return None
+    start, days = period.start, period.days
     last = now.date() + dt.timedelta(days=DONG_MAX_DAYS - 1)
     if start > last:
         return None
@@ -164,13 +164,13 @@ def _city_reply(query: str, start: dt.date, days: int, title: str, now: dt.datet
         reply = _dong_reply(wide[0], wide[1], days, start, today=now.date())
         # NO_EMOJI 가 있으면 거절 답 — 광역으로 넘김
         return None if NO_EMOJI in reply else reply
-    if title.startswith("앞으로"):
+    if period.title.startswith("앞으로"):
         # 기간을 안 말했으면 닿는 데까지만 — 일수보다 «부산 값» 이 중요함
         return _dong_reply(wide[0], wide[1], (last - start).days + 1, start, today=now.date())
     return None                        # '이번 주'·'다음 주' 는 기간을 채우는 광역으로
 
 
-def _find_region(query: str, text: str, topic: str | None, start: dt.date, days: int,
+def _find_region(query: str, text: str, topic: str | None, period: Period,
                  now: dt.datetime) -> tuple[Region, str] | str:
     """광역이면 (구역, 바꿔 읽은 안내), 아니면 동 단위로 찾은 답(str)."""
     region, note = resolve_region(query)
@@ -183,7 +183,7 @@ def _find_region(query: str, text: str, topic: str | None, start: dt.date, days:
         return region, note
     hits = search_dong(query, limit=4)
     if len(hits) == 1 or (hits and hits[0].name.replace(" ", "") == query.replace(" ", "")):
-        return _dong_reply(hits[0].code, hits[0].full_name, days, start, today=now.date())
+        return _dong_reply(hits[0].code, hits[0].full_name, period.days, period.start, today=now.date())
     if hits:
         # 단정하지 않고 되물음 — 강릉에도 강남동이 있음
         listed = "\n".join(f"• {h.full_name}" for h in hits)

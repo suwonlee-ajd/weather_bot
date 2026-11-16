@@ -102,15 +102,23 @@ def find_wide(query: str) -> tuple[str, str] | None:
     return None
 
 
+def _split_wide(text: str) -> tuple[str | None, str]:
+    """앞에 붙은 시/도 약칭 → (시/도 정식 이름, 나머지). 없으면 (None, text)."""
+    for alias, full in WIDE_ALIASES.items():
+        if text.startswith(alias) and len(text) > len(alias):
+            return full, text[len(alias):]
+    return None, text
+
+
+def _heads(city_name: str) -> set[str]:
+    """'성남시분당구' 같은 합친 이름도 앞 토막('성남')으로 걸리게 함."""
+    name = _normalize(city_name)
+    return {name} | {name.split(cut)[0] for cut in ("시", "군", "구") if cut in name}
+
+
 def _candidate_cities(text: str) -> list[tuple[dict, dict]]:
     wides = get_or_set("zone:wide", ZONE_TTL_SEC, lambda: _zone("WIDE"))
-    rest = text
-
-    scoped = None
-    for alias, full in WIDE_ALIASES.items():
-        if rest.startswith(alias) and len(rest) > len(alias):
-            scoped, rest = full, rest[len(alias):]
-            break
+    scoped, rest = _split_wide(text)
 
     pairs: list[tuple[dict, dict]] = []
     for wide in wides:
@@ -121,10 +129,7 @@ def _candidate_cities(text: str) -> list[tuple[dict, dict]]:
             lambda w=wide: _zone("CITY", w["code"]),
         )
         for city in cities:
-            name = _normalize(city["name"])
-            # '성남시분당구' 같은 합친 이름도 앞 토막('성남')으로 걸리게 함
-            heads = {name} | {name.split(cut)[0] for cut in ("시", "군", "구") if cut in name}
-            if any(h and (rest.startswith(h) or h.startswith(rest)) for h in heads if h):
+            if any(h and (rest.startswith(h) or h.startswith(rest)) for h in _heads(city["name"]) if h):
                 pairs.append((wide, city))
     return pairs
 
@@ -142,6 +147,47 @@ def _all_dongs() -> list[Dong]:
     return get_or_set("zone:all", ZONE_TTL_SEC, build)
 
 
+def _pool(text: str) -> tuple[list[tuple[dict, dict]], list[Dong]]:
+    """(걸린 시군구들, 후보 동). 시군구가 안 걸리면 전국 동."""
+    pairs = _candidate_cities(text)
+    pool: list[Dong] = []
+    for wide, city in pairs[:6]:
+        pool += get_or_set(
+            f"zone:dong:{city['code']}", ZONE_TTL_SEC,
+            lambda w=wide, c=city: _dongs_in(w, c),
+        )
+    if not pool:
+        pool = _all_dongs()          # 동 이름만 준 경우 (역삼, 봉담 …)
+    return pairs, pool
+
+
+def _strip_place(text: str, pairs: list[tuple[dict, dict]]) -> str:
+    """시/도에 시군구 이름까지 떼어냄 — "성남 판교" 의 '판교' 로 동을 고르게."""
+    _, stripped = _split_wide(text)
+    for _, city in pairs:
+        for head in sorted((h for h in _heads(city["name"]) if h), key=len, reverse=True):
+            if stripped.startswith(head) and len(stripped) > len(head):
+                return stripped[len(head):]
+    return stripped
+
+
+def _score(stripped: str, d: Dong, narrowed: bool) -> int | None:
+    """작을수록 가까움. None 이면 후보에서 뺌."""
+    name, city = _normalize(d.name), _normalize(d.city)
+    if stripped == name:
+        return 0
+    if name.startswith(stripped):
+        return 1
+    if stripped in name:
+        return 2
+    if city.startswith(stripped) or stripped.startswith(city.rstrip("시군구")):
+        # 구 이름만 준 경우('강남')
+        return 3 if stripped not in name else 2
+    if narrowed:
+        return 4        # 시군구로 좁혀진 결과라 후보로 남김
+    return None         # 전국을 훑는 중이면 버림
+
+
 def search_dong(query: str, limit: int = 5) -> list[Dong]:
     """행정동 후보를 점수순으로. 구 이름만('강남')도, 시/도·시군구를 붙인 말('강릉 강남')도 받음."""
     text = _normalize(query)
@@ -149,54 +195,13 @@ def search_dong(query: str, limit: int = 5) -> list[Dong]:
         return []
 
     try:
-        pairs = _candidate_cities(text)
-        pool: list[Dong] = []
-        for wide, city in pairs[:6]:
-            pool += get_or_set(
-                f"zone:dong:{city['code']}", ZONE_TTL_SEC,
-                lambda w=wide, c=city: _dongs_in(w, c),
-            )
-        if not pool:
-            pool = _all_dongs()          # 동 이름만 준 경우 (역삼, 봉담 …)
+        pairs, pool = _pool(text)
     except (requests.RequestException, ValueError) as exc:
         log.warning("행정동 조회 실패: %s", exc)
         return []
 
-    stripped = text
-    for alias in WIDE_ALIASES:
-        if stripped.startswith(alias) and len(stripped) > len(alias):
-            stripped = stripped[len(alias):]
-            break
-    # 시군구 이름까지 떼어냄 — "성남 판교" 의 '판교' 로 동을 고르게
-    for _, city in pairs:
-        name = _normalize(city["name"])
-        heads = {name} | {name.split(cut)[0] for cut in ("시", "군", "구") if cut in name}
-        for head in sorted((h for h in heads if h), key=len, reverse=True):
-            if stripped.startswith(head) and len(stripped) > len(head):
-                stripped = stripped[len(head):]
-                break
-        else:
-            continue
-        break
-
-    scored: list[tuple[int, Dong]] = []
-    for d in pool:
-        name, city = _normalize(d.name), _normalize(d.city)
-        if stripped == name:
-            score = 0
-        elif name.startswith(stripped):
-            score = 1
-        elif stripped in name:
-            score = 2
-        elif city.startswith(stripped) or stripped.startswith(city.rstrip("시군구")):
-            # 구 이름만 준 경우('강남')
-            score = 3 if stripped not in name else 2
-        elif pairs:
-            score = 4        # 시군구로 좁혀진 결과라 후보로 남김
-        else:
-            continue         # 전국을 훑는 중이면 버림
-        scored.append((score, d))
-
+    stripped = _strip_place(text, pairs)
+    scored = [(score, d) for d in pool if (score := _score(stripped, d, bool(pairs))) is not None]
     scored.sort(key=lambda pair: (pair[0], pair[1].full_name))
     hits = [d for _, d in scored[:limit]]
 

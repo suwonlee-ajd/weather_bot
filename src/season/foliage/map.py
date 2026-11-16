@@ -57,12 +57,7 @@ def _icon(stage: int, faded: bool = False) -> str:
     return f'<svg width="14" height="14" viewBox="-7 -7 14 14">{_marker(0, 0, Mark(stage, faded=faded), r=5)}</svg>'
 
 
-def build_html(snap: Snapshot, week_start: dt.date, span_label: str = "이번 주") -> str:
-    week_end = week_start + dt.timedelta(days=6)
-    flagged = {n for changes in week_changes(snap, week_start, week_end).values() for n, _ in changes}
-    faded = {m.name for m in MOUNTAINS
-             if (age := peak_age(snap, m.name, week_start)) is not None and age > FRESH_PEAK_DAYS}
-
+def _svg(snap: Snapshot, flagged: set[str], faded: set[str]) -> str:
     marks, labels = [], []
     for m in MOUNTAINS:
         x, y = place(m.lon, m.lat)
@@ -70,8 +65,10 @@ def build_html(snap: Snapshot, week_start: dt.date, span_label: str = "이번 �
         marks.append(_marker(x, y, Mark(stage, ring=m.name in flagged, faded=m.name in faded)))
         strong = m.name in flagged or (stage > 0 and m.name not in faded)
         labels.append(label(x, y, m.name, m.label, strong=strong))
-    svg = frame("".join(marks) + "".join(labels), f"전국 {len(MOUNTAINS)}개 명산 단풍 현황 지도")
+    return frame("".join(marks) + "".join(labels), f"전국 {len(MOUNTAINS)}개 명산 단풍 현황 지도")
 
+
+def _rows(snap: Snapshot, week_start: dt.date, week_end: dt.date, faded: set[str]) -> str:
     def cell(kind: str, name: str) -> str:
         day, observed = snap.when(kind, name)
         if observed:
@@ -86,13 +83,21 @@ def build_html(snap: Snapshot, week_start: dt.date, span_label: str = "이번 �
         day, observed = snap.when("first", m.name)
         return (day is None and not observed, day or dt.date.min, -m.lat)
 
-    rows = "".join(
+    return "".join(
         f'<tr><th scope="row">{m.name}</th>'
         f'<td class="st">{_icon(snap.stage(m.name), m.name in faded)}<span>{STAGES[snap.stage(m.name)]}</span></td>'
         + "".join(f"<td>{cell(kind, m.name)}</td>" for kind in KINDS) + "</tr>"
         for m in sorted(MOUNTAINS, key=order)
     )
 
+
+def build_html(snap: Snapshot, week_start: dt.date, span_label: str = "이번 주") -> str:
+    week_end = week_start + dt.timedelta(days=6)
+    flagged = {n for changes in week_changes(snap, week_start, week_end).values() for n, _ in changes}
+    faded = {m.name for m in MOUNTAINS
+             if (age := peak_age(snap, m.name, week_start)) is not None and age > FRESH_PEAK_DAYS}
+    svg = _svg(snap, flagged, faded)
+    rows = _rows(snap, week_start, week_end, faded)
     faded_legend = f"<span>{_icon(2, faded=True)}절정 2주 넘음</span>" if faded else ""
     return f"""<!doctype html><html lang="ko"><head><meta charset="utf-8"><style>{CSS}</style></head>
 <body><div id="card">

@@ -256,7 +256,7 @@ def test_topic_advice() -> None:
     """활동·복장 질문에 맞춘 조언. 지역·날짜와 함께 와도 해석함."""
     from types import SimpleNamespace
 
-    from src.advice.rules import detect_topic, topic_advice
+    from src.advice.topics import detect_topic, topic_advice
     from src.kma.regions import extract_region
 
     assert detect_topic("내일 뭐 입지?") == "옷차림"
@@ -878,8 +878,8 @@ def test_footer_and_region_variation() -> None:
         assert ":cold_face:" not in cold_night and "아침 최저" not in cold_night, cold_night
 
         dong.fetch_dong = lambda z, n: fake_fetch(z, n, 4)
-        mountain = dong._dong_reply("5121060000", "설악산 아래 속초시 대포동", 4,
-                                       dt.date(2026, 9, 16), quiet=True)
+        mountain = dong._quiet_dong_reply("5121060000", "설악산 아래 속초시 대포동", 4,
+                                          dt.date(2026, 9, 16))
         assert mountain and "더 먼 날이 필요" not in mountain, mountain
 
         dong.fetch_dong = lambda z, n: fake_fetch(z, n, 3)

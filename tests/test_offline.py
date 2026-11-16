@@ -1703,7 +1703,7 @@ def test_blossom_spots() -> None:
 
 
 def test_blossom_render() -> None:
-    """벚꽃 지도 — 군락지·도시를 두 장으로, 이번 주 예상 강조, 한쪽이 없거나 관측 전이면 받은 쪽만 크게."""
+    """벚꽃 지도 — 늘 한 장, 도시 기준: 웨더아이 도시 예상. 군락지 관측은 머리 줄·꼬리말, 예상이 없을 때만 군락지 지도."""
     from src.season.blossom.data import Outlook, Status
     from src.season.blossom.map import build_html
     from src.season.blossom.map import render_png as render_map
@@ -1717,19 +1717,21 @@ def test_blossom_render() -> None:
                                 "서울": d(2026, 4, 3), "춘천": d(2026, 4, 8)},
                       normal={"서귀포": d(2026, 3, 24), "서울": d(2026, 4, 8)}, published=d(2026, 2, 26))
     html_text = build_html(status, outlook, monday)
-    assert html_text.count('<svg width="316"') == 2, "군락지·도시 지도가 나란히 두 장이 아닙니다"
-    assert html_text.count('<tr><th scope="row">') == 13 + 3                  # 군락지 13줄 · 도시 5곳은 두 갈래 3줄
+    assert html_text.count('role="img"') == 1, "지도가 한 장이 아닙니다"
+    assert "<th>도시</th>" in html_text and "<th>군락지</th>" not in html_text   # 관측 중이어도 지도는 도시
+    assert html_text.count('<tr><th scope="row">') == 3                       # 도시 5곳은 두 갈래 3줄
     assert '<span class="prd week">3/31</span>' in html_text and '<span class="prd past">3/25</span>' in html_text
-    assert '<span class="obs">관측</span>' in html_text, "핀 단계인데 촬영일이 없는 곳은 «관측»"
+    assert "만발 1곳 · 개화 2곳" in html_text, "군락지 관측은 머리 줄에 남음"
     assert "개화 <b>대전</b> 3/31 · <b>서울</b> 4/3 (예상)" in html_text
     assert "(3/29 관측까지)" in html_text and "(2/26 발표, 5개 도시)" in html_text
 
     # 기상청 관측 전이면 군락지 지도 없이 도시 지도만 — 모두 «개화 전» 으로 보이면 관측한 것처럼 읽힘
     pre = build_html(Status(stages={n: 0 for n in BLOSSOM_SITES}, in_service=False), outlook, d(2026, 3, 2))
-    assert 'class="cols single"' in pre and "<th>군락지</th>" not in pre and "아직 시작되지 않았습니다" in pre
-    # 한쪽을 못 받았으면 받은 쪽만, 못 받은 것은 꼬리말에
+    assert "<th>도시</th>" in pre and "<th>군락지</th>" not in pre and "아직 시작되지 않았습니다" in pre
+    # 예상을 못 받았을 때만 군락지 지도, 못 받은 것은 꼬리말에
     only_obs = build_html(status, None, monday)
-    assert 'class="cols single"' in only_obs and "<th>도시</th>" not in only_obs
+    assert "<th>군락지</th>" in only_obs and "<th>도시</th>" not in only_obs
+    assert '<span class="obs">관측</span>' in only_obs, "핀 단계인데 촬영일이 없는 곳은 «관측»"
     assert "웨더아이 예상은 받지 못했습니다" in only_obs
     only_outlook = build_html(None, outlook, monday)
     assert "<th>군락지</th>" not in only_outlook and "기상청 관측은 받지 못했습니다" in only_outlook

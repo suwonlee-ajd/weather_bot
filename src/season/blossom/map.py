@@ -1,6 +1,7 @@
-"""벚꽃 지도 — 기상청 군락지 관측과 웨더아이 도시 개화 예상을 두 장으로 나란히 그림.
+"""벚꽃 지도 — 웨더아이 도시 개화 예상을 한 장으로 그림(사용자 결정: 지도는 도시 기준).
 
-두 자료는 장소부터 다름(군락지 13곳 · 도시 19곳). 한 장에 겹치면 여의도·서울처럼 붙은 점이 한 곳으로 읽힘.
+두 자료는 장소부터 다름(군락지 13곳 · 도시 19곳). 한 장에 겹치면 여의도·서울처럼 붙은 점이 한 곳으로 읽혀
+지도엔 도시만 — 기상청 군락지 관측은 머리 줄(관측)과 꼬리말에 씀. 예상을 못 받았을 때만 군락지 지도.
 """
 from __future__ import annotations
 
@@ -9,7 +10,7 @@ from dataclasses import dataclass
 
 from src.common.browser import capture
 from src.common.text import day_label, html_bold, short_date
-from src.season.basemap import BASE_CSS, MAP_W, MapInfo, emoji, frame, label, place
+from src.season.basemap import BASE_CSS, MapInfo, emoji, frame, label, place
 from src.season.blossom.data import STAGES, Outlook, Status
 from src.season.blossom.spots import CITY_BY_NAME, SITE_BY_NAME
 from src.season.blossom.text import observed_line, week_line, year_line
@@ -21,13 +22,12 @@ INFO = MapInfo("벚꽃", "blossom", "벚꽃 군락지 13곳의 관측(기상청)
 # 마름모 — 지도의 꽃은 관측만 뜻하게
 GRAY, INK2, PALE = "#898781", "#52514e", "#c3c2b7"
 BLOOM_OPACITY = 0.65         # 🌸 는 원래 연분홍이라 단풍(0.45)보다 덜 옅게 — 더 옅으면 바탕에 묻힘
-PANEL_W = 316                 # 두 장일 때 — (카드 700 - 좌우 여백 48 - 사이 20) / 2
 NOTE = "관측은 기상청이 군락지에서, 예상은 웨더아이가 도시마다 기상관서 표준목을 기준으로 냅니다."
 
 
 @dataclass(frozen=True)
 class _Panel:
-    """지도 한 장 — 바탕은 그릴 때 깜(한 장이면 크게, 두 장이면 PANEL_W)."""
+    """지도 한 장과 그 옆 표 — 바탕은 그릴 때 깜."""
     kind: str                 # 관측 · 예상 · 평년
     title: str
     marks: str                # 표지 + 라벨 SVG
@@ -144,14 +144,13 @@ def _city_panel(outlook: Outlook, start: dt.date, end: dt.date) -> _Panel:
                   f"<tbody>{rows}</tbody></table>")
 
 
-def _layout(panels: list[_Panel]) -> str:
-    """두 장이면 나란히(표는 지도 밑), 한 장이면 단풍 지도처럼 지도 옆에 표."""
-    single = len(panels) == 1
-    width = MAP_W if single else PANEL_W
-    return f'<div class="cols{" single" if single else ""}">' + "".join(
-        f'<div class="col"><h2><span class="k">{p.kind}</span>{p.title}</h2><div class="pane">'
-        f'<div class="map">{frame(p.marks, p.aria, width)}<div class="legend">{p.legend}</div></div>{p.table}</div></div>'
-        for p in panels) + "</div>"
+def _layout(panel: _Panel | None) -> str:
+    """단풍 지도처럼 지도 옆에 표."""
+    if panel is None:
+        return ""
+    return (f'<h2><span class="k">{panel.kind}</span>{panel.title}</h2><div class="pane">'
+            f'<div class="map">{frame(panel.marks, panel.aria)}<div class="legend">{panel.legend}</div></div>'
+            f'{panel.table}</div>')
 
 
 def _lead(status: Status | None, outlook: Outlook | None, start: dt.date, end: dt.date) -> str:
@@ -183,19 +182,22 @@ def _foot(status: Status | None, outlook: Outlook | None) -> str:
 
 
 def build_html(status: Status | None, outlook: Outlook | None, week_start: dt.date) -> str:
-    """둘 중 하나는 None 일 수 있음 — 받은 쪽만 크게 한 장으로 그리고, 못 받은 쪽은 꼬리말에 적음.
+    """지도는 늘 한 장, 도시 기준 — 웨더아이 도시 예상(올해 표가 없으면 지난해 표의 평년). 군락지 관측은 머리 줄·꼬리말에.
 
-    관측 전(서비스 밖)이면 군락지 지도를 그리지 않음 — 단계가 모두 0 이라 «개화 전» 으로 보이면 관측한 것처럼 읽힘.
+    예상을 못 받았을 때만 군락지 지도 — 관측 전(서비스 밖)이면 그것도 그리지 않음: 단계가 모두 0 이라 «개화 전» 으로
+    보이면 관측한 것처럼 읽힘. 둘 중 하나는 None 일 수 있음.
     """
     week_end = week_start + dt.timedelta(days=6)
-    panels = [_site_panel(status)] if status is not None and status.in_service else []
+    panel = None
     if outlook is not None and (outlook.expected or outlook.normal):
-        panels.append(_city_panel(outlook, week_start, week_end))
+        panel = _city_panel(outlook, week_start, week_end)
+    elif status is not None and status.in_service:
+        panel = _site_panel(status)
     return f"""<!doctype html><html lang="ko"><head><meta charset="utf-8"><style>{CSS}</style></head>
 <body><div id="card">
   <div class="head"><h1>벚꽃 지도</h1><span class="period">{day_label(week_start)} ~ {day_label(week_end)}</span></div>
   <div class="lead">{_lead(status, outlook, week_start, week_end)}</div>
-  {_layout(panels)}
+  {_layout(panel)}
   <div class="foot">{_foot(status, outlook)}</div>
 </div></body></html>"""
 
@@ -204,15 +206,10 @@ def render_png(status: Status | None, outlook: Outlook | None, week_start: dt.da
     return capture(build_html(status, outlook, week_start), scale=scale)
 
 
-# 두 장일 때는 지도를 PANEL_W 로 줄인 만큼 라벨 글자를 키워 단풍·첫눈 지도와 같은 크기로 보이게 함
 CSS = BASE_CSS + """
 .lead { background: #fbf0f4; }
-.cols { display: flex; gap: 20px; align-items: flex-start; }
-.col { flex: 1 1 0; min-width: 0; }
-.cols:not(.single) .lbl { font-size: 12.6px; }
-.cols:not(.single) .legend { margin-bottom: 10px; }
-.single .pane { display: flex; gap: 18px; align-items: flex-start; }
-.single .map { flex: none; }
+.pane { display: flex; gap: 18px; align-items: flex-start; }
+.pane .map { flex: none; }
 h2 { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
 h2 .k { display: inline-block; font-size: 12px; font-weight: 600; color: var(--ink2); background: #f0efec;
         border-radius: 4px; padding: 0 6px; margin-right: 6px; }

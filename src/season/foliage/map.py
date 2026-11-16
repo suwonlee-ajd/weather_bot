@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from dataclasses import dataclass
 
 from src.common.browser import capture
 from src.common.text import day_label, short_date
@@ -27,9 +28,17 @@ INFO = MapInfo("단풍", "foliage", "전국 21개 명산의 단풍 현황(기상
 ORANGE, RED, GRAY, FADED = "#eb6834", "#a8321f", "#898781", "#e3b4a8"
 
 
-def _marker(x: float, y: float, stage: int, ring: bool = False, r: float = 6.5, faded: bool = False) -> str:
-    out = []
-    if ring:
+@dataclass(frozen=True)
+class Mark:
+    """산 표지 — 단계, 이번 주 예상(점선 고리), 절정 2주 넘음(옅게)."""
+    stage: int
+    ring: bool = False
+    faded: bool = False
+
+
+def _marker(x: float, y: float, mark: Mark, r: float = 6.5) -> str:
+    stage, out = mark.stage, []
+    if mark.ring:
         out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r + 4.5}" fill="none" '
                    f'stroke="#0b0b0b" stroke-width="1.4" stroke-dasharray="2.6 2.2"/>')
     if stage == 0:
@@ -39,13 +48,13 @@ def _marker(x: float, y: float, stage: int, ring: bool = False, r: float = 6.5, 
         out.append(f'<path d="M{x - r:.1f},{y:.1f} A{r},{r} 0 0 0 {x + r:.1f},{y:.1f} Z" fill="{ORANGE}"/>')
     else:
         # 흰 테두리가 안쪽을 먹어 +1 해야 빈 원과 같은 크기로 보임
-        out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r + 1}" fill="{FADED if faded else RED}" '
+        out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r + 1}" fill="{FADED if mark.faded else RED}" '
                    f'stroke="#fcfcfb" stroke-width="1.5"/>')
     return "".join(out)
 
 
 def _icon(stage: int, faded: bool = False) -> str:
-    return f'<svg width="14" height="14" viewBox="-7 -7 14 14">{_marker(0, 0, stage, r=5, faded=faded)}</svg>'
+    return f'<svg width="14" height="14" viewBox="-7 -7 14 14">{_marker(0, 0, Mark(stage, faded=faded), r=5)}</svg>'
 
 
 def build_html(snap: Snapshot, week_start: dt.date, span_label: str = "이번 주") -> str:
@@ -58,7 +67,7 @@ def build_html(snap: Snapshot, week_start: dt.date, span_label: str = "이번 �
     for m in MOUNTAINS:
         x, y = place(m.lon, m.lat)
         stage = snap.stage(m.name)
-        marks.append(_marker(x, y, stage, ring=m.name in flagged, faded=m.name in faded))
+        marks.append(_marker(x, y, Mark(stage, ring=m.name in flagged, faded=m.name in faded)))
         strong = m.name in flagged or (stage > 0 and m.name not in faded)
         labels.append(label(x, y, m.name, m.label, strong=strong))
     svg = frame("".join(marks) + "".join(labels), f"전국 {len(MOUNTAINS)}개 명산 단풍 현황 지도")

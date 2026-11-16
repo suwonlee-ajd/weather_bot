@@ -15,6 +15,7 @@ from src.advice.rules import (
     rainy_days,
 )
 from src.common.text import short_day_label
+from src.season.narrative import nearest_first
 from src.weekly.forecast import Section, Source, WeekForecast
 
 
@@ -37,9 +38,7 @@ def official_sections(week: WeekForecast) -> list[Section]:
     """예보관 문장을 그대로 카드 불릿으로 씀 — 지어낼 여지가 없고, 괄호 머리말이 곧 라벨임."""
     sections: list[Section] = []
     seen: set[str] = set()
-    # 통보문(가까운 날)이 중기예보보다 먼저
-    ordered = sorted(week.narratives, key=lambda n: 0 if "통보문" in n.title else 1)
-    for narrative in ordered:
+    for narrative in nearest_first(week.narratives):
         source = [Source(narrative.title, narrative.url)]
         for line in narrative.lines:
             m = NARRATIVE_RE.match(line)

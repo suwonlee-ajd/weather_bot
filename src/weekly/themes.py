@@ -17,7 +17,6 @@ from collections.abc import Callable
 
 from src.advice.rules import RAIN_LIKELY
 from src.common.text import bold
-from src.kma.page import Narrative
 from src.season import narrative
 from src.season.basemap import MapInfo
 from src.season.blossom import data as blossom
@@ -46,8 +45,11 @@ log = logging.getLogger(__name__)
 
 def _with_map(ctx: Context, paragraph: Paragraph, info: MapInfo, render: Callable[[], bytes] | None,
               sources: str) -> Block:
-    """지도를 못 그려도(render 가 None — 그릴 것이 없어도) 글은 남김 — 출처의 «X 지도» 도 실린 것에 맞춰 «X» 로."""
-    att = ctx.image(info.slug, info.title, info.alt, render) if render else None
+    """지도를 못 그려도(render 가 None — 그릴 것이 없어도) 글은 남김 — 출처의 «X 지도» 도 실린 것에 맞춰 «X» 로.
+
+    글이 비면(인용할 줄이 모두 본문에 있음) 지도도 그리지 않음 — 문단 없이 지도만 실리지 않게.
+    """
+    att = ctx.image(info.slug, info.title, info.alt, render) if render and not paragraph.empty else None
     return Block(paragraph, f"{info.title if att else info.name} · {sources}", att)
 
 
@@ -90,7 +92,7 @@ def typhoon_block(ctx: Context) -> Block | None:
     예보관 서술에 태풍이 있으면 그 줄만 글로 실음 — 위험 신호를 영역 실패로 묻지 않게. 그때는 그릴 경로가 없음.
     """
     week = ctx.forecast()
-    mentioned = narrative.mentioning_in(_nearest_first(week.narratives if week else []), ("태풍",))
+    mentioned = narrative.mentioning_in(narrative.nearest_first(week.narratives if week else []), ("태풍",))
     if not mentioned:
         return None                       # 예보관이 태풍을 말하지 않음 — 태풍정보도 받지 않음
     try:
@@ -101,7 +103,7 @@ def typhoon_block(ctx: Context) -> Block | None:
     if storms == []:
         return None                       # 목록이 비었음 — 서술의 «태풍» 은 발생 가능성만 말하는 줄일 수 있음
     body = ctx.body()
-    quotes = [q for q in mentioned if not narrative.in_body(q[0], body)][:narrative.MAX_QUOTES]
+    quotes = narrative.unquoted(mentioned, body, text=lambda q: q[0])
     storms = storms or []
 
     paragraph = Paragraph("이번 주 태풍", emoji=":cyclone:")
@@ -112,11 +114,6 @@ def typhoon_block(ctx: Context) -> Block | None:
     render = (lambda: typhoon_map.render_png(storms, ctx.week_start, scale=ctx.scale)) if storms else None
     sources = typhoon_text.sources(storms, (n.title for _, n in quotes))
     return _with_map(ctx, paragraph, typhoon_map.INFO, render, sources)
-
-
-def _nearest_first(narratives: list[Narrative]) -> list[Narrative]:
-    """통보문(가까운 날)을 중기예보보다 먼저 — 수집 순서는 중기예보가 앞이고, 인용 개수를 넘으면 뒤쪽이 잘림."""
-    return sorted(narratives, key=lambda n: "통보문" not in n.title)
 
 
 def snow_block(ctx: Context) -> Block | None:
@@ -138,7 +135,7 @@ def snow_block(ctx: Context) -> Block | None:
 
 
 def _lines(week: WeekForecast) -> list[str]:
-    return [line for n in _nearest_first(week.narratives) for line in n.lines]
+    return [line for n in narrative.nearest_first(week.narratives) for line in n.lines]
 
 
 def _quote_rows(paragraph: Paragraph, mentioned: list[str], ctx: Context) -> Paragraph:

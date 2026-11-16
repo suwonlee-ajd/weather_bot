@@ -2675,7 +2675,7 @@ def test_typhoon_map() -> None:
     week = dt.date(2019, 2, 18)
     html_text = build_html([storm], week)
     assert "<h1>태풍 예상 경로</h1>" in html_text and "기상청 태풍정보(2/20 16시 발표) · 바탕 지도" in html_text
-    assert "기압선은 함께 올린 지상일기도에서 볼 수 있습니다" in html_text
+    assert "기압선은 기상청 지상일기도에서 볼 수 있습니다" in html_text
     assert ">20일 15시 990hPa<" in html_text and ">제2호 우딥<" in html_text     # 현재 위치
     assert '<text class="when" x="' in html_text and ">24일 15시 950hPa<" in html_text
     assert 'class="when later"' in html_text and ">25일 15시 955hPa<" in html_text   # 다음 주 예상은 옅게

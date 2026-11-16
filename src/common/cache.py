@@ -18,8 +18,13 @@ class _Failure:
     def reraise(self):
         try:
             exc = self.kind(*self.args)
-        except Exception:                     # 인자로 다시 못 만드는 예외 — 글만 살림
-            exc = RuntimeError(self.text)
+        except Exception:
+            # 인자로 다시 못 만드는 예외(JSONDecodeError 등) — 종류는 살려 부른 쪽 except 에 그대로 걸리게
+            try:
+                exc = self.kind.__new__(self.kind)
+                exc.args = self.args
+            except Exception:
+                exc = RuntimeError(self.text)
         raise exc
 
 

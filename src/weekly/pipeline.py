@@ -95,6 +95,8 @@ def _build(section: Section, ctx: Context) -> Block | None:
         log.warning("%s 영역 실패 — 이 영역은 빠짐 (%.1f초)", section.name, time.monotonic() - started,
                     exc_info=True)
         return None
+    if block is not None and block.empty:       # 출처만 남은 덩어리 — 종합에서 빠지므로 «완료» 라 남기지 않음
+        block = None
     log.info("%s 영역 %s (%.1f초)", section.name, "완료" if block else "해당 없음", time.monotonic() - started)
     return block
 

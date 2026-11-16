@@ -84,14 +84,23 @@ class _Labels:
         self.parts.append(f'<text class="{cls}" x="{x:.1f}" y="{y:.1f}">{html.escape(text)}</text>')
 
 
+def _name(storm: Typhoon) -> str:
+    return f"제{storm.no}호 {storm.name}"
+
+
+def _name_boxes(view: pacific.View, storm: Typhoon) -> list[Box]:
+    """현재 위치 아래 두 줄(이름·시각)의 글자 상자 — 늘 그리므로 예상 글자보다 먼저 자리를 잡음."""
+    x, y = view.xy(storm.now.lon, storm.now.lat)
+    return [text_box(x, y + 25, _name(storm), 0.5, NAME_PX), text_box(x, y + 39, _stamp(storm.now), 0.5, WHEN_PX)]
+
+
 def _track(view: pacific.View, storm: Typhoon, week_end: dt.date, labels: _Labels) -> tuple[dict[str, str], str]:
     """(반경 종류별 원, 경로·표지·글자). 바람 반경은 현재 위치에, 확률반경은 예상 위치에. 이번 주 뒤는 옅게."""
     extents = {"radius": "".join(_extent(view, p, p.radius) for p in storm.forecast),
                "gale": _extent(view, storm.now, _km(storm.now.gale)),
                "storm": _extent(view, storm.now, _km(storm.now.storm))}
     x, y = view.xy(storm.now.lon, storm.now.lat)
-    name, stamp = f"제{storm.no}호 {storm.name}", _stamp(storm.now)
-    labels.taken += [text_box(x, y + 25, name, 0.5, NAME_PX), text_box(x, y + 39, stamp, 0.5, WHEN_PX)]
+    name, stamp = _name(storm), _stamp(storm.now)
     marks = [f'<circle class="pt" cx="{px:.1f}" cy="{py:.1f}" r="2.2"/>'
              for px, py in (view.xy(p.lon, p.lat) for p in storm.past)]
     for p in storm.forecast:
@@ -115,6 +124,8 @@ def build_svg(storms: Sequence[Typhoon], week_end: dt.date) -> tuple[str, list[s
     """(지도 SVG, 그린 반경 종류) — 범례는 실제로 그린 반경만 적음."""
     view = pacific.fit(_spots(storms), MAP_W, MAX_H, MIN_H)
     labels = _Labels()
+    # 태풍이 여럿이면 앞 태풍의 예상 글자가 뒤 태풍의 이름에 겹치지 않게 이름 자리를 모두 먼저 잡음
+    labels.taken += [box for s in storms for box in _name_boxes(view, s)]
     tracks = [_track(view, s, week_end, labels) for s in storms]
     # 경로 글자와 겹치는 지명은 뺌 — 괌처럼 경로 곁에 있는 곳
     places = "".join(svg for box, svg in pacific.places(view) if labels.free(box))
@@ -147,7 +158,7 @@ def _legend(drawn: list[str]) -> str:
 def build_html(storms: Sequence[Typhoon], week_start: dt.date) -> str:
     svg, drawn = build_svg(storms, week_end_of(week_start))
     rows = [("현재", now_line(s, html_bold, reach=True, plain=html.escape)) for s in storms]
-    foot = f"{issued_text(storms)} · 바탕 지도 Natural Earth<br>기압선은 함께 올린 지상일기도에서 볼 수 있습니다."
+    foot = f"{issued_text(storms)} · 바탕 지도 Natural Earth<br>기압선은 기상청 지상일기도에서 볼 수 있습니다."
     return Card("태풍 예상 경로", week_start, rows, f'<div class="map">{svg}{_legend(drawn)}</div>', foot).html(CSS)
 
 

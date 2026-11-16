@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Protocol
 
 _BULLET_RE = re.compile(r"^[□○]\s*")
@@ -14,7 +14,13 @@ QUOTE_CHARS = 120   # 실제 서술은 한 줄이 300자를 넘기도 함 — �
 
 class Source(Protocol):
     """서술 하나 — kma.page.Narrative 의 모양(season 은 kma 를 가져다 쓰지 않음)."""
+    title: str
     lines: list[str]
+
+
+def nearest_first[S: Source](sources: Iterable[S]) -> list[S]:
+    """통보문(가까운 날)을 중기예보보다 먼저 — 수집 순서는 중기예보가 앞이고, 인용 개수를 넘으면 뒤쪽이 잘림."""
+    return sorted(sources, key=lambda n: "통보문" not in n.title)
 
 
 def mentioning(lines: Iterable[str], words: tuple[str, ...]) -> list[str]:
@@ -40,9 +46,9 @@ def in_body(text: str, body: str) -> bool:
     return _HEAD_RE.sub("", text) in body
 
 
-def unquoted(texts: list[str], body: str) -> list[str]:
-    """본문이 이미 인용한 줄은 빼고 MAX_QUOTES 까지."""
-    return [t for t in texts if not in_body(t, body)][:MAX_QUOTES]
+def unquoted[T](items: Iterable[T], body: str, text: Callable[[T], str] = str) -> list[T]:
+    """본문이 이미 인용한 줄은 빼고 MAX_QUOTES 까지. text 는 항목에서 줄을 꺼냄((줄, 서술) 짝이면 첫 칸)."""
+    return [item for item in items if not in_body(text(item), body)][:MAX_QUOTES]
 
 
 def quote(text: str) -> str:

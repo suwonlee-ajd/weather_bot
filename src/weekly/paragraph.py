@@ -67,6 +67,11 @@ class Block:
     def text(self) -> str:
         return self.paragraph.to_slack() if self.paragraph and not self.paragraph.empty else ""
 
+    @property
+    def empty(self) -> bool:
+        """글도 그림도 없음 — 출처만 남은 덩어리."""
+        return not (self.text or self.attachment)
+
 
 @dataclass
 class Message:
@@ -75,7 +80,7 @@ class Message:
 
     def add(self, block: Block) -> Message:
         """글도 그림도 없는 덩어리는 출처까지 뺌."""
-        if block.text or block.attachment:
+        if not block.empty:
             self.blocks.append(block)
         return self
 

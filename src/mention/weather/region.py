@@ -16,6 +16,7 @@ from src.mention.forecast import cached_scrape, days_in
 from src.mention.parse import Period
 from src.mention.snow.note import _snow_note
 from src.mention.texts import NO_EMOJI, sky_emoji
+from src.season.narrative import nearest_first
 
 log = logging.getLogger("weather-mention")
 
@@ -61,7 +62,7 @@ def _tip_lines(scoped: list[ScrapedDay], narratives: list[Narrative], topic: str
 
 def _quoted(narratives: list[Narrative], today: dt.date, window: set[dt.date]) -> list[str]:
     lines = []
-    for narrative in sorted(narratives, key=lambda n: 0 if "통보문" in n.title else 1):
+    for narrative in nearest_first(narratives):
         # 물은 날짜의 줄만 — 앞 2줄을 자르면 «모레» 에 «(오늘, 12일)» 이 붙음
         picked = lines_for_dates(narrative.lines, today, window)
         for line in picked[:2]:

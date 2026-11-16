@@ -119,6 +119,8 @@ def weather(ctx: Context) -> Weather:
 def card_block(ctx: Context) -> Block | None:
     """1번 날씨의 예보·문구로 그린 카드. 글·출처 없이 그림만."""
     week = ctx.forecast()
+    if week is None:
+        return None
     att = ctx.image("weekly-weather", f"이번 주 날씨 전망 ({week.area})", "이번 주 기온·강수 전망 요약 카드",
                     lambda: render_png(week, scale=ctx.scale))
     return Block(None, attachment=att) if att else None

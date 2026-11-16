@@ -1914,7 +1914,30 @@ def test_weekly_pipeline() -> None:
         assert pipeline.compose(weekly_cfg(), now) is None
     finally:
         pipeline.SECTIONS, sections.weather, pipeline.SECTIONS_TIMEOUT_SEC = orig
-    print("[ok] 주간 영역 — 동시 실행, 실패·해당 없음·기한 초과는 빠짐, 카드·눈은 날씨 예보를 받음, 날씨 실패면 게시 안 함")
+
+    # 날씨를 기다리던 영역은 경고·traceback 없이 한 줄(INFO)로 빠짐 — 원인은 날씨 영역이 이미 남김
+    import logging
+    from concurrent.futures import Future
+
+    failed = Future()
+    failed.set_exception(ForecastError("7일 중 4일의 기온을 얻지 못해"))
+    records: list[logging.LogRecord] = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    level = pipeline.log.level
+    pipeline.log.addHandler(handler)
+    pipeline.log.setLevel(logging.INFO)
+    try:
+        ctx = sections.Context(weekly_cfg(), now, weather=failed)
+        assert pipeline._build(Section("카드", sections.card_block), ctx) is None
+        assert pipeline._build(Section("고장", lambda ctx: (_ for _ in ()).throw(RuntimeError("점검"))), ctx) is None
+    finally:
+        pipeline.log.removeHandler(handler)
+        pipeline.log.setLevel(level)
+    assert [(r.levelname, r.getMessage()) for r in records][0] == ("INFO", "카드 영역 — 날씨가 없어 건너뜀"), records
+    assert records[1].levelname == "WARNING" and records[1].exc_info, "날씨와 무관한 실패는 그대로 경고"
+    print("[ok] 주간 영역 — 동시 실행, 실패·해당 없음·기한 초과는 빠짐, 카드·눈은 날씨 예보를 받음, 날씨 실패면 게시 안 함"
+          " · 날씨를 기다리던 영역은 한 줄로")
 
 
 def test_weekly_health() -> None:

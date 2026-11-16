@@ -15,7 +15,13 @@ from src.common.config import Config
 from src.weekly import sections, themes
 from src.weekly.forecast import ForecastError, WeekForecast
 from src.weekly.paragraph import Attachment, Block, Message
-from src.weekly.sections import SECTIONS_TIMEOUT_SEC, Context, Section, Weather
+from src.weekly.sections import (
+    SECTIONS_TIMEOUT_SEC,
+    Context,
+    Section,
+    Weather,
+    WeatherUnavailable,
+)
 
 log = logging.getLogger(__name__)
 
@@ -82,6 +88,9 @@ def _build(section: Section, ctx: Context) -> Block | None:
     started = time.monotonic()
     try:
         block = section.build(ctx)
+    except WeatherUnavailable:              # 원인은 날씨 영역이 남김 — 기다리던 영역마다 되풀이하지 않음
+        log.info("%s 영역 — 날씨가 없어 건너뜀", section.name)
+        return None
     except Exception:
         log.warning("%s 영역 실패 — 이 영역은 빠짐 (%.1f초)", section.name, time.monotonic() - started,
                     exc_info=True)

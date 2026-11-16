@@ -1,6 +1,7 @@
 """주간 게시의 영역 — 1번 날씨(본문)는 필수, 카드·일기도부터는 못 만들면 빠짐. 철 소식·태풍(3~6)은 themes.
 
 영역은 서로 기다리지 않음. 날씨 예보를 쓰는 카드 · 장마 · 폭염 · 4번 태풍(예보관 서술) · 6번 눈만 Context.forecast() 로 1번 결과를 받음.
+날씨가 실패했으면 이들은 WeatherUnavailable 로 빠짐.
 """
 from __future__ import annotations
 
@@ -22,6 +23,10 @@ log = logging.getLogger(__name__)
 
 # 개별 요청은 저마다 timeout 이 있음 — 이것은 영역 전체가 늘어질 때의 마지막 한도
 SECTIONS_TIMEOUT_SEC = 300
+
+
+class WeatherUnavailable(RuntimeError):
+    """1번 날씨가 실패해 그 결과를 쓰는 영역도 만들 수 없음 — 원인은 날씨 영역이 이미 남김."""
 
 
 @dataclass
@@ -55,17 +60,22 @@ class Context:
     def scale(self) -> int:
         return self.cfg.card_scale
 
-    def forecast(self) -> WeekForecast | None:
-        """1번 날씨의 예보를 기다림. 날씨가 실패했으면 그 예외가 영역 경계(pipeline)로 올라감."""
+    def _weather(self) -> Weather | None:
         if self.weather is None:
             return None
-        return self.weather.result(timeout=SECTIONS_TIMEOUT_SEC).week
+        if self.weather.exception(timeout=SECTIONS_TIMEOUT_SEC) is not None:     # 기다림이 넘치면 TimeoutError 그대로
+            raise WeatherUnavailable
+        return self.weather.result()
+
+    def forecast(self) -> WeekForecast | None:
+        """1번 날씨의 예보를 기다림. 날씨가 실패했으면 WeatherUnavailable."""
+        weather = self._weather()
+        return weather.week if weather else None
 
     def body(self) -> str:
         """1번 날씨의 본문 — 철 소식이 본문이 이미 인용한 예보관 문장을 되풀이하지 않게."""
-        if self.weather is None:
-            return ""
-        return self.weather.result(timeout=SECTIONS_TIMEOUT_SEC).body
+        weather = self._weather()
+        return weather.body if weather else ""
 
     def image(self, slug: str, title: str, alt: str, render: Callable[[], bytes]) -> Attachment | None:
         """다시 만들 수 있는 그림(카드·지도). 못 그리면 None — 글은 남기고 그림만 뺌.

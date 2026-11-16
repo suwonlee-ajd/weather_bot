@@ -11,32 +11,14 @@ import sys
 OK, FAIL, SKIP = "  ✅", "  ❌", "  ⏭️"
 
 
-def _mask(token: str) -> str:
-    """토큰은 종류(xoxb-)와 길이만 드러냄."""
-    return f"{token[:5]}…({len(token)}자)" if token.startswith(("xoxb-", "xapp-")) else f"…({len(token)}자)"
-
-
 def check_slack() -> bool:
-    token = os.environ.get("SLACK_BOT_TOKEN", "")
-    channel = os.environ.get("SLACK_CHANNEL_ID", "")
-    if not token:
-        print(f"{FAIL} SLACK_BOT_TOKEN 미설정")
-        return False
-    from slack_sdk import WebClient
-    from slack_sdk.errors import SlackApiError
+    from src.weekly.health import check_slack as probe
 
-    try:
-        res = WebClient(token=token).auth_test()
-    except SlackApiError as exc:
-        print(f"{FAIL} SLACK_BOT_TOKEN ({_mask(token)}): {exc.response.get('error')}")
-        return False
-    if not token.startswith("xoxb-"):
-        print(f"{FAIL} SLACK_BOT_TOKEN 이 봇 토큰(xoxb-)이 아닙니다. OAuth & Permissions 에서 Bot User OAuth Token 을 쓰세요.")
-        return False
-    # auth_test 의 user 는 앱 생성 당시 내부 식별자 — 바꾼 표시 이름이 반영되지 않음
-    print(f"{OK} Slack: {res['team']} / 봇 {res['user_id']} (내부 식별자 {res['user']})")
-    print(f"     채널 {channel or '(미설정)'} — 초대 여부는 실제 게시에서 드러납니다(초대 전이면 channel_not_found)")
-    return bool(channel)
+    ok, text = probe(os.environ.get("SLACK_BOT_TOKEN", ""), os.environ.get("SLACK_CHANNEL_ID", ""))
+    print(f"{OK if ok else FAIL} {text}")
+    if ok:
+        print("     채널 초대 여부는 실제 게시에서 드러납니다(초대 전이면 channel_not_found)")
+    return ok
 
 
 def check_kma_pages() -> bool:
@@ -109,20 +91,11 @@ def check_writer() -> bool:
 
 
 def check_chromium() -> bool:
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        print(f"{FAIL} playwright 미설치 — uv sync 후 .venv/bin/python -m playwright install chromium")
-        return False
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch()
-            browser.close()
-    except Exception as exc:
-        print(f"{FAIL} Chromium 실행 실패 — python -m playwright install chromium 이 필요합니다 ({exc})")
-        return False
-    print(f"{OK} Chromium: 카드 렌더링 가능")
-    return True
+    from src.weekly.health import check_chromium as probe
+
+    ok, text = probe()
+    print(f"{OK if ok else FAIL} {text}")
+    return ok
 
 
 if __name__ == "__main__":

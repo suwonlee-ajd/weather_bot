@@ -65,6 +65,9 @@ sudo -u weather vi .env                          # SLACK_BOT_TOKEN, SLACK_APP_TO
 sudo -u weather bash -c 'set -a; . .env; set +a; .venv/bin/python -m tests.check_credentials'
 ```
 
+> 월요일 게시도 시작할 때 같은 점검(슬랙 · 기상청 · Chromium)을 스스로 돌림. 슬랙이 실패하면 게시하지 않고
+> 끝냄. 결과는 `weekly-weather` 로그의 `점검 통과 —` · `점검 실패 —` 줄.
+
 ## 2-A. 권한 없는 서버
 
 sudo 가 없으므로 전용 계정도 `/opt` 도 만들지 않음. 로그인 계정의 홈에 두고

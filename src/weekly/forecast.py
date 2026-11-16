@@ -136,6 +136,11 @@ def _valid(value: float | None) -> float | None:
     return value if TEMP_RANGE[0] <= value <= TEMP_RANGE[1] else None
 
 
+def week_start_of(day: dt.date, week_offset: int = 0) -> dt.date:
+    """day 가 든 주의 월요일에서 week_offset 주 뒤."""
+    return day - dt.timedelta(days=day.weekday()) + dt.timedelta(weeks=week_offset)
+
+
 def build_week(
     cfg,
     now: dt.datetime | None = None,
@@ -144,7 +149,7 @@ def build_week(
     week_offset: int = 0,
 ) -> WeekForecast:
     now = now or dt.datetime.now(tz=KST)
-    week_start = now.date() - dt.timedelta(days=now.weekday()) + dt.timedelta(weeks=week_offset)
+    week_start = week_start_of(now.date(), week_offset)
 
     if region is None:
         region = find_region(getattr(cfg, "region", None) or "전국")

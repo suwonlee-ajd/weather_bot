@@ -2,7 +2,7 @@
 
     p = Paragraph("이번 주 벚꽃", emoji=":cherry_blossom:")
     p.add("관측", observed).add("올해", "")                     # 빈 내용은 건너뜀
-    msg = Message(body, credits=["지상일기도 · 기상청"]).add(Block(p, credit="벚꽃 · 기상청"))
+    msg = Message(body).add(Block(None, "지상일기도 · 기상청", chart)).add(Block(p, credit="벚꽃 · 기상청"))
     msg.to_slack()                                             # 본문 → 문단들 → 출처 줄
 """
 from __future__ import annotations
@@ -43,28 +43,40 @@ class Paragraph:
 
 @dataclass(frozen=True)
 class Attachment:
-    """문단에 딸린 그림. slug 는 파일 이름 앞부분이자 보존 정리 패턴(foliage-*.png)임."""
+    """게시물에 붙는 그림. pattern 은 dry-run 이 같은 종류의 옛 파일을 지우는 보존 정리 패턴."""
     slug: str
     png: bytes
     title: str
     alt: str
+    filename: str
+    keep_days: int
+    pattern: str
+
+    def upload(self) -> dict:
+        """files_upload_v2 의 file_uploads 한 칸."""
+        return {"filename": self.filename, "file": self.png, "title": self.title, "alt_txt": self.alt}
 
 
 @dataclass
 class Block:
-    paragraph: Paragraph
+    """영역 하나의 결과. 일기도처럼 글 없이 그림·출처만 있으면 paragraph 는 None."""
+    paragraph: Paragraph | None
     credit: str = ""
     attachment: Attachment | None = None
+
+    @property
+    def text(self) -> str:
+        return self.paragraph.to_slack() if self.paragraph and not self.paragraph.empty else ""
 
 
 @dataclass
 class Message:
     body: str
-    credits: list[str] = field(default_factory=list)    # 덩어리에 딸리지 않은 출처 (일기도)
     blocks: list[Block] = field(default_factory=list)
 
     def add(self, block: Block) -> Message:
-        if not block.paragraph.empty:
+        """글도 그림도 없는 덩어리는 출처까지 뺌."""
+        if block.text or block.attachment:
             self.blocks.append(block)
         return self
 
@@ -73,8 +85,8 @@ class Message:
         return [b.attachment for b in self.blocks if b.attachment]
 
     def to_slack(self) -> str:
-        credits = [*self.credits, *(b.credit for b in self.blocks if b.credit)]
-        parts = [self.body, *(b.paragraph.to_slack() for b in self.blocks)]
+        credits = [b.credit for b in self.blocks if b.credit]
+        parts = [self.body, *(b.text for b in self.blocks if b.text)]
         if credits:
             parts.append("\n".join(f"_{c}_" for c in credits))
         return "\n\n".join(parts)

@@ -91,8 +91,7 @@ def typhoon_block(ctx: Context) -> Block | None:
     멀리 있는 태풍(괌 근처 등)은 예보관이 말하지 않으면 싣지 않음(사용자 결정). 태풍정보를 받지 못했어도
     예보관 서술에 태풍이 있으면 그 줄만 글로 실음 — 위험 신호를 영역 실패로 묻지 않게. 그때는 그릴 경로가 없음.
     """
-    week = ctx.forecast()
-    mentioned = narrative.mentioning_in(narrative.nearest_first(week.narratives if week else []), ("태풍",))
+    mentioned = narrative.mentioning_in(narrative.nearest_first(ctx.forecast().narratives), ("태풍",))
     if not mentioned:
         return None                       # 예보관이 태풍을 말하지 않음 — 태풍정보도 받지 않음
     try:
@@ -119,16 +118,14 @@ def typhoon_block(ctx: Context) -> Block | None:
 def snow_block(ctx: Context) -> Block | None:
     """«이번 주» 줄과 다룰지는 1번 날씨 예보의 하늘상태에서 눈을 셈."""
     status = snow.fetch_status(ctx.today, timeout=snow.WEEKLY_TIMEOUT_SEC, retries=1)
-    week = ctx.forecast()
-    days = week.days if week else None
+    days = ctx.forecast().days
     # «최근» 은 오늘까지 — 주 중간에 돌리면 월요일 뒤의 관측도 셈. 다음 주 미리 보기는 그 월요일 기준
     as_of = max(ctx.today, ctx.week_start)
-    if not snow.showing(status, as_of, snowy=bool(days and snow_text.snow_days(days))):
+    if not snow.showing(status, as_of, snowy=bool(snow_text.snow_days(days))):
         return None
     paragraph = (Paragraph("이번 주 첫눈", emoji=":snowflake:")
                  .add("관측", snow_text.observed_line(status, bold))
                  .add("이번 주", snow_text.week_line(status, days, muted=lambda s: s)))
-    # days 가 None 이면 지도도 «예보를 받지 못했습니다» — 글과 같은 말을 하게 그대로 넘김
     return _with_map(ctx, paragraph, snow_map.INFO,
                      lambda: snow_map.render_png(status, ctx.week_start, days, scale=ctx.scale),
                      snow_text.SOURCES)
@@ -147,8 +144,6 @@ def _quote_rows(paragraph: Paragraph, mentioned: list[str], ctx: Context) -> Par
 def monsoon_block(ctx: Context) -> Block | None:
     """예보관이 장마·정체전선을 말할 때만. 비 오는 날은 본문 조언과 같은 문턱(RAIN_LIKELY)."""
     week = ctx.forecast()
-    if week is None:
-        return None
     found = monsoon.read(week.days, _lines(week), pop_at=RAIN_LIKELY)
     if not found.showing:
         return None
@@ -160,8 +155,6 @@ def monsoon_block(ctx: Context) -> Block | None:
 def heat_block(ctx: Context) -> Block | None:
     """기상청 폭염일·열대야 기준에 닿는 날이나 예보관 언급이 있을 때만. 조언은 본문 2문단에 맡기고 사실만."""
     week = ctx.forecast()
-    if week is None:
-        return None
     found = heat.read(week.days, _lines(week))
     if not found.showing:
         return None

@@ -1933,11 +1933,14 @@ def test_weekly_pipeline() -> None:
         ctx = sections.Context(weekly_cfg(), now, weather=failed)
         assert pipeline._build(Section("카드", sections.card_block), ctx) is None
         assert pipeline._build(Section("고장", lambda ctx: (_ for _ in ()).throw(RuntimeError("점검"))), ctx) is None
+        # 날씨가 붙지 않은 Context(영역을 따로 부를 때)도 같은 한 줄 — forecast() 는 None 을 돌려주지 않음
+        assert pipeline._build(Section("카드", sections.card_block), sections.Context(weekly_cfg(), now)) is None
     finally:
         pipeline.log.removeHandler(handler)
         pipeline.log.setLevel(level)
     assert [(r.levelname, r.getMessage()) for r in records][0] == ("INFO", "카드 영역 — 날씨가 없어 건너뜀"), records
     assert records[1].levelname == "WARNING" and records[1].exc_info, "날씨와 무관한 실패는 그대로 경고"
+    assert (records[2].levelname, records[2].getMessage()) == ("INFO", "카드 영역 — 날씨가 없어 건너뜀"), records
     print("[ok] 주간 영역 — 동시 실행, 실패·해당 없음·기한 초과는 빠짐, 카드·눈은 날씨 예보를 받음, 날씨 실패면 게시 안 함"
           " · 날씨를 기다리던 영역은 한 줄로")
 
@@ -2132,6 +2135,7 @@ def test_snow_weekly() -> None:
     from src.season.snow import data as snow
     from src.season.snow import map as snow_map
     from src.weekly import pipeline, themes
+    from src.weekly.sections import WeatherUnavailable
 
     d = dt.date
     week = d(2026, 11, 30)
@@ -2149,9 +2153,12 @@ def test_snow_weekly() -> None:
         assert "*서울* 11/26 (평년보다 6일 늦음)" in text and "눈" in text.split("이번 주 —")[1], text
         assert drawn == [days], drawn
         assert block.attachment.filename == "snow-20261130.png" and block.credit.startswith("첫눈 지도 · ")
-        # 날씨 결과가 없으면 «이번 주» 는 예보를 못 받았다고만 함
-        assert "예보를 받지 못했습니다" in themes.snow_block(weekly_ctx(week)).paragraph.to_slack()
-        assert drawn[-1] is None, drawn                  # 지도도 «눈 소식 없음» 이 아니라 못 받았다고
+        # 날씨 결과가 없으면 WeatherUnavailable — 영역 경계(pipeline._build)가 한 줄로 뺌
+        try:
+            themes.snow_block(weekly_ctx(week))
+            raise AssertionError("날씨 없이 첫눈 덩어리를 만들었습니다")
+        except WeatherUnavailable:
+            pass
         # 주 중간에 돌려도 월요일 뒤의 관측을 «최근» 으로 셈
         midweek = snow.Status(2026, {"서울": d(2026, 12, 1)})
         snow.fetch_status = lambda today, **_: midweek
@@ -2305,6 +2312,7 @@ def test_narrative_quote() -> None:
 def test_heat_weekly() -> None:
     """폭염·열대야 — 기상청 기준(낮 최고 33℃↑ · 아침 최저 25℃↑)의 경계, 예보관 인용, 선선하면 해당 없음."""
     from src.weekly import themes
+    from src.weekly.sections import WeatherUnavailable
 
     days = [summer_day(0, (22, 24.9), (28, 32.9)),          # 둘 다 경계 바로 아래 — 빠짐
             summer_day(1, (23, 25), (29, 33)),              # 경계값은 듦
@@ -2343,7 +2351,11 @@ def test_heat_weekly() -> None:
     # 수치가 기준에 못 미쳐도 예보관이 말했으면 그 인용만
     only = themes.heat_block(weekly_ctx(SUMMER_WEEK, days=cool, narratives=summer_notes("○ (내일) 열대야 나타나겠음")))
     assert [r.label for r in only.paragraph.rows] == ["예보관"], only.paragraph.rows
-    assert themes.heat_block(weekly_ctx(SUMMER_WEEK)) is None          # 날씨 결과 없이 부르면 해당 없음
+    try:
+        themes.heat_block(weekly_ctx(SUMMER_WEEK))
+        raise AssertionError("날씨 없이 더위 덩어리를 만들었습니다")
+    except WeatherUnavailable:                                          # 영역 경계가 한 줄로 뺌
+        pass
     print("[ok] 폭염·열대야 — 33℃·25℃ 경계, 일부 지역, 예보관 인용(본문과 안 겹치게), 선선하면 해당 없음")
 
 

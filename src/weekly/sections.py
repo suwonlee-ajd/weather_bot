@@ -26,7 +26,7 @@ SECTIONS_TIMEOUT_SEC = 300
 
 
 class WeatherUnavailable(RuntimeError):
-    """1번 날씨가 실패해 그 결과를 쓰는 영역도 만들 수 없음 — 원인은 날씨 영역이 이미 남김."""
+    """1번 날씨가 없거나 실패해 그 결과를 쓰는 영역도 만들 수 없음 — 원인은 날씨 영역이 이미 남김."""
 
 
 @dataclass
@@ -60,22 +60,19 @@ class Context:
     def scale(self) -> int:
         return self.cfg.card_scale
 
-    def _weather(self) -> Weather | None:
-        if self.weather is None:
-            return None
-        if self.weather.exception(timeout=SECTIONS_TIMEOUT_SEC) is not None:     # 기다림이 넘치면 TimeoutError 그대로
+    def _weather(self) -> Weather:
+        # 기다림이 넘치면 TimeoutError 그대로
+        if self.weather is None or self.weather.exception(timeout=SECTIONS_TIMEOUT_SEC) is not None:
             raise WeatherUnavailable
         return self.weather.result()
 
-    def forecast(self) -> WeekForecast | None:
-        """1번 날씨의 예보를 기다림. 날씨가 실패했으면 WeatherUnavailable."""
-        weather = self._weather()
-        return weather.week if weather else None
+    def forecast(self) -> WeekForecast:
+        """1번 날씨의 예보를 기다림. 날씨가 없거나 실패했으면 WeatherUnavailable."""
+        return self._weather().week
 
     def body(self) -> str:
         """1번 날씨의 본문 — 철 소식이 본문이 이미 인용한 예보관 문장을 되풀이하지 않게."""
-        weather = self._weather()
-        return weather.body if weather else ""
+        return self._weather().body
 
     def image(self, slug: str, title: str, alt: str, render: Callable[[], bytes]) -> Attachment | None:
         """다시 만들 수 있는 그림(카드·지도). 못 그리면 None — 글은 남기고 그림만 뺌.
@@ -119,8 +116,6 @@ def weather(ctx: Context) -> Weather:
 def card_block(ctx: Context) -> Block | None:
     """1번 날씨의 예보·문구로 그린 카드. 글·출처 없이 그림만."""
     week = ctx.forecast()
-    if week is None:
-        return None
     att = ctx.image("weekly-weather", f"이번 주 날씨 전망 ({week.area})", "이번 주 기온·강수 전망 요약 카드",
                     lambda: render_png(week, scale=ctx.scale))
     return Block(None, attachment=att) if att else None

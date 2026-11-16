@@ -13,14 +13,14 @@ import sys
 from src.common.config import KST
 from src.common.logsetup import setup
 from src.common.text import WEEKDAY_KO, day_label, range_text
-from src.kma.page import ScrapeError
-from src.kma.regions import REGION_HELP, find_region
+from src.kma.page import Scrape, ScrapeError
+from src.kma.regions import REGION_HELP, Region, find_region
 from src.kma.scrape import scrape_week
 from src.query import season
 from src.season.weeks import week_start_of
 
 
-def main(argv: list[str] | None = None) -> int:
+def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="기상청 이번 주 예보 조회")
     parser.add_argument("region", nargs="?", default="전국", help=f"지역 ({REGION_HELP})")
     parser.add_argument("--json", action="store_true", help="JSON 으로 출력")
@@ -29,52 +29,33 @@ def main(argv: list[str] | None = None) -> int:
                         help="단풍 현황·예상. region 자리에 산 이름을 주면 그 산만")
     parser.add_argument("--snow", action="store_true",
                         help="첫눈 관측·평년. region 자리에 지점 이름을 주면 그 지점만")
-    args = parser.parse_args(argv)
-    # 결과는 stdout 이라 로그는 기본 WARNING
-    setup("query", level=os.environ.get("LOG_LEVEL") or "WARNING")
+    return parser.parse_args(argv)
 
-    if args.foliage:
-        return season.show_foliage("" if args.region == "전국" else args.region, args.json)
-    if args.snow:
-        return season.show_snow("" if args.region == "전국" else args.region, args.json)
 
-    region = find_region(args.region)
-    if region is None:
-        print(f"알 수 없는 지역입니다: {args.region}\n쓸 수 있는 지역: {REGION_HELP}", file=sys.stderr)
-        return 2
+def _print_json(region: Region, week_start: dt.date, scrape: Scrape) -> None:
+    print(json.dumps({
+        "region": region.label,
+        "week_start": week_start.isoformat(),
+        "days": [
+            {
+                "date": d.isoformat(),
+                "weekday": WEEKDAY_KO[d.weekday()],
+                "tmin_lo": v.tmin_lo, "tmin_hi": v.tmin_hi,
+                "tmax_lo": v.tmax_lo, "tmax_hi": v.tmax_hi,
+                "sky": v.sky, "pop": v.pop, "source": v.source,
+            }
+            for d, v in sorted(scrape.days.items())
+        ],
+        "narratives": [
+            {"title": n.title, "url": n.url,
+             "issued_at": n.issued_at.isoformat() if n.issued_at else None,
+             "lines": n.lines}
+            for n in scrape.narratives
+        ],
+    }, ensure_ascii=False, indent=2))
 
-    now = dt.datetime.now(tz=KST)
-    week_start = week_start_of(now.date(), args.week_offset)
 
-    try:
-        scrape = scrape_week(now, week_start, region)
-    except ScrapeError as exc:
-        print(f"조회 실패: {exc}", file=sys.stderr)
-        return 1
-
-    if args.json:
-        print(json.dumps({
-            "region": region.label,
-            "week_start": week_start.isoformat(),
-            "days": [
-                {
-                    "date": d.isoformat(),
-                    "weekday": WEEKDAY_KO[d.weekday()],
-                    "tmin_lo": v.tmin_lo, "tmin_hi": v.tmin_hi,
-                    "tmax_lo": v.tmax_lo, "tmax_hi": v.tmax_hi,
-                    "sky": v.sky, "pop": v.pop, "source": v.source,
-                }
-                for d, v in sorted(scrape.days.items())
-            ],
-            "narratives": [
-                {"title": n.title, "url": n.url,
-                 "issued_at": n.issued_at.isoformat() if n.issued_at else None,
-                 "lines": n.lines}
-                for n in scrape.narratives
-            ],
-        }, ensure_ascii=False, indent=2))
-        return 0
-
+def _print_table(region: Region, week_start: dt.date, scrape: Scrape) -> None:
     end = week_start + dt.timedelta(days=6)
     print(f"■ {region.label} {week_start:%Y-%m-%d}(월) ~ {end:%m-%d}(일)")
     print("  (기온은 지역 간 분포 범위입니다)\n")
@@ -93,6 +74,35 @@ def main(argv: list[str] | None = None) -> int:
         )
     print()
     print(scrape.as_text())
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
+    # 결과는 stdout 이라 로그는 기본 WARNING
+    setup("query", level=os.environ.get("LOG_LEVEL") or "WARNING")
+
+    if args.foliage:
+        return season.show_foliage("" if args.region == "전국" else args.region, args.json)
+    if args.snow:
+        return season.show_snow("" if args.region == "전국" else args.region, args.json)
+
+    region = find_region(args.region)
+    if region is None:
+        print(f"알 수 없는 지역입니다: {args.region}\n쓸 수 있는 지역: {REGION_HELP}", file=sys.stderr)
+        return 2
+
+    now = dt.datetime.now(tz=KST)
+    week_start = week_start_of(now.date(), args.week_offset)
+    try:
+        scrape = scrape_week(now, week_start, region)
+    except ScrapeError as exc:
+        print(f"조회 실패: {exc}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        _print_json(region, week_start, scrape)
+    else:
+        _print_table(region, week_start, scrape)
     return 0
 
 

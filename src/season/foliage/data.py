@@ -34,6 +34,8 @@ DETAIL_TTL_SEC = 120 * 24 * 3600      # 키에 단계가 들어 있어 한 시�
 OUTLOOK_RETRY_SEC = 1800              # 실패·미발표도 기억 — 멘션마다 PDF 를 받으러 가지 않게
 STATUS_RETRY_SEC = 120                # 짧게 — 지역 날씨 답마다 현황을 붙여, 점검 중이면 답마다 기다림
 DETAIL_WORKERS = 4                    # 늦가을엔 20곳 가까이 물들어 하나씩 받으면 김
+TIMEOUT_SEC = 20.0
+NOTE_TIMEOUT_SEC = 5.0                # 날씨 답에 덧붙일 때는 짧게 — 철과 상관없이 답마다 보므로 느리면 답이 늦어짐
 
 
 class FoliageError(RuntimeError):
@@ -80,8 +82,8 @@ def _get(url: str, **kw) -> requests.Response:
     return shared.get(url, error=FoliageError, **kw)
 
 
-def _kma(place: str = "") -> str:
-    resp = _get(KMA_URL, params={"treeType": "4", "obsPlace": place}, referer=KMA_PAGE)
+def _kma(place: str = "", timeout: float = TIMEOUT_SEC) -> str:
+    resp = _get(KMA_URL, params={"treeType": "4", "obsPlace": place}, referer=KMA_PAGE, timeout=timeout)
     resp.encoding = "utf-8"
     return resp.text
 
@@ -90,9 +92,9 @@ def _dates(flower: dict, year: int) -> tuple[dt.date | None, dt.date | None]:
     return shared.shot_date(flower.get("cfShotDate"), year), shared.shot_date(flower.get("ffShotDate"), year)
 
 
-def _detail(name: str, stage: int, year: int) -> tuple[dt.date | None, dt.date | None]:
+def _detail(name: str, stage: int, year: int, timeout: float = TIMEOUT_SEC) -> tuple[dt.date | None, dt.date | None]:
     def load():
-        flower = _jsonp(_kma(name)).get("flower") or {}
+        flower = _jsonp(_kma(name, timeout)).get("flower") or {}
         if flower.get("obsPlace") != name:
             raise FoliageError(f"{name} 상세를 요청했는데 {flower.get('obsPlace')} 가 왔습니다")
         dates = _dates(flower, year)
@@ -105,20 +107,20 @@ def _detail(name: str, stage: int, year: int) -> tuple[dt.date | None, dt.date |
         return exc.args
 
 
-def _safe_detail(name: str, stage: int, year: int) -> tuple[dt.date | None, dt.date | None]:
+def _safe_detail(name: str, stage: int, year: int, timeout: float = TIMEOUT_SEC) -> tuple[dt.date | None, dt.date | None]:
     try:
-        return _detail(name, stage, year)
+        return _detail(name, stage, year, timeout)
     except (FoliageError, KeyError, TypeError, AttributeError) as exc:
         # 날짜만 비움 — 단계는 목록 것이라 맞음
         log.warning("단풍 상세 실패 %s: %s", name, exc)
         return None, None
 
 
-def fetch_status(today: dt.date) -> Status:
+def fetch_status(today: dt.date, *, timeout: float = TIMEOUT_SEC) -> Status:
     """단계는 목록 한 번에, 촬영일은 obsPlace 로 산마다 따로 불러야 나옴."""
     def load() -> Status:
         try:
-            stages, in_service, flower = parse_status(_kma(), today.year)
+            stages, in_service, flower = parse_status(_kma(timeout=timeout), today.year)
         except (KeyError, TypeError, AttributeError) as exc:
             raise FoliageError(f"기상청 단풍 응답 형식이 바뀌었습니다: {exc}") from exc
         status = Status(stages=stages, in_service=in_service)
@@ -130,7 +132,7 @@ def fetch_status(today: dt.date) -> Status:
             name, stage = item
             if name in known and known[name][stage - 1] is not None:
                 return known[name]
-            return _safe_detail(name, stage, today.year)
+            return _safe_detail(name, stage, today.year, timeout)
 
         with ThreadPoolExecutor(max_workers=DETAIL_WORKERS) as pool:
             for (name, _), (first, peak) in zip(colored, pool.map(dates_of, colored)):
@@ -190,23 +192,23 @@ def _find_post(list_html: str, year: int) -> str | None:
     return shared.find_post(list_html, year, r"단풍\s*예상시기")
 
 
-def fetch_outlook(year: int) -> Outlook | None:
+def fetch_outlook(year: int, *, timeout: float = TIMEOUT_SEC) -> Outlook | None:
     """아직 안 올라왔으면 None, 읽다 실패하면 FoliageError."""
     try:
-        return get_or_set(("foliage-outlook", year), OUTLOOK_TTL_SEC, lambda: _load_outlook(year),
+        return get_or_set(("foliage-outlook", year), OUTLOOK_TTL_SEC, lambda: _load_outlook(year, timeout),
                           errors=(FoliageError, _NotPublished), error_ttl=OUTLOOK_RETRY_SEC)
     except _NotPublished:
         return None
 
 
-def _load_outlook(year: int) -> Outlook:
-    listing = _get(shared.WEATHERI_LIST)
+def _load_outlook(year: int, timeout: float) -> Outlook:
+    listing = _get(shared.WEATHERI_LIST, timeout=timeout)
     listing.encoding = "utf-8"
     post_url = _find_post(listing.text, year)
     if post_url is None:
         log.info("웨더아이 %d년 단풍 예상시기가 아직 없습니다", year)
         raise _NotPublished(year)
-    post = _get(post_url)
+    post = _get(post_url, timeout=timeout)
     post.encoding = "utf-8"
     pdf_url = shared.pdf_link(post.text)
     if not pdf_url:
@@ -244,14 +246,15 @@ class Snapshot:
         return self.predicted(kind, name), False
 
     def showing(self, day: dt.date) -> bool:
-        """다룰 때인지 — 기상청이 관측 중(isService)이거나, 관측 전이라도 올해 예상일이 day 뒤로 남았을 때.
+        """다룰 때인지 — 기상청이 관측 중(isService)이거나, 관측 전이라도 올해 첫 예상일이 아직 오지 않았을 때.
 
-        기간은 우리가 정하지 않고 자료가 정함 — 기상청은 남부 절정 뒤까지 서비스를 이어 감.
+        기간은 우리가 정하지 않고 자료가 정함 — 기상청은 남부 절정 뒤까지 서비스를 이어 감. 관측 전은 첫 예상일까지만:
+        그 뒤에 서비스가 꺼져 있으면 접은 것이라 «아직 시작 안 함» 이라고 말하지 않게.
         """
         if self.status.in_service:
             return True
         o = self.outlook
-        return o is not None and any(d >= day for d in (*o.first.values(), *o.peak.values()))
+        return o is not None and bool(o.first) and min(o.first.values()) >= day
 
     def signature(self) -> tuple:
         """그린 지도의 캐시 키 — 내용이 같으면 같은 값."""
@@ -261,11 +264,11 @@ class Snapshot:
                 o.published if o else None, bool(self.outlook_error))
 
 
-def fetch_snapshot(today: dt.date) -> Snapshot:
+def fetch_snapshot(today: dt.date, *, timeout: float = TIMEOUT_SEC) -> Snapshot:
     """현황은 꼭, 예상은 있으면."""
-    status = fetch_status(today)
+    status = fetch_status(today, timeout=timeout)
     try:
-        outlook, error = fetch_outlook(today.year), ""
+        outlook, error = fetch_outlook(today.year, timeout=timeout), ""
     except FoliageError as exc:
         log.warning("웨더아이 단풍 예상 실패: %s", exc)
         outlook, error = None, str(exc)

@@ -52,8 +52,9 @@ def observed_line(status: Status, bold: Style = html_bold) -> str:
     if not seen:
         return f"아직 첫눈이 관측된 곳이 없습니다 — {waiting}"
     rest = len(STATIONS) - len(seen)
+    tally = f"{len(seen)}곳 관측" + (f" · {rest}곳 아직" if rest else "")    # 단풍·벚꽃처럼 0곳은 적지 않음
     text = observed_summary([(status.first[st.name], station_text(st, status, bold)) for st in seen],
-                            f"나머지 {rest}곳은 아직" if rest else "", f"{len(seen)}곳 관측 · {rest}곳 아직")
+                            f"나머지 {rest}곳은 아직" if rest else "", tally)
     return f"{text} / {waiting}" if waiting else text
 
 

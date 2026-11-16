@@ -62,7 +62,9 @@ def check_chromium() -> tuple[bool, str]:
     except ImportError:
         return False, "playwright 미설치 — uv sync 후 .venv/bin/python -m playwright install chromium"
     except Exception as exc:
-        return False, f"Chromium 실행 실패 — python -m playwright install chromium 이 필요합니다 ({type(exc).__name__})"
+        # 첫 줄만 — playwright 오류는 «Executable doesn't exist at …» 처럼 원인이 첫 줄에 있고 뒤는 안내문
+        detail = next(iter(str(exc).splitlines()), "") or type(exc).__name__
+        return False, f"Chromium 실행 실패 — python -m playwright install chromium 이 필요합니다 ({detail})"
     return True, "Chromium: 카드·지도 렌더링 가능"
 
 

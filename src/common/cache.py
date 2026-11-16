@@ -31,16 +31,6 @@ class _Flight:
         self.failure: _Failure | None = None
 
 
-def _fresh(key: Any, now: float) -> tuple[bool, Any]:
-    with _LOCK:
-        hit = _STORE.get(key)
-    if not hit or now >= hit[0]:
-        return False, None
-    if isinstance(hit[1], _Failure):
-        hit[1].reraise()
-    return True, hit[1]
-
-
 def get_or_set(
     key: Any,
     ttl_sec: int,
@@ -55,14 +45,18 @@ def get_or_set(
     따로 받지 않게. 만드는 동안 전체 락은 쥐지 않아 다른 키는 그대로 읽힘.
     """
     now = time.monotonic()
-    found, value = _fresh(key, now)
-    if found:
-        return value
+    # 저장소 확인과 만들기 등록을 한 락 안에서 — 앞선 만들기가 그 사이 끝나도 다시 만들지 않음
     with _LOCK:
-        flight = _FLIGHTS.get(key)
-        leading = flight is None
+        hit = _STORE.get(key)
+        fresh = hit is not None and now < hit[0]
+        flight = None if fresh else _FLIGHTS.get(key)
+        leading = not fresh and flight is None
         if leading:
             flight = _FLIGHTS[key] = _Flight()
+    if fresh:
+        if isinstance(hit[1], _Failure):
+            hit[1].reraise()
+        return hit[1]
     if not leading:
         flight.done.wait()
         if flight.failure:

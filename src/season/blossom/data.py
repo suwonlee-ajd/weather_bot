@@ -143,14 +143,16 @@ def _load_post(list_html: str, year: int) -> Outlook | None:
     return Outlook(expected=expected, normal=normal, published=shared.posted_on(post.text, year), url=post_url)
 
 
-def fetch_outlook(year: int) -> Outlook:
-    """없으면 지난해 표의 평년만 — 발표(2/21~28)가 시즌 첫 주와 엇갈림. 실패는 «없음» 과 섞지 않고 BlossomError."""
+def fetch_outlook(year: int, *, borrow_normal: bool = True) -> Outlook:
+    """없으면 지난해 표의 평년만(borrow_normal) — 발표(2/21~28)가 관측 시작과 엇갈림. 실패는 «없음» 과 섞지 않고 BlossomError."""
     listing = _get(shared.WEATHERI_LIST)
     listing.encoding = "utf-8"
     outlook = _load_post(listing.text, year)
     if outlook is not None:
         log.info("웨더아이 %d년 벚꽃 예상 %d곳 (%s 발표)", year, len(outlook.expected), outlook.published)
         return outlook
+    if not borrow_normal:
+        return Outlook(expected={}, normal={})
     log.info("웨더아이 %d년 벚꽃 예상이 아직 없어 지난해 표의 평년을 씁니다", year)
     last = _load_post(listing.text, year - 1)
     if last is None:
@@ -160,10 +162,11 @@ def fetch_outlook(year: int) -> Outlook:
 
 
 def showing(status: Status | None, outlook: Outlook | None, day: dt.date) -> bool:
-    """다룰 때인지 — 기상청이 관측 중(isService)이거나, 관측 전이라도 올해 개화 예상일이 day 뒤로 남았을 때.
+    """다룰 때인지 — 기상청이 관측 중(isService)이거나, 관측 전이라도 올해 첫 개화 예상일이 아직 오지 않았을 때.
 
-    기간은 우리가 정하지 않고 자료가 정함 — 서울·인천처럼 4월에 피는 곳까지 기상청 관측을 따라감.
+    기간은 우리가 정하지 않고 자료가 정함 — 서울·인천처럼 4월에 피는 곳까지 기상청 관측을 따라감. 관측 전은 첫
+    예상일까지만: 그 뒤에 서비스가 꺼져 있으면 접은 것이라 «아직 시작 안 함» 이라고 말하지 않게.
     """
     if status is not None and status.in_service:
         return True
-    return outlook is not None and any(d >= day for d in outlook.expected.values())
+    return outlook is not None and bool(outlook.expected) and min(outlook.expected.values()) >= day

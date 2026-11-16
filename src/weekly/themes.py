@@ -3,8 +3,8 @@
 모델에 맡기지 않음 — 지어낸 개화일·단풍일은 그럴듯해서 알아채기 어려움. 수집이 실패하면 예외를 그대로 올려
 pipeline 이 그 영역만 빼고 게시함. 기간은 우리가 정하지 않음 — 다룰 때인지는 자료가 정함:
 
-  벚꽃  기상청 관측 중이거나 올해 웨더아이 개화 예상일이 남았을 때   관측 기상청 · 예상 웨더아이
-  단풍  기상청 관측 중이거나 올해 웨더아이 예상일이 남았을 때        관측 기상청 · 예상 웨더아이 + 지도
+  벚꽃  기상청 관측 중이거나, 관측 전 올해 첫 개화 예상일까지   관측 기상청 · 예상 웨더아이
+  단풍  기상청 관측 중이거나, 관측 전 올해 첫 예상일까지        관측 기상청 · 예상 웨더아이 + 지도
   첫눈  지난 7일 안에 관측됐거나, 아직인 곳에 그 주 눈 예보가 있을 때  관측 기상청 계절관측 · 평년 + 지도
 """
 from __future__ import annotations
@@ -54,7 +54,8 @@ def blossom_block(ctx: Context) -> Block | None:
     except Exception:
         log.warning("기상청 벚꽃 관측을 받지 못했습니다", exc_info=True)
     try:
-        outlook = blossom.fetch_outlook(ctx.week_start.year)
+        # 지난해 표의 평년은 기상청이 관측 중일 때만 실음 — 그 밖엔 받지 않음(철 밖에도 매주 돌기 때문)
+        outlook = blossom.fetch_outlook(ctx.week_start.year, borrow_normal=bool(status and status.in_service))
     except Exception:
         log.warning("웨더아이 벚꽃 예상을 받지 못했습니다", exc_info=True)
     if status is None and outlook is None:
@@ -77,11 +78,14 @@ def snow_block(ctx: Context) -> Block | None:
     status = snow.fetch_status(ctx.today, timeout=snow.WEEKLY_TIMEOUT_SEC)
     week = ctx.forecast()
     days = week.days if week else None
-    if not snow.showing(status, ctx.week_start, snowy=bool(days and snow_text.snow_days(days))):
+    # «최근» 은 오늘까지 — 주 중간에 돌리면 월요일 뒤의 관측도 셈. 다음 주 미리 보기는 그 월요일 기준
+    as_of = max(ctx.today, ctx.week_start)
+    if not snow.showing(status, as_of, snowy=bool(days and snow_text.snow_days(days))):
         return None
     paragraph = (Paragraph("이번 주 첫눈", emoji=":snowflake:")
                  .add("관측", snow_text.observed_line(status, bold))
                  .add("이번 주", snow_text.week_line(status, days, muted=lambda s: s)))
+    # days 가 None 이면 지도도 «예보를 받지 못했습니다» — 글과 같은 말을 하게 그대로 넘김
     return _with_map(ctx, paragraph, snow_map.INFO,
-                     lambda: snow_map.render_png(status, ctx.week_start, days or (), scale=ctx.scale),
+                     lambda: snow_map.render_png(status, ctx.week_start, days, scale=ctx.scale),
                      snow_text.SOURCES)

@@ -26,7 +26,7 @@ log = logging.getLogger("weather-mention")
 
 def _snapshot_quietly(today: dt.date) -> Snapshot | None:
     try:
-        return foliage.fetch_snapshot(today)
+        return foliage.fetch_snapshot(today, timeout=foliage.NOTE_TIMEOUT_SEC)
     except FoliageError as exc:            # 점검·형식 변경 — 예상된 실패라 traceback 없이
         log.warning("단풍 현황 실패 — 날씨만 답합니다: %s", exc)
     except Exception:

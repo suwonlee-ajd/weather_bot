@@ -110,11 +110,16 @@ def _send(post: Post, cfg: Config) -> int:
     from slack_sdk import WebClient
     from slack_sdk.errors import SlackApiError
 
+    client = WebClient(token=cfg.slack_bot_token)
     try:
-        result = WebClient(token=cfg.slack_bot_token).files_upload_v2(
-            channel=cfg.slack_channel_id, initial_comment=post.text,
-            file_uploads=[att.upload() for att in post.attachments],
-        )
+        if post.attachments:
+            result = client.files_upload_v2(
+                channel=cfg.slack_channel_id, initial_comment=post.text,
+                file_uploads=[att.upload() for att in post.attachments],
+            )
+        else:
+            # 카드·일기도·지도가 모두 빠진 날 — files_upload_v2 는 빈 첨부를 받지 않아 글만 올림
+            result = client.chat_postMessage(channel=cfg.slack_channel_id, text=post.text)
     except SlackApiError as exc:
         err = exc.response.get("error")
         if err in ("not_in_channel", "channel_not_found"):
@@ -128,7 +133,7 @@ def _send(post: Post, cfg: Config) -> int:
         else:
             log.error("슬랙 전송 실패: %s", exc.response.data)
         return 1
-    log.info("게시 완료: %s", (result.get("files") or [{}])[0].get("permalink", ""))
+    log.info("게시 완료: %s", (result.get("files") or [{}])[0].get("permalink", "") or result.get("ts", ""))
     return 0
 
 

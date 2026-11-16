@@ -1517,10 +1517,10 @@ def test_blossom_parse() -> None:
         return "\r\n\r\napplyFlowerData(" + json.dumps(
             {"places": places, "isService": service, "flower": {}}, ensure_ascii=False) + ")"
 
-    stages, live = parse_status(jsonp(True))
+    stages, live, _ = parse_status(jsonp(True))
     assert live and stages == {"진해 여좌천": 2, "여의도 윤중로": 1, "춘천 소양강댐": 0}, stages
     # 서비스 기간 밖이면 지난 봄 값이라 버림
-    stages, live = parse_status(jsonp(False))
+    stages, live, _ = parse_status(jsonp(False))
     assert not live and set(stages.values()) == {0}, stages
 
     cities = ["서귀포", "부산", "창원", "울산", "여수", "광주", "목포", "전주", "대구", "포항",
@@ -1583,6 +1583,151 @@ def test_blossom_text() -> None:
     print("[ok] 벚꽃 문구 — 평년 · 다음 개화 · 이번 주 묶음 · 출처")
 
 
+# 기상청 봄꽃 목록(2026-11 받음)과 웨더아이 2026년 표의 장소 — 지도 좌표가 빠짐없이 있어야 함
+BLOSSOM_SITES = ("여의도 윤중로", "수원 경기도청", "청주 무심천변", "전주-군산간 번영로", "경주 보문관광단지",
+                 "하동 쌍계사", "진해 여좌천", "춘천 소양강댐", "강릉 경포대", "인천자유공원", "부산 남천동",
+                 "영암 100리", "공주 계룡산")
+BLOSSOM_CITIES = ("서귀포", "부산", "창원", "울산", "여수", "광주", "목포", "전주", "대구", "포항",
+                  "안동", "대전", "청주", "서산", "수원", "서울", "인천", "강릉", "춘천")
+
+
+def test_blossom_fetch() -> None:
+    """군락지 촬영일: 동시에 받고, 목록에 딸려 온 한 곳은 다시 부르지 않고, 촬영일이 빈 상세는 캐시하지 않음."""
+    import json
+    import threading
+
+    import src.season.blossom.data as blossom
+    from src.common.cache import clear
+
+    places = {"인천자유공원": "만발", "진해 여좌천": "만발", "여의도 윤중로": "개화", "춘천 소양강댐": "개화 전"}
+    details = {
+        "": {"obsPlace": "인천자유공원", "cfShotDate": "2026-04-03", "ffShotDate": "2026-04-07"},
+        "진해 여좌천": {"obsPlace": "진해 여좌천", "cfShotDate": "2026-03-24", "ffShotDate": "2026-03-29"},
+        "여의도 윤중로": {"obsPlace": "여의도 윤중로", "cfShotDate": ""},       # 단계만 먼저 바뀌었음
+        "강릉 경포대": {"obsPlace": "인천자유공원", "cfShotDate": "2026-04-03"},  # 엉뚱한 곳이 옴
+    }
+    calls: list = []
+    together = threading.Barrier(2, timeout=2)       # 상세 둘이 함께 와야 넘어감 — 하나씩 부르면 깨짐
+
+    def fake_kma(place=""):
+        calls.append(place)
+        if place:
+            together.wait()
+        return "applyFlowerData(" + json.dumps({
+            "isService": True, "flower": details[place],
+            "places": [{"obsPlace": n, "status": st, "sts": None} for n, st in places.items()],
+        }, ensure_ascii=False) + ")"
+
+    d = dt.date
+    orig = blossom._kma
+    blossom._kma = fake_kma
+    clear()
+    try:
+        status = blossom.fetch_status(d(2026, 4, 8))
+        assert status.stages == {"인천자유공원": 2, "진해 여좌천": 2, "여의도 윤중로": 1, "춘천 소양강댐": 0}
+        assert status.bloom == {"인천자유공원": d(2026, 4, 3), "진해 여좌천": d(2026, 3, 24)}, status.bloom
+        assert status.full == {"인천자유공원": d(2026, 4, 7), "진해 여좌천": d(2026, 3, 29)}, status.full
+        assert calls[0] == "" and sorted(calls[1:]) == ["여의도 윤중로", "진해 여좌천"], f"인천을 다시 불렀습니다: {calls}"
+
+        # 다시 받으면 진해는 캐시에서 — 촬영일이 비었던 여의도와 새로 핀 경포대만 부름
+        calls.clear()
+        details["여의도 윤중로"]["cfShotDate"] = "2026-04-06"
+        places["강릉 경포대"] = "개화"
+        status = blossom.fetch_status(d(2026, 4, 8))
+        assert calls[0] == "" and sorted(calls[1:]) == ["강릉 경포대", "여의도 윤중로"], calls
+        assert status.bloom["여의도 윤중로"] == d(2026, 4, 6) and status.bloom["진해 여좌천"] == d(2026, 3, 24)
+        assert status.stages["강릉 경포대"] == 1 and "강릉 경포대" not in status.bloom, "엉뚱한 곳의 날짜를 썼습니다"
+    finally:
+        blossom._kma = orig
+        clear()
+    print("[ok] 벚꽃 수집 — 군락지 상세 동시에 · 목록 상세 재사용 · 빈 상세 미캐시 · 엉뚱한 상세 버림")
+
+
+def _label_boxes(spots, text_of, font: float = 12.6) -> list[tuple[str, tuple[float, float, float, float]]]:
+    """basemap.label 과 같은 자리에 둔 라벨의 어림 상자.
+
+    폭은 Chromium 에서 잰 값(한글 0.87em · 숫자 0.52em)보다 조금 넉넉히 — 굵은 라벨도 덮게.
+    """
+    from src.season.basemap import place
+
+    def width(text: str) -> float:
+        return sum(font * (0.92 if "가" <= ch <= "힣" else 0.3 if ch == " " else 0.55) for ch in text)
+
+    boxes = []
+    for s in spots:
+        x, y = place(s.lon, s.lat)
+        text = text_of(s.name)
+        w = width(text)
+        dx, dy = {"r": (11, 4), "l": (-11 - w, 4), "t": (-w / 2, -11), "b": (-w / 2, 19)}[s.label]
+        boxes.append((s.name, (x + dx, y + dy - 0.8 * font, x + dx + w, y + dy + 0.15 * font)))
+    return boxes
+
+
+def test_blossom_spots() -> None:
+    """벚꽃 지도 좌표 — 기상청 군락지·웨더아이 도시가 빠짐없이, 바탕 지도 안에, 라벨이 서로·남의 표지와 안 겹치게."""
+    from src.season.basemap import INSET, INSET_LON, LAT0, LAT1, LON0, LON1, place
+    from src.season.blossom.spots import CITIES, SITES
+
+    def hits(a, b) -> bool:
+        return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
+
+    inset = (INSET["x"], INSET["y"], INSET["x"] + INSET["w"], INSET["y"] + INSET["h"])
+    # 도시 라벨은 가장 넓은 날짜(4/12)로, 표지는 가장 큰 것(만발 원 7.5 · 이번 주 고리 8.5)으로 봄
+    for spots, names, text_of, r in ((SITES, BLOSSOM_SITES, lambda n: n, 7.5),
+                                     (CITIES, BLOSSOM_CITIES, lambda n: f"{n} 4/12", 8.5)):
+        assert sorted(s.name for s in spots) == sorted(names), "기상청·웨더아이 장소와 지도 좌표가 다릅니다"
+        assert all(LAT0 < s.lat < LAT1 and (LON0 < s.lon < LON1 or s.lon > INSET_LON) for s in spots)
+        boxes = _label_boxes(spots, text_of)
+        marks = {s.name: (lambda x, y: (x - r, y - r, x + r, y + r))(*place(s.lon, s.lat)) for s in spots}
+        for i, (name, box) in enumerate(boxes):
+            assert not hits(box, inset), f"{name} 라벨이 울릉도 상자에 걸립니다"
+            assert not any(hits(box, other) for _, other in boxes[i + 1:]), f"{name} 라벨이 다른 라벨과 겹칩니다"
+            assert not any(hits(box, m) for n, m in marks.items() if n != name), f"{name} 라벨이 남의 표지를 가립니다"
+    print("[ok] 벚꽃 지점 — 군락지 13 · 도시 19 좌표, 지도 안, 라벨 겹침 없음")
+
+
+def test_blossom_render() -> None:
+    """벚꽃 지도 — 군락지·도시를 두 장으로, 이번 주 예상 강조, 한쪽이 없거나 관측 전이면 받은 쪽만 크게."""
+    from src.season.blossom.data import Outlook, Status
+    from src.season.blossom.map import build_html
+    from src.season.blossom.map import render_png as render_map
+
+    d = dt.date
+    monday = d(2026, 3, 30)
+    status = Status(stages={n: 0 for n in BLOSSOM_SITES} | {"진해 여좌천": 2, "하동 쌍계사": 1, "부산 남천동": 1},
+                    bloom={"진해 여좌천": d(2026, 3, 24), "하동 쌍계사": d(2026, 3, 26)},
+                    full={"진해 여좌천": d(2026, 3, 29)})
+    outlook = Outlook(expected={"서귀포": d(2026, 3, 25), "부산": d(2026, 3, 25), "대전": d(2026, 3, 31),
+                                "서울": d(2026, 4, 3), "춘천": d(2026, 4, 8)},
+                      normal={"서귀포": d(2026, 3, 24), "서울": d(2026, 4, 8)}, published=d(2026, 2, 26))
+    html_text = build_html(status, outlook, monday)
+    assert html_text.count('<svg width="316"') == 2, "군락지·도시 지도가 나란히 두 장이 아닙니다"
+    assert html_text.count('<tr><th scope="row">') == 13 + 3                  # 군락지 13줄 · 도시 5곳은 두 갈래 3줄
+    assert '<span class="prd week">3/31</span>' in html_text and '<span class="prd past">3/25</span>' in html_text
+    assert '<span class="obs">관측</span>' in html_text, "핀 단계인데 촬영일이 없는 곳은 «관측»"
+    assert "개화 <b>대전</b> 3/31 · <b>서울</b> 4/3 (예상)" in html_text
+    assert "(3/29 관측까지)" in html_text and "(2/26 발표, 5개 도시)" in html_text
+
+    # 기상청 관측 전이면 군락지 지도 없이 도시 지도만 — 모두 «개화 전» 으로 보이면 관측한 것처럼 읽힘
+    pre = build_html(Status(stages={n: 0 for n in BLOSSOM_SITES}, in_service=False), outlook, d(2026, 3, 2))
+    assert 'class="cols single"' in pre and "<th>군락지</th>" not in pre and "아직 시작되지 않았습니다" in pre
+    # 한쪽을 못 받았으면 받은 쪽만, 못 받은 것은 꼬리말에
+    only_obs = build_html(status, None, monday)
+    assert 'class="cols single"' in only_obs and "<th>도시</th>" not in only_obs
+    assert "웨더아이 예상은 받지 못했습니다" in only_obs
+    only_outlook = build_html(None, outlook, monday)
+    assert "<th>군락지</th>" not in only_outlook and "기상청 관측은 받지 못했습니다" in only_outlook
+    # 올해 예상 전 — 지난해 표의 평년
+    borrowed = build_html(status, Outlook(expected={}, normal=outlook.normal), monday)
+    assert "평년 개화일" in borrowed and "<th>예상</th>" not in borrowed and "평년 웨더아이 지난해 표" in borrowed
+
+    IMG.mkdir(parents=True, exist_ok=True)
+    png = render_map(status, outlook, monday)
+    assert png.startswith(PNG_MAGIC)
+    (IMG / "blossom-test.png").write_bytes(png)
+    print(f"[ok] 벚꽃 지도 {len(png):,}B -> {IMG / 'blossom-test.png'}")
+
+
 def fake_attachment(slug: str):
     from src.weekly.paragraph import Attachment
 
@@ -1614,8 +1759,9 @@ def weekly_ctx(start: dt.date, today: dt.date | None = None, *, can_render: bool
 
 
 def test_weekly_themes() -> None:
-    """주간 게시의 철 소식. 단풍은 글과 지도, 벚꽃은 글. 수집 실패는 예외로 올려 pipeline 이 그 영역만 뺌."""
+    """주간 게시의 철 소식. 단풍·벚꽃은 글과 지도. 수집 실패는 예외로 올려 pipeline 이 그 영역만 뺌."""
     import src.season.blossom.data as blossom
+    import src.season.blossom.map as blossom_map
     import src.season.foliage.data as foliage
     import src.season.foliage.map as foliage_map
     from src.season.blossom.data import BlossomError, Outlook, Status
@@ -1639,9 +1785,12 @@ def test_weekly_themes() -> None:
     spring_ctx = weekly_ctx(d(2026, 3, 23))
     assert [s.name for s in pipeline.SECTIONS] == ["카드", "일기도", "벚꽃", "단풍", "첫눈"]   # 기간 없이 늘 돎
 
-    orig = (foliage.fetch_snapshot, foliage_map.render_png, blossom.fetch_status, blossom.fetch_outlook)
+    orig = (foliage.fetch_snapshot, foliage_map.render_png, blossom.fetch_status, blossom.fetch_outlook,
+            blossom_map.render_png)
     foliage.fetch_snapshot = lambda today, **k: fake_snapshot({"설악산": 1}, first={"설악산": d(2026, 9, 28)})
     foliage_map.render_png = fake_render
+    # 실제와 같은 인자 꼴로 받음 — 부르는 쪽 인자가 어긋나면 그림이 빠져 아래 단언에 걸림
+    blossom_map.render_png = lambda status, outlook, start, *, scale=2: fake_render((status, outlook), start, scale)
     blossom.fetch_status = lambda today: Status(stages={"진해 여좌천": 0}, in_service=False)
     blossom.fetch_outlook = lambda year, **k: Outlook(expected={"서귀포": d(2026, 3, 25)},
                                                 normal={"서귀포": d(2026, 3, 24)}, published=d(2026, 2, 26))
@@ -1664,9 +1813,18 @@ def test_weekly_themes() -> None:
         assert autumn.attachment is None and autumn.credit.startswith("단풍 · ") and not renders
 
         spring = themes.blossom_block(spring_ctx)
-        assert spring.paragraph.title == "이번 주 벚꽃" and spring.attachment is None
+        assert spring.paragraph.title == "이번 주 벚꽃" and spring.attachment.title == "벚꽃 지도"
+        assert spring.attachment.filename == "blossom-20260323.png" and spring.attachment.pattern == "blossom-*.png"
         assert labels(spring) == ["관측", "이번 주", "올해"], labels(spring)
-        assert "*서귀포* 3/25" in spring.paragraph.to_slack() and spring.credit.startswith("벚꽃 · ")
+        assert "*서귀포* 3/25" in spring.paragraph.to_slack() and spring.credit.startswith("벚꽃 지도 · ")
+        # 벚꽃 지도도 못 그리면 글만, Chromium 이 없으면 그리려 하지도 않음
+        fail_render[0] = True
+        spring = themes.blossom_block(spring_ctx)
+        assert spring.attachment is None and spring.credit.startswith("벚꽃 · ") and spring.paragraph.rows
+        fail_render[0] = False
+        renders.clear()
+        spring = themes.blossom_block(weekly_ctx(d(2026, 3, 23), can_render=False))
+        assert spring.attachment is None and spring.credit.startswith("벚꽃 · ") and not renders
         # 관측만 실패하면 예상 줄만
         blossom.fetch_status = lambda today: (_ for _ in ()).throw(BlossomError("점검"))
         spring = themes.blossom_block(spring_ctx)
@@ -1697,8 +1855,9 @@ def test_weekly_themes() -> None:
         except FoliageError:
             pass
     finally:
-        foliage.fetch_snapshot, foliage_map.render_png, blossom.fetch_status, blossom.fetch_outlook = orig
-    print("[ok] 철 소식 — 단풍 글·지도, 벚꽃 글, 지도·Chromium 실패엔 글만, 수집 실패는 영역 경계로")
+        (foliage.fetch_snapshot, foliage_map.render_png, blossom.fetch_status, blossom.fetch_outlook,
+         blossom_map.render_png) = orig
+    print("[ok] 철 소식 — 단풍·벚꽃 글·지도, 지도·Chromium 실패엔 글만, 수집 실패는 영역 경계로")
 
 
 def test_weekly_pipeline() -> None:
@@ -2070,10 +2229,12 @@ def test_snow_render() -> None:
     assert '<span class="obs">11/26</span> <span class="gap">+6일</span>' in html_text
     assert "<b>서울</b> 11/26 (평년보다 6일 늦음)" in html_text and "눈 예보" in html_text
     assert "2026~27년 겨울" in html_text and html_text.count("울릉도") == 2   # 표 한 줄 + 상자 이름(점 라벨 없음)
+    from src.season.blossom.map import INFO as BLOSSOM_MAP
     from src.season.foliage.map import INFO as FOLIAGE_MAP
     from src.season.snow.map import INFO as SNOW_MAP
     cleanup = (pathlib.Path(__file__).resolve().parents[1] / "bin" / "cleanup.py").read_text(encoding="utf-8")
-    assert all(f'"{m.slug}-*.png"' in cleanup for m in (FOLIAGE_MAP, SNOW_MAP)), "정리 패턴이 지도 이름과 다릅니다"
+    assert all(f'"{m.slug}-*.png"' in cleanup for m in (FOLIAGE_MAP, SNOW_MAP, BLOSSOM_MAP)), \
+        "정리 패턴이 지도 이름과 다릅니다"
     print("[ok] 첫눈 지도 — 24곳 표 · 관측일·평년차 · 눈 예보")
 
 
@@ -2117,6 +2278,9 @@ if __name__ == "__main__":
     test_blossom_season()
     test_blossom_parse()
     test_blossom_text()
+    test_blossom_fetch()
+    test_blossom_spots()
+    test_blossom_render()
     test_weekly_themes()
     test_weekly_pipeline()
     test_weekly_health()

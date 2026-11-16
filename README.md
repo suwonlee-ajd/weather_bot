@@ -34,6 +34,7 @@ _단풍 지도 · 현황 기상청 날씨누리 · 예상 웨더아이(9/4 발�
 | 지상일기도 | 기상청이 올린 최신 PNG 그대로 |
 | 단풍 지도 | 기상청 단풍 관측 중에만 — 21개 명산의 현황과 예상 |
 | 첫눈 지도 | 첫눈 소식이 있을 때만 — 계절관측 24곳의 올해 첫눈과 평년·지난겨울 |
+| 벚꽃 지도 | 벚꽃 소식이 있을 때만 — 기상청 군락지 13곳의 관측과 웨더아이 19개 도시의 개화 예상을 두 장으로 나란히 |
 
 멘션 봇은 이렇게 답함.
 
@@ -133,7 +134,7 @@ systemd timer (월 07:50 KST 기동) — 또는 크론을 넣은 GitHub Actions 
   ├─ 날씨누리 저장소 ───── 지상일기도 PNG
   ├─ (단풍철) 기상청 단풍 현황 + 웨더아이 예상 PDF ── 단풍 문단 + 지도
   ├─ (첫눈철) 기상자료개방포털 계절관측 + 그 주 예보의 눈 ─ 첫눈 문단 + 지도
-  ├─ (벚꽃철) 기상청 군락지 관측 + 웨더아이 예상 PDF ─ 벚꽃 문단
+  ├─ (벚꽃철) 기상청 군락지 관측 + 웨더아이 예상 PDF ─ 벚꽃 문단 + 지도
   ├─ (선택) 모델 ────────── 위 원문으로 카드 문구 + 본문
   └─ POST_AT 까지 대기 → files.uploadV2 (본문 + 이미지를 한 메시지로)
 ```
@@ -185,7 +186,8 @@ src/common/     설정 · 로그 · 캐시 · 산출물 보존 · 날짜·기온
 src/kma/        기상청 수집 — 광역 구역(regions) · 통보문(notice) · 중기예보(mid_term) · 합치기(scrape)
                 · 동네예보(dong_zone · dong_forecast) · 1개월 전망(outlook) · 일기도(chart)
 src/season/     철 소식 자료 — 주제마다 자료(data) · 문장(text) · 지도(map)
-                · 단풍(foliage/ + 명산 mountains) · 첫눈(snow/ + 관측 지점 stations) · 벚꽃(blossom/)
+                · 단풍(foliage/ + 명산 mountains) · 첫눈(snow/ + 관측 지점 stations)
+                · 벚꽃(blossom/ + 군락지·도시 spots)
                 · 공통 — 수집(sources) · 지도 바탕(basemap) · 관측 한 줄 꼴(summary) · 주의 시작(weeks)
 src/advice/     수치에서 생활 조언 — 규칙(rules) · 문구 표(phrases)
 src/weekly/     주간 게시 — 진입점(post) · 헬스체크(health) · 영역 동시 실행·종합(pipeline)
@@ -219,10 +221,11 @@ uv run ruff check src tests bin
 
 2027년 벚꽃 소식 전(웨더아이 예상 발표 2월 하순)에 함.
 
-- **군락지 상세를 동시에, 캐시해서 받음.** 지금은 13곳을 하나씩 불러 기상청이 느리면 최대 13×20초
-  걸리고, 목록 응답에 딸려 온 한 곳도 다시 부름. `src/season/foliage/data.py` 의 `fetch_status` 처럼 바꿈.
 - **주간 벚꽃 문단 구성을 다시 봄.** 3줄이라 길고, 관측(군락지 13곳)과 예상(도시 19곳)의 장소가 섞여
-  읽힘. 줄 구성은 `src/weekly/themes.py`, 문단 모양은 `src/weekly/paragraph.py` 에 있음.
+  읽힘. 지도는 두 장으로 나눠 그려 갈렸지만 문단은 그대로임. 줄 구성은 `src/weekly/themes.py`, 문단 모양은
+  `src/weekly/paragraph.py` 에 있음.
+- **벚꽃 지도를 실제 철에 확인함.** 군락지 좌표(`src/season/blossom/spots.py`)는 벚꽃길 한가운데쯤으로 잡은
+  어림값이고, 철 중간 관측은 지어낸 값으로만 그려 봄. 2027년 3월 첫 게시 때 라벨 겹침과 표를 봄.
 
 ## 데이터 출처
 
@@ -231,7 +234,7 @@ uv run ruff check src tests bin
 | [기상청 날씨누리](https://www.weather.go.kr) | 예보 통보문, 중기예보, 동네예보, 1개월 전망, 지상일기도, 단풍·벚꽃 관측 |
 | [기상자료개방포털](https://data.kma.go.kr) | 첫눈 관측(계절관측 24곳)과 평년값 |
 | [웨더아이](https://www.weatheri.co.kr) | 단풍·벚꽃 예상 시기 (해마다 올리는 PDF) |
-| [Natural Earth](https://www.naturalearthdata.com) | 단풍·첫눈 지도의 시도 윤곽 (퍼블릭 도메인) |
+| [Natural Earth](https://www.naturalearthdata.com) | 단풍·첫눈·벚꽃 지도의 시도 윤곽 (퍼블릭 도메인) |
 
 - 이 프로젝트는 기상청·웨더아이와 관계가 없는 비공식 도구.
 - 게시물마다 출처를 밝힘. 자료를 다시 퍼뜨리거나 상업적으로 쓰려면 각 출처의 이용 조건을 먼저 확인함.

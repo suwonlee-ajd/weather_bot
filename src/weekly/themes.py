@@ -3,7 +3,7 @@
 모델에 맡기지 않음 — 지어낸 개화일·단풍일은 그럴듯해서 알아채기 어려움. 수집이 실패하면 예외를 그대로 올려
 pipeline 이 그 영역만 빼고 게시함. 기간은 우리가 정하지 않음 — 다룰 때인지는 자료가 정함:
 
-  벚꽃  기상청 관측 중이거나, 관측 전 올해 첫 개화 예상일까지   관측 기상청 · 예상 웨더아이
+  벚꽃  기상청 관측 중이거나, 관측 전 올해 첫 개화 예상일까지   관측 기상청 · 예상 웨더아이 + 지도
   단풍  기상청 관측 중이거나, 관측 전 올해 첫 예상일까지        관측 기상청 · 예상 웨더아이 + 지도
   첫눈  지난 7일 안에 관측됐거나, 아직인 곳에 그 주 눈 예보가 있을 때  관측 기상청 계절관측 · 평년 + 지도
 """
@@ -15,6 +15,7 @@ from collections.abc import Callable
 from src.common.text import bold
 from src.season.basemap import MapInfo
 from src.season.blossom import data as blossom
+from src.season.blossom import map as blossom_map
 from src.season.blossom import text as blossom_text
 from src.season.foliage import data as foliage
 from src.season.foliage import map as foliage_map
@@ -70,7 +71,9 @@ def blossom_block(ctx: Context) -> Block | None:
     if outlook is not None:
         paragraph.add("이번 주", blossom_text.week_line(outlook, ctx.week_start, ctx.week_end))
         paragraph.add("올해" if outlook.expected else "평년", blossom_text.year_line(outlook))
-    return Block(paragraph, f"벚꽃 · {blossom_text.sources(status, outlook)}")
+    return _with_map(ctx, paragraph, blossom_map.INFO,
+                     lambda: blossom_map.render_png(status, outlook, ctx.week_start, scale=ctx.scale),
+                     blossom_text.sources(status, outlook))
 
 
 def snow_block(ctx: Context) -> Block | None:

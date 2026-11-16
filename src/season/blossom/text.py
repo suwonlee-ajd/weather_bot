@@ -1,4 +1,4 @@
-"""벚꽃 문장 — 주간 게시의 관측·이번 주·올해 줄과 출처."""
+"""벚꽃 문장 — 주간 게시의 관측·이번 주·올해 줄과 출처. bold 로 슬랙(기본)·지도(HTML)를 가름."""
 from __future__ import annotations
 
 import datetime as dt
@@ -12,7 +12,7 @@ NOT_STARTED_TEXT = "기상청 벚꽃 관측이 아직 시작되지 않았습니�
 NOT_PUBLISHED_TEXT = f"올해 개화 예상은 아직 나오지 않았습니다 ({OUTLOOK_SOURCE}, 해마다 2월 말 발표)"
 
 
-def observed_line(status: Status) -> str:
+def observed_line(status: Status, bold=bold) -> str:
     """관측 한 줄 — 핀 곳이 적으면 이름·날짜, 많으면 개수·최근 변화."""
     if not status.in_service:
         return NOT_STARTED_TEXT
@@ -36,7 +36,7 @@ def observed_line(status: Status) -> str:
                             f"나머지 {waiting}곳은 개화 전" if waiting else "", tally)
 
 
-def _grouped(days: list[tuple[str, dt.date]]) -> str:
+def _grouped(days: list[tuple[str, dt.date]], bold=bold) -> str:
     """[(서귀포, 3/25), (부산, 3/25), (울산, 3/26)] → '*서귀포*·*부산* 3/25 · *울산* 3/26'."""
     by_day: dict[dt.date, list[str]] = {}
     for city, d in days:
@@ -44,20 +44,20 @@ def _grouped(days: list[tuple[str, dt.date]]) -> str:
     return " · ".join(f"{'·'.join(cities)} {short_date(d)}" for d, cities in sorted(by_day.items()))
 
 
-def week_line(outlook: Outlook | None, start: dt.date, end: dt.date) -> str:
+def week_line(outlook: Outlook | None, start: dt.date, end: dt.date, bold=bold) -> str:
     if outlook is None or not outlook.expected:
         return NOT_PUBLISHED_TEXT
     week = [(c, d) for c, d in outlook.expected.items() if start <= d <= end]
     if week:
-        return f"개화 {_grouped(week)} (예상)"
+        return f"개화 {_grouped(week, bold)} (예상)"
     ahead = sorted(((c, d) for c, d in outlook.expected.items() if d > end), key=lambda x: x[1])
     if not ahead:
         return "개화가 예상된 곳이 없습니다"
     first = ahead[0][1]
-    return f"개화 예상 없음 · 다음은 {_grouped([x for x in ahead if x[1] == first])} (예상)"
+    return f"개화 예상 없음 · 다음은 {_grouped([x for x in ahead if x[1] == first], bold)} (예상)"
 
 
-def year_line(outlook: Outlook | None) -> str:
+def year_line(outlook: Outlook | None, bold=bold) -> str:
     """평년보다 이른지 늦은지. 올해 예상이 없으면 평년 개화일."""
     if outlook is None or not outlook.normal:
         return ""

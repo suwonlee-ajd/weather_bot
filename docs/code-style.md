@@ -38,7 +38,7 @@
 
 | 하위 패키지 | 안의 모듈 |
 | --- | --- |
-| `season/foliage` · `season/snow` · `season/blossom` | `data` 수집·읽기·다룰 때(`showing` — 고정 기간 없이 자료로) · `text` 문장 · `map` 지도(벚꽃은 없음) · 지점 목록(`mountains` · `stations`) |
+| `season/foliage` · `season/snow` · `season/blossom` | `data` 수집·읽기·다룰 때(`showing` — 고정 기간 없이 자료로) · `text` 문장 · `map` 지도 · 지점 목록(`mountains` · `stations` · `spots`) |
 | `mention/weather` | `region` 광역 답 · `dong` 동네예보 답 |
 | `mention/foliage` · `mention/snow` | `reply` 단독 답 · `note` 날씨 답 끝의 한 줄 |
 

@@ -1,18 +1,22 @@
 """철마다 주간 게시에 붙이는 소식(테마) — 영역 3~6 의 덩어리(Block) 조립. 순서는 pipeline.SECTIONS.
 
-모델에 맡기지 않음 — 지어낸 개화일·단풍일은 그럴듯해서 알아채기 어려움. 수집이 실패하면 예외를 그대로 올려
-pipeline 이 그 영역만 빼고 게시함. 기간은 우리가 정하지 않음 — 다룰 때인지는 자료가 정함:
+모델에 맡기지 않음 — 지어낸 개화일·단풍일·태풍 이름은 그럴듯해서 알아채기 어려움. 수집이 실패하면 예외를 그대로
+올려 pipeline 이 그 영역만 빼고 게시함. 기간은 우리가 정하지 않음 — 다룰 때인지는 자료가 정함:
 
   벚꽃  기상청 관측 중이거나, 관측 전 올해 첫 개화 예상일까지   관측 기상청 · 예상 웨더아이
+  태풍  기상청 태풍정보에 진행 중인 태풍이 있을 때              현재·예상 기상청 태풍정보 · 예보관 서술 (글만)
   단풍  기상청 관측 중이거나, 관측 전 올해 첫 예상일까지        관측 기상청 · 예상 웨더아이 + 지도
   첫눈  지난 7일 안에 관측됐거나, 아직인 곳에 그 주 눈 예보가 있을 때  관측 기상청 계절관측 · 평년 + 지도
 """
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable
 
-from src.common.text import bold
+from src.common.text import bold, short_date
+from src.kma import typhoon
+from src.kma.page import Narrative
 from src.season.basemap import MapInfo
 from src.season.blossom import data as blossom
 from src.season.blossom import text as blossom_text
@@ -71,6 +75,57 @@ def blossom_block(ctx: Context) -> Block | None:
         paragraph.add("이번 주", blossom_text.week_line(outlook, ctx.week_start, ctx.week_end))
         paragraph.add("올해" if outlook.expected else "평년", blossom_text.year_line(outlook))
     return Block(paragraph, f"벚꽃 · {blossom_text.sources(status, outlook)}")
+
+
+def typhoon_block(ctx: Context) -> Block | None:
+    """진행 중인 태풍이 있을 때만, 글만 — 태풍 위치는 2번 일기도가 보여 줌.
+
+    태풍정보를 받지 못했어도 예보관 서술에 태풍이 있으면 그 줄만 실음 — 위험 신호를 영역 실패로 묻지 않게.
+    """
+    failure: typhoon.TyphoonError | None = None
+    try:
+        storms = typhoon.fetch_active()
+    except typhoon.TyphoonError as exc:
+        failure, storms = exc, []
+    if not storms and failure is None:
+        return None                       # 기상청 목록이 비었음 — 진행 중인 태풍 없음
+    week = ctx.forecast()
+    quotes = _typhoon_lines(week.narratives if week else [])
+    if failure is not None:
+        if not quotes:
+            raise failure
+        log.warning("기상청 태풍정보를 받지 못해 예보관 서술만 싣습니다 — %s", failure)
+
+    paragraph = Paragraph("이번 주 태풍", emoji=":cyclone:")
+    for storm in storms:
+        weakened = f" {storm.weakened}" if storm.weakened else ""
+        paragraph.add("현재", f"{bold(storm.title)}{weakened} · {storm.now.summary} ({storm.now.when} 기준)")
+        ahead = [p for p in storm.forecast if p.at.date() <= ctx.week_end]
+        name = f"{storm.name} " if len(storms) > 1 else ""
+        paragraph.add("예상", f"{name}{ahead[-1].when} {ahead[-1].place}" if ahead else "")
+    paragraph.add("이번 주", " / ".join(f'"{text}"' for text, _ in quotes))
+    return Block(paragraph, f"태풍 · {_typhoon_sources(storms, quotes)}")
+
+
+def _typhoon_lines(narratives: list[Narrative], limit: int = 2) -> list[tuple[str, Narrative]]:
+    """예보관 서술에서 태풍을 말한 줄(□·○ 표시만 뗌) — 통보문(가까운 날)이 먼저."""
+    out: list[tuple[str, Narrative]] = []
+    for narrative in sorted(narratives, key=lambda n: 0 if "통보문" in n.title else 1):
+        for line in narrative.lines:
+            text = re.sub(r"^[□○]\s*", "", line).strip()
+            if "태풍" in text and all(text != seen for seen, _ in out):
+                out.append((text, narrative))
+    return out[:limit]
+
+
+def _typhoon_sources(storms: list[typhoon.Typhoon], quotes: list[tuple[str, Narrative]]) -> str:
+    """실린 줄의 출처만 — «기상청 태풍정보(11/16 16시 발표) · 기상청 예보 통보문»."""
+    parts = []
+    if storms:
+        issued = max((s.issued for s in storms if s.issued), default=None)
+        parts.append("기상청 태풍정보" + (f"({short_date(issued)} {issued.hour}시 발표)" if issued else ""))
+    parts.extend(dict.fromkeys(n.title for _, n in quotes))
+    return " · ".join(parts)
 
 
 def snow_block(ctx: Context) -> Block | None:

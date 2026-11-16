@@ -9,8 +9,8 @@ import datetime as dt
 import html
 
 from src.common.browser import capture
-from src.common.text import WEEKDAY_KO, day_label, html_bold, short_day_label
-from src.season.basemap import BASE_CSS, INSET, MAP_W, MapInfo, emoji, frame, place
+from src.common.text import WEEKDAY_KO, html_bold, short_day_label
+from src.season.basemap import BASE_CSS, INSET, MAP_W, MapInfo, frame, place
 from src.season.heat.cities import SPOTS
 from src.season.heat.data import HEAT_DAY, TROPICAL_NIGHT, Heat
 from src.season.heat.text import (
@@ -20,12 +20,12 @@ from src.season.heat.text import (
     hot_line,
     night_line,
 )
+from src.season.mapcard import Card, body, glyph, glyph_size, hollow, icon, legend
 
 INFO = MapInfo("더위", "heat", "중기예보 도시별 낮 최고·아침 최저로 그린 폭염일·열대야 기준 지도")
 
 # 기준 미만은 다른 지도의 «없음·아직» 과 같은 회색 빈 원 — 모양으로 가름
-GRAY = "#898781"
-HOT_SIZE = 15.0
+HOT_R = 4                # 🥵 15px
 MAX_ROWS = 20           # 표가 지도보다 길어지지 않게 — 나머지는 «외 N곳»
 CRITERIA = (f"기준 기상청 기후통계 — 폭염일 «일 최고기온이 {HEAT_DAY:.0f}℃ 이상인 날» · 열대야 «밤최저기온이 "
             f"{TROPICAL_NIGHT:.0f}℃ 이상인 날(18:01~익일 09:00)». 표의 열대야는 예보의 아침 최저로 가늠함. "
@@ -70,13 +70,13 @@ def _marks(heat: Heat) -> str:
     """표지는 모두, 라벨은 더운 곳부터 다른 표지·라벨·울릉도 상자와 겹치지 않는 자리에만."""
     placed = [(c, *place(s.lon, s.lat), s.label) for c in heat.cities if (s := SPOTS.get(c.name))]
     # 남의 표지 바로 옆에 붙은 라벨은 그 도시 값으로 읽혀 좌우를 3 더 비움
-    px, py = HOT_SIZE / 2 + 3, HOT_SIZE / 2
+    px, py = glyph_size(HOT_R) / 2 + 3, glyph_size(HOT_R) / 2
     around = {c.name: (x - px, y - py, x + px, y + py) for c, x, y, _ in placed}
     ix, iy, iw, ih = INSET["x"], INSET["y"], INSET["w"], INSET["h"]
     labels_taken: list[Box] = [(ix, iy + ih - 14, ix + iw, iy + ih)]       # 상자 안 «울릉도·독도» 글자
     marks, labels = [], []
     for city, x, y, side in sorted(placed, key=lambda p: -p[0].high[1]):
-        marks.append(emoji("hot", x, y, HOT_SIZE) if city.hot else _hollow(x, y))
+        marks.append(glyph("hot", x, y, HOT_R) if city.hot else hollow(x, y))
         text = f"{city.name} {city.high[1]:.0f}"
         others = [b for name, b in around.items() if name != city.name] + labels_taken
         for s in dict.fromkeys((side, *_OFFSET)):                   # 정해 둔 자리부터
@@ -87,19 +87,10 @@ def _marks(heat: Heat) -> str:
     return "".join(marks) + "".join(labels)
 
 
-def _hollow(x: float, y: float, r: float = 6.5) -> str:
-    return f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r}" fill="#fcfcfb" stroke="{GRAY}" stroke-width="2"/>'
-
-
-def _icon(markup: str, size: int = 16) -> str:
-    half = size / 2
-    return f'<svg width="{size}" height="{size}" viewBox="-{half} -{half} {size} {size}">{markup}</svg>'
-
-
 def _legend() -> str:
-    return (f"<span>{_icon(emoji('hot', 0, 0, 14))}낮 최고 {HEAT_DAY:.0f}℃↑</span>"
-            f"<span>{_icon(_hollow(0, 0, 5), 14)}낮 최고 {HEAT_DAY:.0f}℃ 미만</span>"
-            '<span class="muted">숫자는 그 기간 낮 최고(℃) · 자리가 없는 곳은 라벨을 뺌</span>')
+    return legend(((icon(glyph("hot", 0, 0, 3.5), 16), f"낮 최고 {HEAT_DAY:.0f}℃↑"),
+                   (icon(hollow(0, 0, 5), 14), f"낮 최고 {HEAT_DAY:.0f}℃ 미만")),
+                  "숫자는 그 기간 낮 최고(℃) · 자리가 없는 곳은 라벨을 뺌")
 
 
 def _cell(value: tuple[dt.date, float], met: bool) -> str:
@@ -126,28 +117,21 @@ def _span(heat: Heat) -> str:
     return short_day_label(first) if first == last else f"{short_day_label(first)}~{short_day_label(last)}"
 
 
-def _lead(heat: Heat) -> str:
+def _lead(heat: Heat) -> list[tuple[str, str]]:
     """주간 문단과 같은 줄(지역 범위, 그 주 전체) + 도시별 한 줄."""
     hot = sum(c.hot for c in heat.cities)
     night = sum(c.tropical for c in heat.cities)
     cities = (f"{_span(heat)} {len(heat.cities)}곳 중 {HEAT_DAY:.0f}℃↑ <b>{hot}곳</b> · "
               f"아침 {TROPICAL_NIGHT:.0f}℃↑ <b>{night}곳</b>") if heat.cities else ""
-    rows = [(HOT_LABEL, hot_line(heat, html_bold)), (NIGHT_LABEL, night_line(heat, html_bold)), ("도시별", cities)]
-    return "".join(f'<div><span class="k">{k}</span><span>{v}</span></div>' for k, v in rows if v)
+    return [(HOT_LABEL, hot_line(heat, html_bold)), (NIGHT_LABEL, night_line(heat, html_bold)), ("도시별", cities)]
 
 
 def build_html(heat: Heat, week_start: dt.date) -> str:
     """heat.cities 가 비어 있으면 부르지 않음(themes 가 글만 올림)."""
-    week_end = week_start + dt.timedelta(days=6)
     note = f"도시별 값은 중기예보 도시 표에만 있어 {_span(heat)}만 그림(그 앞은 통보문이 지역 범위만 줌)"
-    return f"""<!doctype html><html lang="ko"><head><meta charset="utf-8"><style>{CSS}</style></head>
-<body><div id="card">
-  <div class="head"><h1>더위 지도</h1><span class="period">{day_label(week_start)} ~ {day_label(week_end)}</span></div>
-  <div class="lead">{_lead(heat)}</div>
-  <div class="body"><div class="map"><h2>도시별 예보 {_span(heat)}</h2>{frame(_marks(heat), INFO.alt)}
-  <div class="legend">{_legend()}</div></div>{_table(heat)}</div>
-  <div class="foot">{FORECAST_SOURCE} · {note}<br>{CRITERIA}</div>
-</div></body></html>"""
+    left = f"<h2>도시별 예보 {_span(heat)}</h2>{frame(_marks(heat), INFO.alt)}{_legend()}"
+    foot = f"{FORECAST_SOURCE} · {note}<br>{CRITERIA}"
+    return Card("더위 지도", week_start, _lead(heat), body(left, _table(heat)), foot).html(CSS)
 
 
 def render_png(heat: Heat, week_start: dt.date, *, scale: int = 2) -> bytes:
@@ -157,7 +141,6 @@ def render_png(heat: Heat, week_start: dt.date, *, scale: int = 2) -> bytes:
 CSS = BASE_CSS + f".body .map {{ width: {MAP_W:.0f}px; }}" + """
 .lead { background: #fdf0e6; }
 .lead .k { width: 104px; }
-h2 { font-size: 13.5px; font-weight: 700; margin-bottom: 4px; }
 .lbl { font-size: 10.5px; }
 td.met { font-weight: 700; color: var(--ink); }
 td small { font-size: 11px; font-weight: 400; color: var(--ink2); }

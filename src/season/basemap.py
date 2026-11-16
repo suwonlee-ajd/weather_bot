@@ -1,4 +1,4 @@
-"""철 소식 지도의 바탕 — 남한 윤곽(Natural Earth, 퍼블릭 도메인)·투영·카드 공통 CSS. 단풍·첫눈·벚꽃 지도가 함께 씀."""
+"""철 소식 지도의 바탕 — 남한 윤곽(Natural Earth, 퍼블릭 도메인)·투영·라벨·카드 공통 CSS. 태풍 지도는 CSS 만 씀."""
 from __future__ import annotations
 
 import functools
@@ -118,7 +118,7 @@ def basemap() -> str:
     )
 
 
-# 카드 틀·지도·표 — 지도마다 다른 것(.lead 바탕색·표 칸)은 각 지도에서 덧붙임
+# 카드 틀·지도·표 — 지도마다 다른 것(.lead 바탕색·이번 주 칸 색 --week·표 칸)은 각 지도에서 덧붙임
 BASE_CSS = f"""
 * {{ box-sizing: border-box; margin: 0; padding: 0; }}
 body {{ background: #ffffff; }}
@@ -132,6 +132,7 @@ body {{ background: #ffffff; }}
 .head {{ display: flex; align-items: baseline; gap: 10px; }}
 h1 {{ font-size: 19px; font-weight: 700; letter-spacing: -0.2px; }}
 .period {{ color: var(--ink2); font-size: 13.5px; }}
+h2 {{ font-size: 14px; font-weight: 700; margin-bottom: 4px; }}
 .muted {{ color: var(--muted); }}
 .lead {{ margin: 8px 0 14px; padding: 9px 12px; border-radius: 8px; font-size: 13.5px; }}
 .lead div {{ display: flex; }}
@@ -156,6 +157,8 @@ tbody th {{ text-align: left; font-weight: 600; padding: 1px 4px; white-space: n
 tbody td {{ padding: 1px 4px; white-space: nowrap; }}
 tbody tr + tr > * {{ border-top: 1px solid #f0efec; }}
 .obs {{ font-weight: 700; color: var(--ink); }}
+.prd.week {{ color: var(--ink); font-weight: 600; background: var(--week); border-radius: 4px; padding: 0 4px;
+             margin: 0 -4px; }}
 .none {{ color: #c3c2b7; }}
 .foot {{ margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--hair);
          font-size: 11.5px; color: var(--muted); line-height: 1.55; }}

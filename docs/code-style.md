@@ -44,7 +44,7 @@
 | `mention/weather` | `region` 광역 답 · `dong` 동네예보 답 |
 | `mention/foliage` · `mention/snow` | `reply` 단독 답 · `note` 날씨 답 끝의 한 줄 |
 
-- 주제 사이에 함께 쓰는 것(`season/sources` · `basemap` · `summary` · `weeks` · `narrative`, `mention/reply` · `forecast`)은 상위에 둠
+- 주제 사이에 함께 쓰는 것(`season/sources` · `basemap` · `mapcard` · `summary` · `weeks` · `narrative`, `mention/reply` · `forecast`)은 상위에 둠
 - `__init__.py` 는 비워 둠. 모듈은 `from src.season.foliage import data as foliage` 처럼 주제 이름으로 가져옴 —
   바꿔치기도 이 이름으로 함
 

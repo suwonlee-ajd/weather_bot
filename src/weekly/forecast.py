@@ -13,7 +13,7 @@ from src.common.text import WEEKDAY_KO, day_label, range_text
 from src.kma.page import Narrative, ScrapedDay, ScrapeError
 from src.kma.regions import Region, find_region
 from src.kma.scrape import scrape_week
-from src.season.weeks import week_start_of
+from src.season.weeks import week_end_of, week_start_of
 
 log = logging.getLogger(__name__)
 
@@ -98,7 +98,7 @@ class WeekForecast:
 
     @property
     def week_end(self) -> dt.date:
-        return self.week_start + dt.timedelta(days=6)
+        return week_end_of(self.week_start)
 
     @property
     def sources(self) -> list[Source]:

@@ -8,8 +8,8 @@ import datetime as dt
 from dataclasses import dataclass
 
 from src.common.browser import capture
-from src.common.text import day_label, short_date
-from src.season.basemap import BASE_CSS, MapInfo, emoji, frame, label, place
+from src.common.text import short_date
+from src.season.basemap import BASE_CSS, MapInfo, frame, label, place
 from src.season.foliage.data import CRITERIA_TEXT, KINDS, STAGES, Snapshot
 from src.season.foliage.mountains import MOUNTAINS, Mountain
 from src.season.foliage.text import (
@@ -20,11 +20,22 @@ from src.season.foliage.text import (
     week_changes,
     week_line,
 )
+from src.season.mapcard import (
+    NONE,
+    Card,
+    body,
+    glyph,
+    glyph_size,
+    hollow,
+    icon,
+    legend,
+    ring,
+)
+from src.season.weeks import week_end_of
 
 INFO = MapInfo("단풍", "foliage", "전국 21개 명산의 단풍 현황(기상청)과 예상 시기(웨더아이) 지도")
 
 # 단풍전은 회색 빈 원, 물든 산은 🍁, 절정 2주 넘은 산은 🍂 — 모양으로 가르고 첫단풍은 🍁 을 옅게(밝기로 가름)
-GRAY = "#898781"
 FIRST_OPACITY = 0.45
 
 
@@ -37,21 +48,16 @@ class Mark:
 
 
 def _marker(x: float, y: float, mark: Mark, r: float = 6.5) -> str:
-    stage, out, size = mark.stage, [], 2 * r + 7     # 그림은 여백이 있어 같은 크기면 빈 원보다 작아 보임
-    if mark.ring:
-        out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{size / 2 + 3}" fill="none" '
-                   f'stroke="#0b0b0b" stroke-width="1.4" stroke-dasharray="2.6 2.2"/>')
-    if stage == 0:
-        out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r}" fill="#fcfcfb" stroke="{GRAY}" stroke-width="2"/>')
-    elif mark.faded:
-        out.append(emoji("fallen", x, y, size))
-    else:
-        out.append(emoji("maple", x, y, size, opacity=FIRST_OPACITY if stage == 1 else 1.0))
-    return "".join(out)
+    out = ring(x, y, glyph_size(r) / 2 + 3) if mark.ring else ""
+    if mark.stage == 0:
+        return out + hollow(x, y, r)
+    if mark.faded:
+        return out + glyph("fallen", x, y, r)
+    return out + glyph("maple", x, y, r, opacity=FIRST_OPACITY if mark.stage == 1 else 1.0)
 
 
 def _icon(stage: int, faded: bool = False) -> str:
-    return f'<svg width="17" height="17" viewBox="-9.5 -9.5 19 19">{_marker(0, 0, Mark(stage, faded=faded), r=5)}</svg>'
+    return icon(_marker(0, 0, Mark(stage, faded=faded), r=5), 17, view=19)
 
 
 def _svg(snap: Snapshot, flagged: set[str], faded: set[str]) -> str:
@@ -71,8 +77,8 @@ def _rows(snap: Snapshot, week_start: dt.date, week_end: dt.date, faded: set[str
         if observed:
             return f'<span class="obs">{short_date(day) if day else "관측"}</span>'
         if day is None:
-            return '<span class="none">–</span>'
-        this_week = " wk" if week_start <= day <= week_end else ""
+            return NONE
+        this_week = " week" if week_start <= day <= week_end else ""
         return f'<span class="prd{this_week}">{short_date(day)}</span>'
 
     def order(m: Mountain):
@@ -89,36 +95,19 @@ def _rows(snap: Snapshot, week_start: dt.date, week_end: dt.date, faded: set[str
 
 
 def build_html(snap: Snapshot, week_start: dt.date, span_label: str = "이번 주") -> str:
-    week_end = week_start + dt.timedelta(days=6)
+    week_end = week_end_of(week_start)
     flagged = {n for changes in week_changes(snap, week_start, week_end).values() for n, _ in changes}
     faded = {m.name for m in MOUNTAINS
              if (age := peak_age(snap, m.name, week_start)) is not None and age > FRESH_PEAK_DAYS}
-    svg = _svg(snap, flagged, faded)
-    rows = _rows(snap, week_start, week_end, faded)
-    faded_legend = f"<span>{_icon(2, faded=True)}절정 2주 넘음</span>" if faded else ""
-    return f"""<!doctype html><html lang="ko"><head><meta charset="utf-8"><style>{CSS}</style></head>
-<body><div id="card">
-  <div class="head"><h1>단풍 지도</h1><span class="period">{day_label(week_start)} ~ {day_label(week_end)}</span></div>
-  <div class="lead">
-    <div><span class="k">관측</span><span>{observed_line(snap, day=week_start)}</span></div>
-    <div><span class="k">{span_label}</span><span>{week_line(snap, week_start, week_end)}</span></div>
-  </div>
-  <div class="body">
-    <div class="map">{svg}
-      <div class="legend">
-        <span>{_icon(0)}단풍전</span><span>{_icon(1)}첫단풍</span><span>{_icon(2)}절정</span>{faded_legend}
-        <span><svg width="18" height="18" viewBox="-9 -9 18 18"><circle r="7" fill="none" stroke="#0b0b0b"
-          stroke-width="1.4" stroke-dasharray="2.6 2.2"/></svg>이번 주 예상</span>
-      </div>
-    </div>
-    <table>
-      <caption><b>굵게</b> 관측 · <span class="muted">흐리게</span> 예상</caption>
-      <thead><tr><th>산</th><th>현황</th><th>첫단풍</th><th>절정</th></tr></thead>
-      <tbody>{rows}</tbody>
-    </table>
-  </div>
-  <div class="foot">{sources(snap, detail=True)}<br>{CRITERIA_TEXT}입니다.</div>
-</div></body></html>"""
+    marks = [(_icon(0), "단풍전"), (_icon(1), "첫단풍"), (_icon(2), "절정")]
+    marks += [(_icon(2, faded=True), "절정 2주 넘음")] if faded else []
+    marks += [(icon(ring(0, 0, 7), 18), "이번 주 예상")]
+    table = ('<table><caption><b>굵게</b> 관측 · <span class="muted">흐리게</span> 예상</caption>'
+             '<thead><tr><th>산</th><th>현황</th><th>첫단풍</th><th>절정</th></tr></thead>'
+             f'<tbody>{_rows(snap, week_start, week_end, faded)}</tbody></table>')
+    rows = (("관측", observed_line(snap, day=week_start)), (span_label, week_line(snap, week_start, week_end)))
+    foot = f"{sources(snap, detail=True)}<br>{CRITERIA_TEXT}입니다."
+    return Card("단풍 지도", week_start, rows, body(_svg(snap, flagged, faded) + legend(marks), table), foot).html(CSS)
 
 
 def render_png(snap: Snapshot, week_start: dt.date, *, span_label: str = "이번 주", scale: int = 2) -> bytes:
@@ -126,9 +115,9 @@ def render_png(snap: Snapshot, week_start: dt.date, *, span_label: str = "이번
 
 
 CSS = BASE_CSS + """
+#card { --week: #fbe3d6; }
 .lead { background: #fbf3ee; }
 td.st { color: var(--ink2); }
 td.st svg { vertical-align: -2px; margin-right: 4px; }
 .prd { color: var(--muted); }
-.prd.wk { color: var(--ink); font-weight: 600; background: #fbe3d6; border-radius: 4px; padding: 0 4px; margin: 0 -4px; }
 """

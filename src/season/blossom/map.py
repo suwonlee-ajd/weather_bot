@@ -7,17 +7,28 @@ from __future__ import annotations
 import datetime as dt
 
 from src.common.browser import capture
-from src.common.text import day_label, html_bold, short_date
-from src.season.basemap import BASE_CSS, MapInfo, emoji, frame, label, place
+from src.common.text import html_bold, short_date
+from src.season.basemap import BASE_CSS, MapInfo, frame, label, place
 from src.season.blossom.data import Outlook
 from src.season.blossom.spots import CITY_BY_NAME
 from src.season.blossom.text import week_line, year_line
+from src.season.mapcard import (
+    NONE,
+    Card,
+    body,
+    glyph,
+    glyph_size,
+    hollow,
+    icon,
+    legend,
+    ring,
+)
 from src.season.sources import OUTLOOK_SOURCE
+from src.season.weeks import week_end_of
 
 INFO = MapInfo("벚꽃", "blossom", "19개 도시의 벚꽃 개화 예상(웨더아이) 지도")
 
 # 예상일이 뒤면 회색 빈 원 · 이번 주면 옅은 🌸 와 점선 고리 · 지났으면 🌸 (단풍 지도와 같은 짜임)
-GRAY = "#898781"
 BLOOM_OPACITY = 0.65         # 🌸 는 원래 연분홍이라 단풍(0.45)보다 덜 옅게 — 더 옅으면 바탕에 묻힘
 # 단풍(6.5 · 고리 +3)보다 작고 고리도 붙여 그림 — 서울·수원, 청주·대전은 20~22px 거리라 함께 이번 주면 고리가 겹침
 MARK_R, RING_GAP = 5.5, 1
@@ -34,17 +45,15 @@ def _when(day: dt.date, start: dt.date, end: dt.date) -> str:
 
 def _marker(x: float, y: float, when: str, r: float = MARK_R) -> str:
     if when == "later":
-        return f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r}" fill="#fcfcfb" stroke="{GRAY}" stroke-width="2"/>'
-    size = 2 * r + 7          # 그림은 여백이 있어 같은 크기면 빈 원보다 작아 보임
+        return hollow(x, y, r)
     if when == "past":
-        return emoji("blossom", x, y, size)
-    return (f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{size / 2 + RING_GAP}" fill="none" stroke="#0b0b0b" '
-            f'stroke-width="1.4" stroke-dasharray="2.6 2.2"/>' + emoji("blossom", x, y, size, opacity=BLOOM_OPACITY))
+        return glyph("blossom", x, y, r)
+    return ring(x, y, glyph_size(r) / 2 + RING_GAP) + glyph("blossom", x, y, r, opacity=BLOOM_OPACITY)
 
 
 def _icon(when: str) -> str:
     # 상자는 가장 큰 이번 주 고리에 맞춤 — 표지마다 크기가 달라 글자 줄이 들쭉날쭉하지 않게
-    return f'<svg width="22" height="22" viewBox="-11.5 -11.5 23 23">{_marker(0, 0, when, r=4.5)}</svg>'
+    return icon(_marker(0, 0, when, r=4.5), 22, view=23)
 
 
 def _label(x: float, y: float, text: str, side: str, ring: bool) -> str:
@@ -75,7 +84,7 @@ def _city_rows(days: dict[str, dt.date], normal: dict[str, dt.date] | None, star
         day = days[name]
         out = f'<th scope="row">{name}</th><td><span class="prd {_when(day, start, end)}">{short_date(day)}</span></td>'
         if normal is not None:
-            out += f'<td class="muted">{short_date(normal[name]) if name in normal else "–"}</td>'
+            out += f'<td class="muted">{short_date(normal[name]) if name in normal else NONE}</td>'
         return out
 
     ordered = sorted(days, key=lambda c: (days[c], CITY_BY_NAME[c].lat if c in CITY_BY_NAME else 0.0))
@@ -88,11 +97,10 @@ def _city_rows(days: dict[str, dt.date], normal: dict[str, dt.date] | None, star
     )
 
 
-def _lead(outlook: Outlook, start: dt.date, end: dt.date) -> str:
+def _lead(outlook: Outlook, start: dt.date, end: dt.date) -> tuple[tuple[str, str], ...]:
     """주간 문단과 같은 줄."""
-    rows = (("이번 주", week_line(outlook, start, end, html_bold)),
+    return (("이번 주", week_line(outlook, start, end, html_bold)),
             ("올해" if outlook.expected else "평년", year_line(outlook, html_bold)))
-    return "".join(f'<div><span class="k">{k}</span><span>{v}</span></div>' for k, v in rows if v)
 
 
 def _foot(outlook: Outlook) -> str:
@@ -106,24 +114,18 @@ def _foot(outlook: Outlook) -> str:
 
 def build_html(outlook: Outlook, week_start: dt.date) -> str:
     """올해 표가 없으면 지난해 표의 평년으로 — 제목·범례·표 머리도 «평년»."""
-    week_end = week_start + dt.timedelta(days=6)
+    week_end = week_end_of(week_start)
     days = outlook.expected or outlook.normal
     kind = "예상" if outlook.expected else "평년"
     marks, seen = _marks(days, week_start, week_end)
-    legend = "".join(f"<span>{_icon(when)}{text}</span>" for when, text in LEGEND[kind].items() if when in seen)
+    key = legend((_icon(when), text) for when, text in LEGEND[kind].items() if when in seen)
     head = "<th>도시</th><th>예상</th><th>평년</th>" if outlook.expected else "<th>도시</th><th>평년</th>"
     rows = _city_rows(days, outlook.normal if outlook.expected else None, week_start, week_end)
-    return f"""<!doctype html><html lang="ko"><head><meta charset="utf-8"><style>{CSS}</style></head>
-<body><div id="card">
-  <div class="head"><h1>벚꽃 지도</h1><span class="period">{day_label(week_start)} ~ {day_label(week_end)}</span></div>
-  <div class="lead">{_lead(outlook, week_start, week_end)}</div>
-  <h2><span class="k">{kind}</span>{OUTLOOK_SOURCE} {len(days)}개 도시</h2>
-  <div class="pane">
-    <div class="map">{frame(marks, f"{len(days)}개 도시 벚꽃 개화 {kind} 지도")}<div class="legend">{legend}</div></div>
-    <table class="cities"><thead><tr>{head}<th class="gap"></th>{head}</tr></thead><tbody>{rows}</tbody></table>
-  </div>
-  <div class="foot">{_foot(outlook)}</div>
-</div></body></html>"""
+    table = (f'<table class="cities"><thead><tr>{head}<th class="gap"></th>{head}</tr></thead>'
+             f'<tbody>{rows}</tbody></table>')
+    main = (f'<h2><span class="k">{kind}</span>{OUTLOOK_SOURCE} {len(days)}개 도시</h2>'
+            + body(frame(marks, f"{len(days)}개 도시 벚꽃 개화 {kind} 지도") + key, table))
+    return Card("벚꽃 지도", week_start, _lead(outlook, week_start, week_end), main, _foot(outlook)).html(CSS)
 
 
 def render_png(outlook: Outlook, week_start: dt.date, *, scale: int = 2) -> bytes:
@@ -131,14 +133,11 @@ def render_png(outlook: Outlook, week_start: dt.date, *, scale: int = 2) -> byte
 
 
 CSS = BASE_CSS + """
+#card { --week: #fbdde9; }
 .lead { background: #fbf0f4; }
-.pane { display: flex; gap: 18px; align-items: flex-start; }
-.pane .map { flex: none; }
-h2 { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
 h2 .k { display: inline-block; font-size: 12px; font-weight: 600; color: var(--ink2); background: #f0efec;
         border-radius: 4px; padding: 0 6px; margin-right: 6px; }
 .past .lbl { fill: var(--muted); }
 .prd.past { color: var(--muted); }
-.prd.week { font-weight: 600; background: #fbdde9; border-radius: 4px; padding: 0 4px; margin: 0 -4px; }
 .cities .gap { width: 14px; border: none; }
 """

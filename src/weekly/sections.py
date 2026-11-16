@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from src.common.config import Config
 from src.kma.chart import fetch_latest_chart
-from src.season.weeks import week_start_of
+from src.season.weeks import week_end_of, week_start_of
 from src.weekly.card import render_png
 from src.weekly.forecast import WeekForecast, build_week
 from src.weekly.paragraph import Attachment, Block
@@ -49,7 +49,7 @@ class Context:
 
     @property
     def week_end(self) -> dt.date:
-        return self.week_start + dt.timedelta(days=6)
+        return week_end_of(self.week_start)
 
     @property
     def scale(self) -> int:

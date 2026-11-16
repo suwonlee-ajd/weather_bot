@@ -11,9 +11,11 @@ from collections.abc import Sequence
 from typing import Protocol
 
 from src.common.browser import CARD_WIDTH, capture
-from src.common.text import day_label, short_date
+from src.common.text import short_date
 from src.season.basemap import BASE_CSS, MapInfo
+from src.season.mapcard import Card, icon, legend
 from src.season.typhoon import pacific
+from src.season.weeks import week_end_of
 
 INFO = MapInfo("태풍", "typhoon", "기상청 태풍정보의 현재 위치와 예상 경로 지도", heading="태풍 예상 경로 지도")
 MAP_W = CARD_WIDTH - 48                     # 카드 좌우 여백(24px)을 뺀 폭
@@ -147,11 +149,11 @@ def build_svg(storms: Sequence[Storm], week_end: dt.date) -> tuple[str, list[str
     return svg, drawn
 
 
-def _icon(inner: str) -> str:
-    return f'<svg width="22" height="18" viewBox="-11 -9 22 18">{inner}</svg>'
+def _key(inner: str) -> str:
+    return icon(inner, 22, 18)
 
 
-MARKS = "".join(f"<span>{_icon(icon)}{text}</span>" for icon, text in (
+MARKS = tuple((_key(inner), text) for inner, text in (
     (_now_mark(0, 0, ring=7, dot=4), "현재 위치"),
     ('<line class="past" x1="-9" y1="0" x2="9" y2="0"/><circle class="pt" r="2.2"/>', "지난 경로"),
     ('<line class="ahead" x1="-10" y1="0" x2="10" y2="0"/><circle class="fc" r="3.6"/>', "이번 주 예상"),
@@ -159,36 +161,27 @@ MARKS = "".join(f"<span>{_icon(icon)}{text}</span>" for icon, text in (
 ))
 
 
-def _swatch(kind: str) -> str:
-    return _icon(f'<g class="{kind}"><ellipse rx="7" ry="7"/></g>')
-
-
 def _legend(drawn: list[str]) -> str:
-    swatches = "".join(f"<span>{_swatch(kind)}{text}</span>" for kind, _, text in EXTENTS if kind in drawn)
-    return f'<div class="legend">{MARKS}</div>' + (f'<div class="legend">{swatches}</div>' if swatches else "")
+    swatches = [(_key(f'<g class="{kind}"><ellipse rx="7" ry="7"/></g>'), text)
+                for kind, _, text in EXTENTS if kind in drawn]
+    return legend(MARKS) + (legend(swatches) if swatches else "")
 
 
-def _lead(storms: Sequence[Storm]) -> str:
+def _lead(storms: Sequence[Storm]) -> list[tuple[str, str]]:
     rows = []
     for s in storms:
         reach = "".join(f" · {name} {r.text}" for name, r in (("강풍반경", s.now.gale), ("폭풍반경", s.now.storm)) if r)
-        rows.append(f'<div><span class="k">현재</span><span><b>{html.escape(s.title)}</b> · '
-                    f'{html.escape(s.now.summary)}{reach} ({s.now.when} 기준)</span></div>')
-    return "".join(rows)
+        rows.append(("현재", f"<b>{html.escape(s.title)}</b> · {html.escape(s.now.summary)}{reach} ({s.now.when} 기준)"))
+    return rows
 
 
 def build_html(storms: Sequence[Storm], week_start: dt.date) -> str:
-    week_end = week_start + dt.timedelta(days=6)
     issued = max((s.issued for s in storms if s.issued), default=None)
     stamp = f" ({short_date(issued)} {issued.hour}시 발표)" if issued else ""
-    svg, drawn = build_svg(storms, week_end)
-    return f"""<!doctype html><html lang="ko"><head><meta charset="utf-8"><style>{CSS}</style></head>
-<body><div id="card">
-  <div class="head"><h1>태풍 예상 경로</h1><span class="period">{day_label(week_start)} ~ {day_label(week_end)}</span></div>
-  <div class="lead">{_lead(storms)}</div>
-  <div class="map">{svg}{_legend(drawn)}</div>
-  <div class="foot">기상청 태풍정보{stamp} · 바탕 지도 Natural Earth<br>기압선은 함께 올린 지상일기도에서 볼 수 있습니다.</div>
-</div></body></html>"""
+    svg, drawn = build_svg(storms, week_end_of(week_start))
+    foot = f"기상청 태풍정보{stamp} · 바탕 지도 Natural Earth<br>기압선은 함께 올린 지상일기도에서 볼 수 있습니다."
+    main = f'<div class="map">{svg}{_legend(drawn)}</div>'
+    return Card("태풍 예상 경로", week_start, _lead(storms), main, foot).html(CSS)
 
 
 def render_png(storms: Sequence[Storm], week_start: dt.date, *, scale: int = 2) -> bytes:

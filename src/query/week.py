@@ -17,7 +17,7 @@ from src.kma.page import Scrape, ScrapeError
 from src.kma.regions import REGION_HELP, Region, find_region
 from src.kma.scrape import scrape_week
 from src.query import season
-from src.season.weeks import week_start_of
+from src.season.weeks import week_end_of, week_start_of
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -56,7 +56,7 @@ def _print_json(region: Region, week_start: dt.date, scrape: Scrape) -> None:
 
 
 def _print_table(region: Region, week_start: dt.date, scrape: Scrape) -> None:
-    end = week_start + dt.timedelta(days=6)
+    end = week_end_of(week_start)
     print(f"■ {region.label} {week_start:%Y-%m-%d}(월) ~ {end:%m-%d}(일)")
     print("  (기온은 지역 간 분포 범위입니다)\n")
     for offset in range(7):

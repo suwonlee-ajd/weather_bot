@@ -2419,6 +2419,7 @@ def test_heat_map() -> None:
     from src.season.heat import data as heat
     from src.season.heat import map as heat_map
     from src.season.heat.cities import SPOTS
+    from src.season.mapcard import glyph_size
     from src.weekly import themes
 
     cities = {"대구": (25.0, 36.0), "서울": (24.0, 32.0), "강릉": (23.0, 31.0), "새도시": (20.0, 34.0)}
@@ -2446,7 +2447,7 @@ def test_heat_map() -> None:
         assert not any(heat_map._hits(a[:4], b[:4]) for b in boxes[i + 1:]), a
         for name, spot in SPOTS.items():
             px, py = heat_map.place(spot.lon, spot.lat)
-            half = heat_map.HOT_SIZE / 2
+            half = glyph_size(heat_map.HOT_R) / 2
             assert name == a[4] or not heat_map._hits(a[:4], (px - half, py - half, px + half, py + half)), (a, name)
     rows = heat_map._table(hot_all)
     assert rows.count('<tr><th scope="row">') == heat_map.MAX_ROWS and f"외 {len(SPOTS) - heat_map.MAX_ROWS}곳" in rows

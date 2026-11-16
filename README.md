@@ -198,8 +198,8 @@ src/season/     철 소식 자료 — 주제마다 자료(data) · 문장(text) 
                 · 단풍(foliage/ + 명산 mountains) · 첫눈(snow/ + 관측 지점 stations)
                 · 벚꽃(blossom/ + 도시 spots) · 장마(monsoon/) · 더위(heat/ + 도시 cities) — 그 주 예보에서 읽음
                 · 태풍 지도(typhoon/ 예상 경로 map · 북서태평양 바탕 pacific) — 자료는 kma/typhoon
-                · 공통 — 수집(sources) · 지도 바탕(basemap) · 관측 한 줄 꼴(summary) · 주의 시작(weeks)
-                · 예보관 서술 인용(narrative)
+                · 공통 — 수집(sources) · 지도 바탕(basemap) · 지도 카드 틀(mapcard) · 관측 한 줄 꼴(summary)
+                · 주의 시작·끝(weeks) · 예보관 서술 인용(narrative)
 src/advice/     수치에서 생활 조언 — 규칙(rules) · 문구 표(phrases)
 src/weekly/     주간 게시 — 진입점(post) · 헬스체크(health) · 영역 동시 실행·종합(pipeline)
                 · 날씨·카드·일기도 영역(sections) · 철 소식·태풍 영역(themes) · 7일 조립(forecast)

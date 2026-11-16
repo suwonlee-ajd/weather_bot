@@ -1595,8 +1595,9 @@ def weekly_cfg():
     return SimpleNamespace(card_scale=2, card_keep_days=14, chart_keep_days=30, chart_product="surf")
 
 
-def weekly_ctx(start: dt.date, today: dt.date | None = None, *, can_render: bool = True, days=None):
-    """주간 영역의 Context. days 를 주면 1번 날씨가 그 예보로 끝난 것으로 둠."""
+def weekly_ctx(start: dt.date, today: dt.date | None = None, *, can_render: bool = True, days=None,
+               narratives=(), body: str = "본문"):
+    """주간 영역의 Context. days 를 주면 1번 날씨가 그 예보(예보관 서술 narratives · 본문 body)로 끝난 것으로 둠."""
     from concurrent.futures import Future
 
     from src.season.weeks import week_start_of
@@ -1607,7 +1608,7 @@ def weekly_ctx(start: dt.date, today: dt.date | None = None, *, can_render: bool
     weather = None
     if days is not None:
         weather = Future()
-        weather.set_result(Weather(WeekForecast("전국", start, days), "본문"))
+        weather.set_result(Weather(WeekForecast("전국", start, days, narratives=list(narratives)), body))
     ctx = Context(weekly_cfg(), dt.datetime.combine(today, dt.time(7, 50), tzinfo=KST), offset, can_render, weather)
     assert ctx.week_start == start, (ctx.week_start, start)
     return ctx
@@ -1637,7 +1638,7 @@ def test_weekly_themes() -> None:
 
     autumn_ctx = weekly_ctx(d(2026, 10, 5), d(2026, 10, 2))
     spring_ctx = weekly_ctx(d(2026, 3, 23))
-    assert [s.name for s in pipeline.SECTIONS] == ["카드", "일기도", "벚꽃", "단풍", "첫눈"]   # 기간 없이 늘 돎
+    assert [s.name for s in pipeline.SECTIONS] == ["카드", "일기도", "벚꽃", "장마", "폭염", "단풍", "첫눈"]   # 기간 없이 늘 돎
 
     orig = (foliage.fetch_snapshot, foliage_map.render_png, blossom.fetch_status, blossom.fetch_outlook)
     foliage.fetch_snapshot = lambda today, **k: fake_snapshot({"설악산": 1}, first={"설악산": d(2026, 9, 28)})
@@ -1974,7 +1975,7 @@ def test_snow_weekly() -> None:
     drawn: list = []
     snow_map.render_png = lambda st, start, days=(), scale=2: drawn.append(days) or b"PNG"
     try:
-        assert [s.name for s in pipeline.SECTIONS] == ["카드", "일기도", "벚꽃", "단풍", "첫눈"]
+        assert [s.name for s in pipeline.SECTIONS] == ["카드", "일기도", "벚꽃", "장마", "폭염", "단풍", "첫눈"]
         block = themes.snow_block(weekly_ctx(week, days=days))
         assert block.paragraph.title == "이번 주 첫눈" and [r.label for r in block.paragraph.rows] == ["관측", "이번 주"]
         text = block.paragraph.to_slack()
@@ -2107,6 +2108,91 @@ def test_snow_render() -> None:
     print("[ok] 첫눈 지도 — 24곳 표 · 관측일·평년차 · 눈 예보")
 
 
+SUMMER_WEEK = dt.date(2027, 7, 19)
+
+
+def summer_day(i: int, tmin: tuple, tmax: tuple, sky: str = "구름많음", pop: int | None = None) -> DayForecast:
+    return DayForecast(SUMMER_WEEK + dt.timedelta(days=i), *tmin, *tmax, sky=sky, pop=pop)
+
+
+def summer_notes(*lines: str) -> list[Narrative]:
+    return [Narrative("기상청 예보 통보문", "", None, list(lines))]
+
+
+def test_heat_weekly() -> None:
+    """폭염·열대야 — 기상청 기준(낮 최고 33℃↑ · 아침 최저 25℃↑)의 경계, 예보관 인용, 선선하면 해당 없음."""
+    from src.weekly import themes
+
+    days = [summer_day(0, (22, 24.9), (28, 32.9)),          # 둘 다 경계 바로 아래 — 빠짐
+            summer_day(1, (23, 25), (29, 33)),              # 경계값은 듦
+            summer_day(2, (24, 27), (30, 36)),
+            DayForecast(SUMMER_WEEK + dt.timedelta(days=3)),  # 예보 없는 날
+            *(summer_day(i, (20, 23), (27, 31)) for i in range(4, 7))]
+    block = themes.heat_block(weekly_ctx(SUMMER_WEEK, days=days))
+    rows = {r.label: r.text for r in block.paragraph.rows}
+    assert block.paragraph.title == "이번 주 더위" and block.paragraph.emoji == ":hot_face:"
+    assert list(rows) == ["폭염 기준(33℃↑)", "열대야 기준(25℃↑)"], list(rows)
+    assert rows["폭염 기준(33℃↑)"] == "*7/20(화)* 33℃ · *7/21(수)* 36℃ (일부 지역 낮 최고)", rows
+    assert rows["열대야 기준(25℃↑)"] == "*7/20(화)* 25℃ · *7/21(수)* 27℃ (일부 지역 아침 최저)", rows
+    assert block.credit.startswith("더위 · 기상청") and block.attachment is None
+
+    # 예보관 서술은 글머리만 떼고 그대로, 본문이 이미 인용한 (종합) 줄은 되풀이하지 않음, 둘까지
+    notes = summer_notes("□ (종합) 무더위 계속, 일부 지역 폭염특보 발효 중",
+                         "○ (모레, 21일) 낮 기온 35℃ 이상 오르는 곳 있어 폭염특보 확대 가능성",
+                         "○ (기온) 도심과 해안 중심 열대야 나타나는 곳 있겠습니다.",
+                         "○ (글피, 22일) 폭염 이어지겠음")
+    body = '기상청은 "*무더위 계속, 일부 지역 폭염특보 발효 중*"이라고 전하고 있습니다.'
+    quoted = [r.text for r in themes.heat_block(weekly_ctx(SUMMER_WEEK, days=days, narratives=notes,
+                                                             body=body)).paragraph.rows if r.label == "예보관"]
+    assert quoted == ['"(모레, 21일) 낮 기온 35℃ 이상 오르는 곳 있어 폭염특보 확대 가능성"',
+                      '"(기온) 도심과 해안 중심 열대야 나타나는 곳 있겠습니다."'], quoted
+
+    cool = [summer_day(i, (20, 24), (26, 32)) for i in range(7)]
+    assert themes.heat_block(weekly_ctx(SUMMER_WEEK, days=cool, narratives=summer_notes("○ (내일) 흐리고 비"))) is None
+    # 수치가 기준에 못 미쳐도 예보관이 말했으면 그 인용만
+    only = themes.heat_block(weekly_ctx(SUMMER_WEEK, days=cool, narratives=summer_notes("○ (내일) 열대야 나타나겠음")))
+    assert [r.label for r in only.paragraph.rows] == ["예보관"], only.paragraph.rows
+    assert themes.heat_block(weekly_ctx(SUMMER_WEEK)) is None          # 날씨 결과 없이 부르면 해당 없음
+    print("[ok] 폭염·열대야 — 33℃·25℃ 경계, 일부 지역, 예보관 인용(본문과 안 겹치게), 선선하면 해당 없음")
+
+
+def test_monsoon_weekly() -> None:
+    """장마 — 예보관이 장마·정체전선을 말할 때만, 비 오는 날은 하늘상태·강수확률에서. 정체전선만이면 장마라 부르지 않음."""
+    from src.weekly import themes
+
+    days = [summer_day(0, (22, 25), (27, 31), sky="흐리고 비"),
+            summer_day(1, (22, 25), (27, 31), sky="흐리고 소나기"),
+            summer_day(2, (22, 25), (27, 31), sky="흐림"),
+            summer_day(3, (22, 25), (27, 31), sky="구름많음", pop=70),     # 하늘상태에 비가 없어도 강수확률로
+            summer_day(4, (22, 25), (27, 31), sky="구름많음", pop=30),
+            summer_day(5, (22, 25), (27, 31), sky="맑음", pop=59),
+            summer_day(6, (22, 25), (27, 31), sky="흐리고 비", pop=60)]
+    notes = summer_notes("□ (종합) 제주도 장마 시작, 남부지방 많은 비",
+                         "○ (내일, 20일) 정체전선의 영향으로 남부지방과 제주도에 비",
+                         "○ (기온) 평년과 비슷")
+    block = themes.monsoon_block(weekly_ctx(SUMMER_WEEK, days=days, narratives=notes))
+    text = block.paragraph.to_slack()
+    assert block.paragraph.title == "이번 주 장마", block.paragraph.title
+    assert [r.label for r in block.paragraph.rows] == ["예보관", "예보관", "비 예보"], text
+    assert '"(종합) 제주도 장마 시작, 남부지방 많은 비"' in text and "평년과 비슷" not in text, text
+    assert block.paragraph.rows[-1].text == "*7/19(월)* · *7/20(화)* · *7/22(목)* · *7/25(일)*", text
+    assert "철이 끝난 뒤 확정" in block.credit and block.attachment is None
+    # 수집 순서는 중기예보가 앞이지만 인용은 통보문(가까운 날)부터 — 둘을 넘는 중기예보 줄이 잘림
+    mid = Narrative("기상청 중기예보", "", None, ["○ (강수) 23일(금)은 장마전선의 영향으로 중부지방에 비"])
+    rows = themes.monsoon_block(weekly_ctx(SUMMER_WEEK, days=days, narratives=[mid, *notes])).paragraph.rows
+    assert "23일(금)" not in " ".join(r.text for r in rows) and rows[0].text.startswith('"(종합)'), rows
+
+    front = summer_notes("○ (내일, 20일) 정체전선의 영향으로 남부지방에 비")
+    assert themes.monsoon_block(weekly_ctx(SUMMER_WEEK, days=days, narratives=front)).paragraph.title == \
+        "이번 주 정체전선"
+    dry = [summer_day(i, (22, 25), (27, 31), sky="맑음") for i in range(7)]
+    rows = themes.monsoon_block(weekly_ctx(SUMMER_WEEK, days=dry, narratives=front)).paragraph.rows
+    assert [r.label for r in rows] == ["예보관"], rows                   # 비 없는 주는 «비 예보» 줄을 뺌
+    # 비가 잦아도 예보관이 장마·정체전선을 말하지 않으면 해당 없음 — 기간을 정하지 않음
+    assert themes.monsoon_block(weekly_ctx(SUMMER_WEEK, days=days, narratives=summer_notes("○ (내일) 비"))) is None
+    print("[ok] 장마 — 예보관 서술 인용 + 비 오는 날, 정체전선만이면 «정체전선», 언급 없으면 해당 없음")
+
+
 if __name__ == "__main__":
     test_extract_json()
     test_log_dir()
@@ -2155,4 +2241,6 @@ if __name__ == "__main__":
     test_snow_weekly()
     test_snow_mention()
     test_snow_render()
+    test_heat_weekly()
+    test_monsoon_weekly()
     print("\n전부 통과")

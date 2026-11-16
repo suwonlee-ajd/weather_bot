@@ -4,6 +4,8 @@
 pipeline 이 그 영역만 빼고 게시함. 기간은 우리가 정하지 않음 — 다룰 때인지는 자료가 정함:
 
   벚꽃  기상청 관측 중이거나, 관측 전 올해 첫 개화 예상일까지   관측 기상청 · 예상 웨더아이
+  장마  예보관 서술에 장마·정체전선이 있을 때                     그 주 예보 (따로 받지 않음)
+  폭염  기준(낮 최고 33℃·아침 최저 25℃)에 닿는 날이나 예보관 언급이 있을 때  그 주 예보 (따로 받지 않음)
   단풍  기상청 관측 중이거나, 관측 전 올해 첫 예상일까지        관측 기상청 · 예상 웨더아이 + 지도
   첫눈  지난 7일 안에 관측됐거나, 아직인 곳에 그 주 눈 예보가 있을 때  관측 기상청 계절관측 · 평년 + 지도
 """
@@ -12,16 +14,23 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
+from src.advice.rules import RAIN_LIKELY
 from src.common.text import bold
+from src.season import narrative
 from src.season.basemap import MapInfo
 from src.season.blossom import data as blossom
 from src.season.blossom import text as blossom_text
 from src.season.foliage import data as foliage
 from src.season.foliage import map as foliage_map
 from src.season.foliage import text as foliage_text
+from src.season.heat import data as heat
+from src.season.heat import text as heat_text
+from src.season.monsoon import data as monsoon
+from src.season.monsoon import text as monsoon_text
 from src.season.snow import data as snow
 from src.season.snow import map as snow_map
 from src.season.snow import text as snow_text
+from src.weekly.forecast import WeekForecast
 from src.weekly.paragraph import Block, Paragraph
 from src.weekly.sections import Context
 
@@ -89,3 +98,42 @@ def snow_block(ctx: Context) -> Block | None:
     return _with_map(ctx, paragraph, snow_map.INFO,
                      lambda: snow_map.render_png(status, ctx.week_start, days, scale=ctx.scale),
                      snow_text.SOURCES)
+
+
+def _lines(week: WeekForecast) -> list[str]:
+    """통보문(가까운 날) 줄을 중기예보보다 먼저 — 수집 순서는 중기예보가 앞이고, 인용 개수를 넘으면 뒤쪽이 잘림."""
+    ordered = sorted(week.narratives, key=lambda n: 0 if "통보문" in n.title else 1)
+    return [line for n in ordered for line in n.lines]
+
+
+def _quote_rows(paragraph: Paragraph, mentioned: list[str], ctx: Context) -> Paragraph:
+    for text in narrative.unquoted(mentioned, ctx.body()):
+        paragraph.add("예보관", narrative.quote(text))
+    return paragraph
+
+
+def monsoon_block(ctx: Context) -> Block | None:
+    """예보관이 장마·정체전선을 말할 때만. 비 오는 날은 본문 조언과 같은 문턱(RAIN_LIKELY)."""
+    week = ctx.forecast()
+    if week is None:
+        return None
+    found = monsoon.read(week.days, _lines(week), pop_at=RAIN_LIKELY)
+    if not found.showing:
+        return None
+    paragraph = _quote_rows(Paragraph(monsoon_text.title(found), emoji=":rain_cloud:"), found.mentioned, ctx)
+    paragraph.add("비 예보", monsoon_text.rain_line(found))
+    return Block(paragraph, f"장마 · {monsoon_text.SOURCES}")
+
+
+def heat_block(ctx: Context) -> Block | None:
+    """기상청 폭염일·열대야 기준에 닿는 날이나 예보관 언급이 있을 때만. 조언은 본문 2문단에 맡기고 사실만."""
+    week = ctx.forecast()
+    if week is None:
+        return None
+    found = heat.read(week.days, _lines(week))
+    if not found.showing:
+        return None
+    paragraph = (Paragraph("이번 주 더위", emoji=":hot_face:")
+                 .add(heat_text.HOT_LABEL, heat_text.hot_line(found))
+                 .add(heat_text.NIGHT_LABEL, heat_text.night_line(found)))
+    return Block(_quote_rows(paragraph, found.mentioned, ctx), f"더위 · {heat_text.SOURCES}")

@@ -1,6 +1,6 @@
 """영역들을 동시에 돌려 게시물 하나로 합침(종합). 1번 날씨만 필수 — 나머지는 실패·해당 없음이면 빠짐.
 
-  1 날씨(본문)  카드  2 일기도  3 벚꽃  5 단풍  6 첫눈     ← 게시물에 실리는 순서 (4 태풍은 아직 없음)
+  1 날씨(본문)  카드  2 일기도  3 벚꽃  장마  폭염  5 단풍  6 첫눈     ← 게시물에 실리는 순서 (4 태풍은 아직 없음)
 """
 from __future__ import annotations
 
@@ -19,11 +19,13 @@ from src.weekly.sections import SECTIONS_TIMEOUT_SEC, Context, Section, Weather
 
 log = logging.getLogger(__name__)
 
-# 철 소식은 기간을 따로 두지 않음 — 날마다 자료(기상청 서비스 여부·예상일·관측)를 보고 영역이 스스로 빠짐
+# 철 소식은 기간을 따로 두지 않음 — 날마다 자료(기상청 서비스 여부·예상일·관측·예보)를 보고 영역이 스스로 빠짐
 SECTIONS: tuple[Section, ...] = (
     Section("카드", sections.card_block),
     Section("일기도", sections.chart_block),
     Section("벚꽃", themes.blossom_block),
+    Section("장마", themes.monsoon_block),
+    Section("폭염", themes.heat_block),
     Section("단풍", themes.foliage_block),
     Section("첫눈", themes.snow_block),
 )

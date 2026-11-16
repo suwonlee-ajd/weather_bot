@@ -1,6 +1,6 @@
 """주간 게시의 영역 — 1번 날씨(본문)는 필수, 카드·일기도부터는 못 만들면 빠짐. 철 소식(3~6)은 themes.
 
-영역은 서로 기다리지 않음. 날씨 예보를 쓰는 카드와 6번 눈만 Context.forecast() 로 1번 결과를 받음.
+영역은 서로 기다리지 않음. 날씨 예보를 쓰는 카드 · 장마 · 폭염 · 6번 눈만 Context.forecast() 로 1번 결과를 받음.
 """
 from __future__ import annotations
 
@@ -60,6 +60,12 @@ class Context:
         if self.weather is None:
             return None
         return self.weather.result(timeout=SECTIONS_TIMEOUT_SEC).week
+
+    def body(self) -> str:
+        """1번 날씨의 본문 — 철 소식이 본문이 이미 인용한 예보관 문장을 되풀이하지 않게."""
+        if self.weather is None:
+            return ""
+        return self.weather.result(timeout=SECTIONS_TIMEOUT_SEC).body
 
     def image(self, slug: str, title: str, alt: str, render: Callable[[], bytes]) -> Attachment | None:
         """다시 만들 수 있는 그림(카드·지도). 못 그리면 None — 글은 남기고 그림만 뺌.

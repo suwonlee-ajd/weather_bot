@@ -6,11 +6,22 @@
 from __future__ import annotations
 
 import datetime as dt
-import html
 
 from src.common.browser import capture
 from src.common.text import WEEKDAY_KO, html_bold, short_day_label
-from src.season.basemap import BASE_CSS, INSET, MAP_W, MapInfo, frame, place
+from src.season.basemap import (
+    BASE_CSS,
+    INSET_BOX,
+    MAP_W,
+    OFFSETS,
+    Box,
+    MapInfo,
+    frame,
+    hits,
+    label,
+    label_box,
+    place,
+)
 from src.season.heat.cities import SPOTS
 from src.season.heat.data import HEAT_DAY, TROPICAL_NIGHT, Heat
 from src.season.heat.text import (
@@ -31,39 +42,12 @@ CRITERIA = (f"기준 기상청 기후통계 — 폭염일 «일 최고기온이 
             f"{TROPICAL_NIGHT:.0f}℃ 이상인 날(18:01~익일 09:00)». 표의 열대야는 예보의 아침 최저로 가늠함. "
             "폭염특보(체감온도 기준)와 다름")
 
-Box = tuple[float, float, float, float]
-# 라벨 자리 → (dx, dy 바탕선, 글자 기준점 0 왼쪽·0.5 가운데·1 오른쪽). 앞의 넷은 basemap.label 과 같고 뒤는 대각선.
-# 글자 상자는 바탕선 위 9 · 아래 2(한글 10.5px)
-_OFFSET = {"r": (11, 4, 0.0), "l": (-11, 4, 1.0), "t": (0, -11, 0.5), "b": (0, 19, 0.5),
-           "tr": (7, -7, 0.0), "br": (7, 15, 0.0), "tl": (-7, -7, 1.0), "bl": (-7, 15, 1.0)}
-_ANCHOR = {0.0: "start", 0.5: "middle", 1.0: "end"}
-
-
-def _width(text: str) -> float:
-    # 10.5px 글꼴을 넉넉히 어림 — 작게 잡으면 겹침
-    return sum(10.6 if "가" <= c <= "힣" else 6.3 if c.isdigit() else 3.2 for c in text)
-
-
-def _box(x: float, y: float, text: str, side: str) -> Box:
-    dx, dy, anchor = _OFFSET[side]
-    left = x + dx - _width(text) * anchor
-    return left, y + dy - 9, left + _width(text), y + dy + 2
-
-
-def _hits(a: Box, b: Box) -> bool:
-    return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
-
-
-def _label(x: float, y: float, text: str, side: str, strong: bool) -> str:
-    dx, dy, anchor = _OFFSET[side]
-    return (f'<text class="lbl{" strong" if strong else ""}" x="{x + dx:.1f}" y="{y + dy:.1f}" '
-            f'text-anchor="{_ANCHOR[anchor]}">{html.escape(text)}</text>')
+LABEL_PX = 10.5          # CSS 의 .lbl 과 같게
 
 
 def _free(box: Box, taken: list[Box], name: str) -> bool:
-    ix, iy, iw, ih = INSET["x"], INSET["y"], INSET["w"], INSET["h"]
-    inside = name == "울릉도" or not _hits(box, (ix, iy, ix + iw, iy + ih))
-    return box[0] >= -16 and box[2] <= MAP_W + 8 and inside and not any(_hits(box, t) for t in taken)
+    inside = name == "울릉도" or not hits(box, INSET_BOX)
+    return box[0] >= -16 and box[2] <= MAP_W + 8 and inside and not any(hits(box, t) for t in taken)
 
 
 def _marks(heat: Heat) -> str:
@@ -72,17 +56,17 @@ def _marks(heat: Heat) -> str:
     # 남의 표지 바로 옆에 붙은 라벨은 그 도시 값으로 읽혀 좌우를 3 더 비움
     px, py = glyph_size(HOT_R) / 2 + 3, glyph_size(HOT_R) / 2
     around = {c.name: (x - px, y - py, x + px, y + py) for c, x, y, _ in placed}
-    ix, iy, iw, ih = INSET["x"], INSET["y"], INSET["w"], INSET["h"]
-    labels_taken: list[Box] = [(ix, iy + ih - 14, ix + iw, iy + ih)]       # 상자 안 «울릉도·독도» 글자
+    left, _, right, bottom = INSET_BOX
+    labels_taken: list[Box] = [(left, bottom - 14, right, bottom)]       # 상자 안 «울릉도·독도» 글자
     marks, labels = [], []
     for city, x, y, side in sorted(placed, key=lambda p: -p[0].high[1]):
         marks.append(glyph("hot", x, y, HOT_R) if city.hot else hollow(x, y))
         text = f"{city.name} {city.high[1]:.0f}"
         others = [b for name, b in around.items() if name != city.name] + labels_taken
-        for s in dict.fromkeys((side, *_OFFSET)):                   # 정해 둔 자리부터
-            if _free(box := _box(x, y, text, s), others, city.name):
+        for s in dict.fromkeys((side, *OFFSETS)):                   # 정해 둔 자리부터
+            if _free(box := label_box(x, y, text, s, LABEL_PX), others, city.name):
                 labels_taken.append(box)
-                labels.append(_label(x, y, text, s, strong=city.hot))
+                labels.append(label(x, y, text, s, strong=city.hot))
                 break
     return "".join(marks) + "".join(labels)
 

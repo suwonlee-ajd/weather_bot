@@ -44,6 +44,14 @@ MAP_H = (LAT1 - LAT0) * _S
 INSET = {"x": MAP_W - 60, "y": 70.0, "w": 56.0, "h": 46.0}
 INSET_LON = 130.5            # 이보다 동쪽(울릉도·독도)은 상자 안에 그림
 
+Box = tuple[float, float, float, float]       # 왼쪽 · 위 · 오른쪽 · 아래 (픽셀)
+INSET_BOX: Box = (INSET["x"], INSET["y"], INSET["x"] + INSET["w"], INSET["y"] + INSET["h"])
+LABEL_PX = 11.5              # .lbl 글자 크기
+# 라벨 자리 → (dx, dy 바탕선, 글자 기준점 0 왼쪽·0.5 가운데·1 오른쪽). 대각선은 더위 지도가 빈자리를 찾을 때만 씀
+OFFSETS = {"r": (11, 4, 0.0), "l": (-11, 4, 1.0), "t": (0, -11, 0.5), "b": (0, 19, 0.5),
+           "tr": (7, -7, 0.0), "br": (7, 15, 0.0), "tl": (-7, -7, 1.0), "bl": (-7, 15, 1.0)}
+_ANCHOR = {0.0: "start", 0.5: "middle", 1.0: "end"}
+
 
 def proj(lon: float, lat: float) -> tuple[float, float]:
     return (lon - LON0) * _K * _S, (LAT1 - lat) * _S
@@ -62,13 +70,37 @@ def _path(ring: list[list[float]]) -> str:
     return "M" + "L".join(f"{x:.1f},{y:.1f}" for x, y in (place(lon, lat) for lon, lat in ring)) + "Z"
 
 
-def label(x: float, y: float, name: str, side: str, strong: bool) -> str:
-    """점 옆 이름. side 는 점의 어느 쪽에 붙는지 r/l/t/b."""
-    dx, dy, anchor = {"r": (11, 4, "start"), "l": (-11, 4, "end"),
-                      "t": (0, -11, "middle"), "b": (0, 19, "middle")}[side]
+def nudge(x: float, y: float, side: str, pad: float) -> tuple[float, float]:
+    """점을 라벨 쪽으로 pad 만큼 민 자리 — 고리 두른 점의 라벨을 고리 밖으로 뺄 때."""
+    return (x + (pad if "r" in side else -pad if "l" in side else 0),
+            y + (-pad if "t" in side else pad if "b" in side else 0))
+
+
+def label(x: float, y: float, text: str, side: str, strong: bool) -> str:
+    """점 옆 이름. side 는 OFFSETS 의 자리(점의 어느 쪽에 붙는지)."""
+    dx, dy, anchor = OFFSETS[side]
     cls = "lbl strong" if strong else "lbl"
-    return (f'<text class="{cls}" x="{x + dx:.1f}" y="{y + dy:.1f}" text-anchor="{anchor}">'
-            f'{html.escape(name)}</text>')
+    return (f'<text class="{cls}" x="{x + dx:.1f}" y="{y + dy:.1f}" text-anchor="{_ANCHOR[anchor]}">'
+            f'{html.escape(text)}</text>')
+
+
+def text_box(x: float, y: float, text: str, anchor: float = 0.0, size: float = LABEL_PX) -> Box:
+    """(x, y) 바탕선에 anchor(0 왼쪽 · 0.5 가운데 · 1 오른쪽)로 쓴 글자의 어림 상자."""
+    scale = size / 10.5
+    # 10.5px 글꼴에서 넉넉히 어림한 폭 — 작게 잡으면 겹침. 글자 상자는 바탕선 위 9 · 아래 2
+    width = sum(10.6 if "가" <= c <= "힣" else 6.3 if c.isalnum() else 3.2 for c in text) * scale
+    left = x - width * anchor
+    return left, y - 9 * scale, left + width, y + 2 * scale
+
+
+def label_box(x: float, y: float, text: str, side: str, size: float = LABEL_PX) -> Box:
+    """label(x, y, text, side) 로 그린 라벨의 어림 상자."""
+    dx, dy, anchor = OFFSETS[side]
+    return text_box(x + dx, y + dy, text, anchor, size)
+
+
+def hits(a: Box, b: Box) -> bool:
+    return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
 
 
 def frame(inner: str, aria_label: str) -> str:

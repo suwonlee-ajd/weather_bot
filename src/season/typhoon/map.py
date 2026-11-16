@@ -12,7 +12,7 @@ from typing import Protocol
 
 from src.common.browser import CARD_WIDTH, capture
 from src.common.text import short_date
-from src.season.basemap import BASE_CSS, MapInfo
+from src.season.basemap import BASE_CSS, Box, MapInfo, hits, text_box
 from src.season.mapcard import Card, icon, legend
 from src.season.typhoon import pacific
 from src.season.weeks import week_end_of
@@ -22,6 +22,7 @@ MAP_W = CARD_WIDTH - 48                     # 카드 좌우 여백(24px)을 뺀 
 MAX_H, MIN_H = 560, 380
 NAME_ROOM = 2.8                             # 현재 위치 아래 두 줄(이름·시각)이 지도 끝에 닿지 않게 남길 위도
 NOW = "#d6372b"
+WHEN_PX, NAME_PX = 11.5, 12.5               # CSS 의 .when · .name 글자 크기
 # 반경은 경로표에 값이 있을 때만 그리고 범례에도 그때만 적음. 색은 날씨누리 지도의 결(확률 파랑·강풍 노랑·폭풍 빨강)
 EXTENTS = (("radius", "#1f87fd", "70% 확률반경 — 태풍 중심이 들어올 확률이 70%인 범위"),
            ("gale", "#f0a020", "강풍반경 — 초속 15m 이상 바람이 부는 범위"),
@@ -98,13 +99,16 @@ def _extent(view: pacific.View, p: Spot, kind: str) -> str:
 class _Labels:
     """예상 위치 글자 — 붙은 점(느린 태풍)끼리 겹치면 뒤의 것을 뺌."""
     def __init__(self) -> None:
-        self.placed: list[tuple[float, float]] = []
+        self.taken: list[Box] = []
         self.parts: list[str] = []
 
+    def free(self, box: Box) -> bool:
+        return not any(hits(box, t) for t in self.taken)
+
     def add(self, x: float, y: float, text: str, cls: str) -> None:
-        if any(abs(x - px) < 100 and abs(y - py) < 14 for px, py in self.placed):
+        if not self.free(box := text_box(x, y, text, size=WHEN_PX)):
             return
-        self.placed.append((x, y))
+        self.taken.append(box)
         self.parts.append(f'<text class="{cls}" x="{x:.1f}" y="{y:.1f}">{html.escape(text)}</text>')
 
 
@@ -113,7 +117,8 @@ def _track(view: pacific.View, storm: Storm, week_end: dt.date, labels: _Labels)
     extents = {"radius": "".join(_extent(view, p, "radius") for p in storm.forecast),
                "gale": _extent(view, storm.now, "gale"), "storm": _extent(view, storm.now, "storm")}
     x, y = view.xy(storm.now.lon, storm.now.lat)
-    labels.placed += [(x - 50, y + 21), (x - 50, y + 35)]          # 현재 위치 아래 두 줄 자리
+    name, stamp = f"제{storm.no}호 {storm.name}", _stamp(storm.now)
+    labels.taken += [text_box(x, y + 25, name, 0.5, NAME_PX), text_box(x, y + 39, stamp, 0.5, WHEN_PX)]
     marks = [f'<circle class="pt" cx="{px:.1f}" cy="{py:.1f}" r="2.2"/>'
              for px, py in (view.xy(p.lon, p.lat) for p in storm.past)]
     for p in storm.forecast:
@@ -123,8 +128,8 @@ def _track(view: pacific.View, storm: Storm, week_end: dt.date, labels: _Labels)
         labels.add(px + 8, py + 4, _stamp(p), f"when{later}")
     path = (_line(view, [*storm.past, storm.now], "past") + _line(view, [storm.now, *storm.forecast], "ahead")
             + "".join(marks) + _now_mark(x, y)
-            + f'<text class="name" x="{x:.1f}" y="{y + 25:.1f}" text-anchor="middle">제{storm.no}호 {storm.name}</text>'
-            + f'<text class="when" x="{x:.1f}" y="{y + 39:.1f}" text-anchor="middle">{_stamp(storm.now)}</text>')
+            + f'<text class="name" x="{x:.1f}" y="{y + 25:.1f}" text-anchor="middle">{html.escape(name)}</text>'
+            + f'<text class="when" x="{x:.1f}" y="{y + 39:.1f}" text-anchor="middle">{stamp}</text>')
     return extents, path
 
 
@@ -138,9 +143,8 @@ def build_svg(storms: Sequence[Storm], week_end: dt.date) -> tuple[str, list[str
     view = pacific.fit(_spots(storms), MAP_W, MAX_H, MIN_H)
     labels = _Labels()
     tracks = [_track(view, s, week_end, labels) for s in storms]
-    # 경로 글자(왼쪽 끝 기준, 폭 100px 안팎)와 겹치는 지명은 뺌 — 괌처럼 경로 곁에 있는 곳
-    places = "".join(svg for x, y, svg in pacific.places(view)
-                     if not any(abs(x - lx - 50) < 75 and abs(y - ly) < 16 for lx, ly in labels.placed))
+    # 경로 글자와 겹치는 지명은 뺌 — 괌처럼 경로 곁에 있는 곳
+    places = "".join(svg for box, svg in pacific.places(view) if labels.free(box))
     drawn = [kind for kind, _, _ in EXTENTS if any(t[kind] for t, _ in tracks)]
     groups = "".join(f'<g class="{kind}">{"".join(t[kind] for t, _ in tracks)}</g>' for kind in drawn)
     svg = (f'<svg width="{view.width:.0f}" height="{view.height:.0f}" viewBox="0 0 {view.width:.0f} '

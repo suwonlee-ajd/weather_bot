@@ -8,7 +8,7 @@ import datetime as dt
 
 from src.common.browser import capture
 from src.common.text import html_bold, short_date
-from src.season.basemap import BASE_CSS, MapInfo, frame, label, place
+from src.season.basemap import BASE_CSS, MapInfo, frame, label, nudge, place
 from src.season.blossom.data import Outlook
 from src.season.blossom.spots import CITY_BY_NAME
 from src.season.blossom.text import week_line, year_line
@@ -58,9 +58,7 @@ def _icon(when: str) -> str:
 
 def _label(x: float, y: float, text: str, side: str, ring: bool) -> str:
     """이번 주(고리)는 굵게, 라벨을 바깥으로 조금 밀어 둠."""
-    pad = RING_LABEL_PAD if ring else 0
-    dx, dy = {"r": (pad, 0), "l": (-pad, 0), "t": (0, -pad), "b": (0, pad)}[side]
-    return label(x + dx, y + dy, text, side, strong=ring)
+    return label(*nudge(x, y, side, RING_LABEL_PAD if ring else 0), text, side, strong=ring)
 
 
 def _marks(days: dict[str, dt.date], start: dt.date, end: dt.date) -> tuple[str, set[str]]:

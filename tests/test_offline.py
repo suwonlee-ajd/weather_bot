@@ -1632,46 +1632,34 @@ def test_blossom_fetch() -> None:
     print("[ok] 벚꽃 수집 — 기상청 목록 한 번 · 형식 변경은 BlossomError")
 
 
-def _label_boxes(spots, text_of, font: float = 12.6,
-                 pad: float = 0.0) -> list[tuple[str, tuple[float, float, float, float]]]:
-    """basemap.label 과 같은 자리(pad 만큼 바깥으로 민)에 둔 라벨의 어림 상자.
-
-    폭은 Chromium 에서 잰 값(한글 0.87em · 숫자 0.52em)보다 조금 넉넉히 — 굵은 라벨도 덮게.
-    """
-    from src.season.basemap import place
-
-    def width(text: str) -> float:
-        return sum(font * (0.92 if "가" <= ch <= "힣" else 0.3 if ch == " " else 0.55) for ch in text)
-
-    boxes = []
-    for s in spots:
-        x, y = place(s.lon, s.lat)
-        text = text_of(s.name)
-        w = width(text)
-        dx, dy = {"r": (11 + pad, 4), "l": (-11 - pad - w, 4), "t": (-w / 2, -11 - pad),
-                  "b": (-w / 2, 19 + pad)}[s.label]
-        boxes.append((s.name, (x + dx, y + dy - 0.8 * font, x + dx + w, y + dy + 0.15 * font)))
-    return boxes
-
-
 def test_blossom_spots() -> None:
     """벚꽃 지도 좌표 — 웨더아이 도시가 빠짐없이, 바탕 지도 안에, 라벨이 서로·남의 표지와 안 겹치게."""
-    from src.season.basemap import INSET, INSET_LON, LAT0, LAT1, LON0, LON1, place
+    from src.season.basemap import (
+        INSET_BOX,
+        INSET_LON,
+        LAT0,
+        LAT1,
+        LON0,
+        LON1,
+        hits,
+        label_box,
+        nudge,
+        place,
+    )
     from src.season.blossom.map import MARK_R, RING_GAP, RING_LABEL_PAD
     from src.season.blossom.spots import CITIES
+    from src.season.mapcard import glyph_size
 
-    def hits(a, b) -> bool:
-        return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
-
-    inset = (INSET["x"], INSET["y"], INSET["x"] + INSET["w"], INSET["y"] + INSET["h"])
     assert sorted(s.name for s in CITIES) == sorted(BLOSSOM_CITIES), "웨더아이 도시와 지도 좌표가 다릅니다"
     assert all(LAT0 < s.lat < LAT1 and (LON0 < s.lon < LON1 or s.lon > INSET_LON) for s in CITIES)
     # 가장 나쁜 때로 봄 — 모두 이번 주(고리 · 밀린 라벨)이고 날짜는 가장 넓은 4/12. 고리는 🌸 의 반 + 틈 + 선 굵기
-    r = (2 * MARK_R + 7) / 2 + RING_GAP + 0.7
-    boxes = _label_boxes(CITIES, lambda n: f"{n} 4/12", pad=RING_LABEL_PAD)
-    marks = {s.name: (lambda x, y: (x - r, y - r, x + r, y + r))(*place(s.lon, s.lat)) for s in CITIES}
+    r = glyph_size(MARK_R) / 2 + RING_GAP + 0.7
+    at = {s.name: place(s.lon, s.lat) for s in CITIES}
+    boxes = [(s.name, label_box(*nudge(*at[s.name], s.label, RING_LABEL_PAD), f"{s.name} 4/12", s.label))
+             for s in CITIES]
+    marks = {name: (x - r, y - r, x + r, y + r) for name, (x, y) in at.items()}
     for i, (name, box) in enumerate(boxes):
-        assert not hits(box, inset), f"{name} 라벨이 울릉도 상자에 걸립니다"
+        assert not hits(box, INSET_BOX), f"{name} 라벨이 울릉도 상자에 걸립니다"
         assert not any(hits(box, other) for _, other in boxes[i + 1:]), f"{name} 라벨이 다른 라벨과 겹칩니다"
         assert not any(hits(box, m) for n, m in marks.items() if n != name), f"{name} 라벨이 남의 표지를 가립니다"
     print("[ok] 벚꽃 지점 — 도시 19 좌표, 지도 안, 라벨 겹침 없음")
@@ -2416,6 +2404,7 @@ def test_heat_map() -> None:
     """더위 지도 — 🥵 는 낮 최고 33℃↑, 나머지는 회색 빈 원, 라벨은 겹치지 않는 것만, 표는 기준에 닿는 도시 20곳까지."""
     import re
 
+    from src.season.basemap import hits, place, text_box
     from src.season.heat import data as heat
     from src.season.heat import map as heat_map
     from src.season.heat.cities import SPOTS
@@ -2440,15 +2429,14 @@ def test_heat_map() -> None:
     marks = heat_map._marks(hot_all)
     labels = re.findall(r'<text class="lbl[^"]*" x="([\d.-]+)" y="([\d.-]+)" text-anchor="(\w+)">([^<]+)</text>', marks)
     shift = {"start": 0.0, "middle": 0.5, "end": 1.0}
-    boxes = [(float(x) - heat_map._width(t) * shift[a], float(y) - 9, float(x) - heat_map._width(t) * shift[a]
-              + heat_map._width(t), float(y) + 2, t.split()[0]) for x, y, a, t in labels]
+    boxes = [(text_box(float(x), float(y), t, shift[a], heat_map.LABEL_PX), t.split()[0]) for x, y, a, t in labels]
     assert len(boxes) >= 25, len(boxes)
-    for i, a in enumerate(boxes):
-        assert not any(heat_map._hits(a[:4], b[:4]) for b in boxes[i + 1:]), a
+    half = glyph_size(heat_map.HOT_R) / 2
+    for i, (box, owner) in enumerate(boxes):
+        assert not any(hits(box, other) for other, _ in boxes[i + 1:]), (box, owner)
         for name, spot in SPOTS.items():
-            px, py = heat_map.place(spot.lon, spot.lat)
-            half = glyph_size(heat_map.HOT_R) / 2
-            assert name == a[4] or not heat_map._hits(a[:4], (px - half, py - half, px + half, py + half)), (a, name)
+            px, py = place(spot.lon, spot.lat)
+            assert name == owner or not hits(box, (px - half, py - half, px + half, py + half)), (owner, name)
     rows = heat_map._table(hot_all)
     assert rows.count('<tr><th scope="row">') == heat_map.MAX_ROWS and f"외 {len(SPOTS) - heat_map.MAX_ROWS}곳" in rows
 

@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from src.season.basemap import ASSET as KOREA_ASSET
+from src.season.basemap import Box, text_box
 
 ASSET = Path(__file__).parents[1] / "assets" / "pacific_land.json"
 KOREA = ((124.0, 33.0), (131.0, 38.8))       # 늘 보이게 — 태풍이 멀어도 한국과의 거리가 보여야 함
@@ -22,6 +23,7 @@ KM_PER_DEG = 111.32
 PLACES = (("한국", 128.4, 35.6, True), ("일본", 138.8, 36.6, False), ("중국", 113.5, 31.0, False),
           ("타이완", 121.0, 23.6, False), ("필리핀", 122.5, 14.5, False), ("오키나와", 127.9, 26.3, False),
           ("괌", 144.8, 13.4, False))
+PLACE_PX = {False: 11.5, True: 12.5}          # CSS 의 .place · .place.strong 글자 크기
 
 
 @dataclass(frozen=True)
@@ -104,15 +106,15 @@ def _grid(view: View) -> tuple[str, str]:
     return "".join(lines), "".join(marks)
 
 
-def places(view: View) -> list[tuple[float, float, str]]:
-    """범위 안 지명 (x, y, SVG) — 경로 글자와 겹치는 것은 지도 쪽에서 뺌."""
+def places(view: View) -> list[tuple[Box, str]]:
+    """범위 안 지명 (글자 상자, SVG) — 경로 글자와 겹치는 것은 지도 쪽에서 뺌."""
     out = []
     for name, lon, lat, strong in PLACES:
         if view.lon0 + 1 < lon < view.lon1 - 1 and view.lat0 + 1 < lat < view.lat1 - 1:
             x, y = view.xy(lon, lat)
             cls = "place strong" if strong else "place"
-            out.append((x, y, f'<text class="{cls}" x="{x:.1f}" y="{y:.1f}" text-anchor="middle">'
-                              f'{html.escape(name)}</text>'))
+            out.append((text_box(x, y, name, 0.5, PLACE_PX[strong]),
+                        f'<text class="{cls}" x="{x:.1f}" y="{y:.1f}" text-anchor="middle">{html.escape(name)}</text>'))
     return out
 
 

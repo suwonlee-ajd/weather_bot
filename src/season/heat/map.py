@@ -36,13 +36,12 @@ from src.season.mapcard import Card, body, glyph, glyph_size, hollow, icon, lege
 INFO = MapInfo("더위", "heat", "중기예보 도시별 낮 최고·아침 최저로 그린 폭염일·열대야 기준 지도")
 
 # 기준 미만은 다른 지도의 «없음·아직» 과 같은 회색 빈 원 — 모양으로 가름
-HOT_R = 4                # 🥵 15px
+HOT_R = 4               # 🥵 15px
+LABEL_PX = 10.5         # CSS 의 .lbl 과 같게
 MAX_ROWS = 20           # 표가 지도보다 길어지지 않게 — 나머지는 «외 N곳»
 CRITERIA = (f"기준 기상청 기후통계 — 폭염일 «일 최고기온이 {HEAT_DAY:.0f}℃ 이상인 날» · 열대야 «밤최저기온이 "
             f"{TROPICAL_NIGHT:.0f}℃ 이상인 날(18:01~익일 09:00)». 표의 열대야는 예보의 아침 최저로 가늠함. "
             "폭염특보(체감온도 기준)와 다름")
-
-LABEL_PX = 10.5          # CSS 의 .lbl 과 같게
 
 
 def _free(box: Box, taken: list[Box], name: str) -> bool:

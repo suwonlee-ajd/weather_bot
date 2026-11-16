@@ -10,9 +10,10 @@ from dataclasses import dataclass, field
 
 from src.common.config import KST
 from src.common.text import WEEKDAY_KO, day_label, range_text
-from src.kma.page import Narrative, ScrapeError
+from src.kma.page import Narrative, ScrapedDay, ScrapeError
 from src.kma.regions import Region, find_region
 from src.kma.scrape import scrape_week
+from src.season.weeks import week_end_of, week_start_of
 
 log = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ class DayForecast:
     sky: str | None = None
     pop: int | None = None
     source: str = ""
+    cities: dict[str, tuple[float, float]] = field(default_factory=dict)  # 도시 → (아침 최저, 낮 최고), 중기예보 날만
 
     @property
     def weekday_ko(self) -> str:
@@ -96,7 +98,7 @@ class WeekForecast:
 
     @property
     def week_end(self) -> dt.date:
-        return self.week_start + dt.timedelta(days=6)
+        return week_end_of(self.week_start)
 
     @property
     def sources(self) -> list[Source]:
@@ -136,6 +138,51 @@ def _valid(value: float | None) -> float | None:
     return value if TEMP_RANGE[0] <= value <= TEMP_RANGE[1] else None
 
 
+def _region_of(cfg, region: Region | None) -> Region:
+    if region is not None:
+        return region
+    found = find_region(getattr(cfg, "region", None) or "전국")
+    if found is None:
+        raise ForecastError(f"알 수 없는 지역입니다: {cfg.region}")
+    return found
+
+
+def _day(date: dt.date, raw: ScrapedDay, warnings: list[str]) -> DayForecast:
+    """범위 밖 값은 버리고 뒤집힌 범위는 바로잡음 — 바로잡은 것은 warnings 에 남김."""
+    tmin_lo, tmin_hi = _valid(raw.tmin_lo), _valid(raw.tmin_hi)
+    tmax_lo, tmax_hi = _valid(raw.tmax_lo), _valid(raw.tmax_hi)
+    if None not in (tmin_lo, tmin_hi) and tmin_lo > tmin_hi:
+        tmin_lo, tmin_hi = tmin_hi, tmin_lo
+        warnings.append(f"{date:%m/%d} 아침 기온 범위가 뒤집혀 바로잡았습니다")
+    if None not in (tmax_lo, tmax_hi) and tmax_lo > tmax_hi:
+        tmax_lo, tmax_hi = tmax_hi, tmax_lo
+        warnings.append(f"{date:%m/%d} 낮 기온 범위가 뒤집혀 바로잡았습니다")
+
+    pop = raw.pop if raw.pop is None or 0 <= raw.pop <= 100 else None
+    # 범위 밖 값이 든 도시는 그 도시만 뺌 — 다른 도시 값까지 버리지 않음
+    cities = {name: (lo, hi) for name, (lo, hi) in raw.cities.items()
+              if _valid(lo) is not None and _valid(hi) is not None}
+    return DayForecast(date=date, tmin_lo=tmin_lo, tmin_hi=tmin_hi, tmax_lo=tmax_lo, tmax_hi=tmax_hi,
+                       sky=raw.sky, pop=pop, source=raw.source, cities=cities)
+
+
+def _check_complete(days: list[DayForecast], today: dt.date) -> None:
+    incomplete = [d for d in days if not d.is_complete]
+    if len(incomplete) <= MAX_BAD_DAYS:
+        return
+    missing = ", ".join(f"{d.date:%m/%d}" for d in incomplete)
+    # 지난 날짜는 기상청이 예보를 내리지 않아 비는 게 정상 — 파서 고장과 구분함
+    future = [d for d in incomplete if d.date >= today]
+    cause = (
+        "기상청 페이지 구조가 바뀌었을 수 있습니다."
+        if future
+        else f"지난 날짜라 예보가 없습니다 — 주 중간 실행이면 정상입니다 (오늘 {today:%m/%d})."
+    )
+    raise ForecastError(
+        f"7일 중 {len(incomplete)}일의 기온을 얻지 못해 신뢰할 수 없습니다 ({missing}). {cause}"
+    )
+
+
 def build_week(
     cfg,
     now: dt.datetime | None = None,
@@ -144,12 +191,8 @@ def build_week(
     week_offset: int = 0,
 ) -> WeekForecast:
     now = now or dt.datetime.now(tz=KST)
-    week_start = now.date() - dt.timedelta(days=now.weekday()) + dt.timedelta(weeks=week_offset)
-
-    if region is None:
-        region = find_region(getattr(cfg, "region", None) or "전국")
-        if region is None:
-            raise ForecastError(f"알 수 없는 지역입니다: {cfg.region}")
+    week_start = week_start_of(now.date(), week_offset)
+    region = _region_of(cfg, region)
     area = getattr(cfg, "area_label", "") or region.label
 
     try:
@@ -165,50 +208,9 @@ def build_week(
         if raw is None:
             warnings.append(f"{date:%m/%d} 예보 없음")
             days.append(DayForecast(date=date))
-            continue
+        else:
+            days.append(_day(date, raw, warnings))
 
-        tmin_lo, tmin_hi = _valid(raw.tmin_lo), _valid(raw.tmin_hi)
-        tmax_lo, tmax_hi = _valid(raw.tmax_lo), _valid(raw.tmax_hi)
-        if None not in (tmin_lo, tmin_hi) and tmin_lo > tmin_hi:
-            tmin_lo, tmin_hi = tmin_hi, tmin_lo
-            warnings.append(f"{date:%m/%d} 아침 기온 범위가 뒤집혀 바로잡았습니다")
-        if None not in (tmax_lo, tmax_hi) and tmax_lo > tmax_hi:
-            tmax_lo, tmax_hi = tmax_hi, tmax_lo
-            warnings.append(f"{date:%m/%d} 낮 기온 범위가 뒤집혀 바로잡았습니다")
-
-        pop = raw.pop if raw.pop is None or 0 <= raw.pop <= 100 else None
-        days.append(
-            DayForecast(
-                date=date,
-                tmin_lo=tmin_lo,
-                tmin_hi=tmin_hi,
-                tmax_lo=tmax_lo,
-                tmax_hi=tmax_hi,
-                sky=raw.sky,
-                pop=pop,
-                source=raw.source,
-            )
-        )
-
-    incomplete = [d for d in days if not d.is_complete]
-    if len(incomplete) > MAX_BAD_DAYS:
-        missing = ", ".join(f"{d.date:%m/%d}" for d in incomplete)
-        # 지난 날짜는 기상청이 예보를 내리지 않아 비는 게 정상 — 파서 고장과 구분함
-        today = now.date()
-        future = [d for d in incomplete if d.date >= today]
-        cause = (
-            "기상청 페이지 구조가 바뀌었을 수 있습니다."
-            if future
-            else f"지난 날짜라 예보가 없습니다 — 주 중간 실행이면 정상입니다 (오늘 {today:%m/%d})."
-        )
-        raise ForecastError(
-            f"7일 중 {len(incomplete)}일의 기온을 얻지 못해 신뢰할 수 없습니다 ({missing}). {cause}"
-        )
-
-    return WeekForecast(
-        area=area,
-        week_start=week_start,
-        days=days,
-        narratives=scrape.narratives,
-        warnings=warnings,
-    )
+    _check_complete(days, now.date())
+    return WeekForecast(area=area, week_start=week_start, days=days,
+                        narratives=scrape.narratives, warnings=warnings)

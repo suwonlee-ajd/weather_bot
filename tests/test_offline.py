@@ -1,17 +1,22 @@
 """API 키 없이 도는 검증 — python -m tests.test_offline (일기도만 실제 기상청을 부름)."""
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import os
 import pathlib
+import tempfile
 
 os.environ.setdefault("SLACK_BOT_TOKEN", "xoxb-test")
 os.environ.setdefault("SLACK_CHANNEL_ID", "C_TEST")
+# 디스크 캐시(data/cache)가 실제 실행이 남긴 웨더아이 표를 돌려주지 않게 — 덮어씀(setdefault 아님)
+_DATA_DIR = tempfile.TemporaryDirectory(prefix="weather-bot-test-")
+os.environ["DATA_DIR"] = _DATA_DIR.name
 
 from src.common.config import KST  # noqa: E402
 from src.kma.chart import PNG_MAGIC, fetch_latest_chart  # noqa: E402
-from src.kma.page import Narrative, ScrapedDay, _resolve_date
-from src.kma.regions import find_region, resolve_region
+from src.kma.page import Narrative, ScrapedDay, _resolve_date  # noqa: E402
+from src.kma.regions import find_region, resolve_region  # noqa: E402
 from src.mention.answer import build_reply  # noqa: E402
 from src.weekly.body import fallback  # noqa: E402
 from src.weekly.card import render_png  # noqa: E402
@@ -21,6 +26,18 @@ from src.weekly.writer import extract_json  # noqa: E402
 # 본 실행과 같은 자리 — .gitignore·보존 정리가 이곳만 봄
 IMG = pathlib.Path("data/img")
 WEEK_START = dt.date(2026, 9, 7)
+
+
+@contextlib.contextmanager
+def fresh_data_dir():
+    """DATA_DIR 을 빈 임시 디렉터리로 — 디스크 캐시가 테스트끼리 섞이지 않게."""
+    before = os.environ["DATA_DIR"]
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["DATA_DIR"] = tmp
+        try:
+            yield pathlib.Path(tmp)
+        finally:
+            os.environ["DATA_DIR"] = before
 
 
 def fake_week() -> WeekForecast:
@@ -147,7 +164,7 @@ def test_find_dong() -> None:
 def test_greeting() -> None:
     """인사·잡담은 자기소개로, 감사는 짧게. 지역이 섞이면 날씨가 우선."""
     import src.mention.answer as answer_mod
-    import src.mention.region_reply as region_reply
+    import src.mention.forecast as forecast
 
     calls: list = []
 
@@ -158,8 +175,8 @@ def test_greeting() -> None:
 
     from src.common.cache import clear
 
-    orig_scrape, orig_dong = region_reply.scrape_range, answer_mod.search_dong
-    region_reply.scrape_range = fake_scrape
+    orig_scrape, orig_dong = forecast.scrape_range, answer_mod.search_dong
+    forecast.scrape_range = fake_scrape
     answer_mod.search_dong = lambda q, limit=5: []
     now = dt.datetime(2026, 9, 14, 9, 0, tzinfo=KST)
     try:
@@ -181,14 +198,14 @@ def test_greeting() -> None:
         assert calls == ["경남"], calls
         print("[ok] 인사 응답 — 자기소개/감사/도움말 구분, 지역 우선")
     finally:
-        region_reply.scrape_range, answer_mod.search_dong = orig_scrape, orig_dong
+        forecast.scrape_range, answer_mod.search_dong = orig_scrape, orig_dong
         clear()
 
 
 def test_long_range_routing() -> None:
     """10일 너머 요청의 세 갈래: 1개월 전망 / 너무 먼 미래 / 정상 조회."""
     import src.mention.answer as answer_mod
-    import src.mention.region_reply as region_reply
+    import src.mention.forecast as forecast
     from src.common.cache import clear
     from src.kma.page import Scrape
 
@@ -211,8 +228,8 @@ def test_long_range_routing() -> None:
             url="https://example.invalid",
         )
 
-    orig = (region_reply.scrape_range, answer_mod.search_dong, answer_mod.fetch_outlook, answer_mod.find_wide)
-    region_reply.scrape_range, answer_mod.search_dong = fake_scrape, lambda q, limit=5: []
+    orig = (forecast.scrape_range, answer_mod.search_dong, answer_mod.fetch_outlook, answer_mod.find_wide)
+    forecast.scrape_range, answer_mod.search_dong = fake_scrape, lambda q, limit=5: []
     answer_mod.find_wide = lambda q: None               # 행정구역 목록을 받으러 가지 않게
     answer_mod.fetch_outlook = fake_outlook
     now = dt.datetime(2026, 9, 14, 9, 0, tzinfo=KST)
@@ -248,7 +265,7 @@ def test_long_range_routing() -> None:
         assert calls == ["경남"], calls
         print("[ok] 장기 요청 분기 — 1개월 전망 / 먼 미래 거절 / 주간 정상")
     finally:
-        region_reply.scrape_range, answer_mod.search_dong, answer_mod.fetch_outlook, answer_mod.find_wide = orig
+        forecast.scrape_range, answer_mod.search_dong, answer_mod.fetch_outlook, answer_mod.find_wide = orig
         clear()
 
 
@@ -256,7 +273,7 @@ def test_topic_advice() -> None:
     """활동·복장 질문에 맞춘 조언. 지역·날짜와 함께 와도 해석함."""
     from types import SimpleNamespace
 
-    from src.advice.rules import detect_topic, topic_advice
+    from src.advice.topics import detect_topic, topic_advice
     from src.kma.regions import extract_region
 
     assert detect_topic("내일 뭐 입지?") == "옷차림"
@@ -282,10 +299,30 @@ def test_topic_advice() -> None:
     print("[ok] 활동별 조언 — 의도 인식, 문장에서 지역 추출, 근거 없으면 침묵")
 
 
+def _quiet_season_notes() -> tuple:
+    """날씨 답 끝의 단풍·첫눈 한 줄이 기상청을 부르지 않게 — 기간 없이 답마다 자료를 보므로 늘 바꿔 둠.
+
+    돌려줄 원래 함수(단풍, 첫눈)를 반환함. 단풍은 철 밖, 첫눈은 관측도 눈 예보도 없는 자료."""
+    import src.season.foliage.data as foliage_mod
+    from src.season.snow import data as snow
+
+    orig = (foliage_mod.fetch_snapshot, snow.fetch_status)
+    foliage_mod.fetch_snapshot = lambda today, **k: fake_snapshot(in_service=False, outlook=False)
+    snow.fetch_status = lambda today, **_: snow.Status(snow.season_year(today))
+    return orig
+
+
+def _restore_season_notes(orig: tuple) -> None:
+    import src.season.foliage.data as foliage_mod
+    from src.season.snow import data as snow
+
+    foliage_mod.fetch_snapshot, snow.fetch_status = orig
+
+
 def test_cache_shared_across_spans() -> None:
     """지역 캐시 하나를 «이번 주»·«다음 주»·«기본» 이 나눠 써도 날이 빠지지 않음."""
     import src.mention.answer as answer_mod
-    import src.mention.region_reply as region_reply
+    import src.mention.forecast as forecast
     from src.common.cache import clear
     from src.kma.page import Narrative, Scrape, ScrapedDay
 
@@ -299,8 +336,8 @@ def test_cache_shared_across_spans() -> None:
         return Scrape(days={d: v for d, v in full.items() if d in window},
                       narratives=[Narrative("통보문", "", None, [])])
 
-    orig = region_reply.scrape_range
-    region_reply.scrape_range = fake_scrape
+    orig = (forecast.scrape_range, *_quiet_season_notes())
+    forecast.scrape_range = fake_scrape
     try:
         now = dt.datetime(2026, 9, 12, 9, 0, tzinfo=KST)   # 토요일
         clear()
@@ -308,7 +345,8 @@ def test_cache_shared_across_spans() -> None:
         answer_mod.build_reply("<@U123> 경남 다음주", now)
         reply = answer_mod.build_reply("<@U123> 경남 날씨", now)
     finally:
-        region_reply.scrape_range = orig
+        forecast.scrape_range = orig[0]
+        _restore_season_notes(orig[1:])
         clear()
 
     for day in ("09/12", "09/13", "09/18"):
@@ -319,7 +357,7 @@ def test_cache_shared_across_spans() -> None:
 def test_city_uses_dong_forecast() -> None:
     """'부산' 은 구역이 아니라 부산광역시 값으로 답함 — 기간이 닿는 한."""
     import src.mention.answer as answer_mod
-    import src.mention.region_reply as region_reply
+    import src.mention.forecast as forecast
     from src.common.cache import clear
     from src.kma.page import Scrape
 
@@ -335,8 +373,8 @@ def test_city_uses_dong_forecast() -> None:
         dong_calls.append((name, days, start))
         return f"*{name}* 동네예보"
 
-    orig = (region_reply.scrape_range, answer_mod._dong_reply, answer_mod.find_wide)
-    region_reply.scrape_range = fake_scrape
+    orig = (forecast.scrape_range, answer_mod._dong_reply, answer_mod.find_wide)
+    forecast.scrape_range = fake_scrape
     answer_mod._dong_reply = fake_dong_reply
     answer_mod.find_wide = lambda q: ("2600000000", "부산광역시") if "부산" in q else None
     now = dt.datetime(2026, 9, 14, 9, 0, tzinfo=KST)   # 월요일
@@ -357,7 +395,7 @@ def test_city_uses_dong_forecast() -> None:
         answer_mod.build_reply("<@U1> 부산 다음주", now)
         assert calls and not dong_calls, (dong_calls, calls)
     finally:
-        region_reply.scrape_range, answer_mod._dong_reply, answer_mod.find_wide = orig
+        forecast.scrape_range, answer_mod._dong_reply, answer_mod.find_wide = orig
         clear()
     print("[ok] 시도 조회 — 가까운 날은 시 단위, 주 단위는 광역")
 
@@ -365,8 +403,8 @@ def test_city_uses_dong_forecast() -> None:
 def test_partial_week_is_declared() -> None:
     """예보가 기간을 못 채우면 머리글이 실제 범위를 말하고, 왜 짧은지 밝힘."""
     import src.mention.answer as answer_mod
-    import src.mention.region_reply as region_reply
-    import src.season.foliage as foliage_mod
+    import src.mention.forecast as forecast
+    import src.season.foliage.data as foliage_mod
     from src.common.cache import clear
     from src.kma.page import Narrative, Scrape, ScrapedDay
 
@@ -379,16 +417,17 @@ def test_partial_week_is_declared() -> None:
                 for i in range(span) if (d := start + dt.timedelta(days=i)) in horizon}
         return Scrape(days=days, narratives=[Narrative("중기예보", "", None, [])])
 
-    orig = (region_reply.scrape_range, answer_mod.find_wide, foliage_mod.fetch_snapshot)
-    region_reply.scrape_range = fake_scrape
+    orig = (forecast.scrape_range, answer_mod.find_wide, *_quiet_season_notes())
+    forecast.scrape_range = fake_scrape
     answer_mod.find_wide = lambda q: None
-    foliage_mod.fetch_snapshot = lambda today: fake_snapshot(outlook=False)   # 단풍철 — 기상청을 부르지 않게
+    foliage_mod.fetch_snapshot = lambda today, **k: fake_snapshot(outlook=False)   # 단풍철 — 기상청을 부르지 않게
     now = dt.datetime(2026, 9, 14, 9, 0, tzinfo=KST)
     try:
         clear()
         reply = answer_mod.build_reply("<@U1> 다음주 날씨", now)
     finally:
-        region_reply.scrape_range, answer_mod.find_wide, foliage_mod.fetch_snapshot = orig
+        forecast.scrape_range, answer_mod.find_wide = orig[:2]
+        _restore_season_notes(orig[2:])
         clear()
 
     assert "09/23" in reply.split("\n")[0], reply.split("\n")[0]
@@ -572,7 +611,7 @@ def test_forecast_validation() -> None:
 def test_mention_parsing() -> None:
     """멘션 문장에서 지역과 수집 범위를 읽고, 모르는 지명은 수집하지 않음."""
     import src.mention.answer as answer_mod
-    import src.mention.region_reply as region_reply
+    import src.mention.forecast as forecast
     from src.common.cache import clear
     from src.kma.page import Scrape
 
@@ -582,8 +621,8 @@ def test_mention_parsing() -> None:
         calls.append((region.key, start, span))
         return Scrape(days={}, narratives=[])
 
-    orig = region_reply.scrape_range
-    region_reply.scrape_range = fake_scrape
+    orig = forecast.scrape_range
+    forecast.scrape_range = fake_scrape
     try:
         now = dt.datetime(2026, 9, 12, 9, 0, tzinfo=KST)   # 토요일
         # 구역명으로 — 시도 이름은 동네예보로 빠짐(find_wide)
@@ -614,7 +653,7 @@ def test_mention_parsing() -> None:
             answer_mod.search_dong = orig
         print("[ok] 멘션 파싱 — 기본 '오늘부터 7일', 이번주/다음주 인식, '요즘' 은 전국, 미지원 지역 거절")
     finally:
-        region_reply.scrape_range = orig
+        forecast.scrape_range = orig
         clear()
 
 
@@ -734,7 +773,7 @@ def test_mention_delivery() -> None:
     import time
 
     import src.mention.bot as bot
-    from src.mention.answer import Reply
+    from src.mention.reply import Reply
 
     class FakeClient:
         def __init__(self, upload_fails=False):
@@ -754,6 +793,7 @@ def test_mention_delivery() -> None:
             if self.upload_fails:
                 raise TimeoutError("업로드 시간 초과")
             self.calls.append(("upload", kw["initial_comment"]))
+            self.calls.append(("file", kw["filename"].split("-")[0], kw["title"]))
 
     def run(reply, *, slow=False, upload_fails=False):
         client, said = FakeClient(upload_fails), []
@@ -779,6 +819,8 @@ def test_mention_delivery() -> None:
         calls, said = run(Reply("단풍", image=b"png"), slow=True)
         assert ("upload", "단풍") in calls and ("delete", "L1") in calls and not said, calls
         assert run(Reply("단풍", image=b"png"), upload_fails=True) == ([], ["단풍"])
+        calls, _ = run(Reply("첫눈", image=b"png", slug="snow", title="첫눈 지도"))
+        assert ("file", "snow", "첫눈 지도") in calls, calls
         calls, said = run(RuntimeError("파서 고장"))
         assert said == ["예보를 정리하는 중에 문제가 생겼습니다. 잠시 뒤 다시 불러 주세요."], said
     finally:
@@ -806,7 +848,7 @@ def test_footer_and_region_variation() -> None:
     """동네예보 꼬리말은 자료 끝까지 보여 줄 때만 붙고, 조언 문장은 지역마다 갈림."""
     from types import SimpleNamespace
 
-    import src.mention.dong_reply as dong_reply
+    import src.mention.weather.dong as dong
 
     def fake_fetch(zone, name, days_n):
         base = dt.date(2026, 9, 16)
@@ -817,21 +859,21 @@ def test_footer_and_region_variation() -> None:
             daily_summary=lambda: rows,
         )
 
-    orig = dong_reply.fetch_dong
+    orig = dong.fetch_dong
     try:
-        dong_reply.fetch_dong = lambda z, n: fake_fetch(z, n, 1)
-        one = dong_reply._dong_reply("1100000000", "서울특별시", days=1)
+        dong.fetch_dong = lambda z, n: fake_fetch(z, n, 1)
+        one = dong._dong_reply("1100000000", "서울특별시", days=1)
         assert "더 먼 날이 필요" not in one, one
         assert "발표" in one, one
 
-        dong_reply.fetch_dong = lambda z, n: fake_fetch(z, n, dong_reply.DONG_MAX_DAYS)
-        full = dong_reply._dong_reply("1100000000", "서울특별시", days=dong_reply.DONG_MAX_DAYS)
+        dong.fetch_dong = lambda z, n: fake_fetch(z, n, dong.DONG_MAX_DAYS)
+        full = dong._dong_reply("1100000000", "서울특별시", days=dong.DONG_MAX_DAYS)
         assert "더 먼 날이 필요" in full, full
         # 오전·낮 발표(4일치)도 자료 끝까지 보여 주면 광역 안내가 붙음
-        dong_reply.fetch_dong = lambda z, n: fake_fetch(z, n, 4)
-        four = dong_reply._dong_reply("1100000000", "서울특별시", days=dong_reply.DONG_MAX_DAYS)
+        dong.fetch_dong = lambda z, n: fake_fetch(z, n, 4)
+        four = dong._dong_reply("1100000000", "서울특별시", days=dong.DONG_MAX_DAYS)
         assert "더 먼 날이 필요" in four, four
-        part = dong_reply._dong_reply("1100000000", "서울특별시", days=2)
+        part = dong._dong_reply("1100000000", "서울특별시", days=2)
         assert "더 먼 날이 필요" not in part, part
 
         # 오늘 줄은 남은 시간의 값 — «N시 이후» 를 붙이고 굵게(주 최저·최고)에서 뺌
@@ -843,37 +885,37 @@ def test_footer_and_region_variation() -> None:
         rows = late.daily_summary()
         rows[0] = (first, 10.0, 12.0, "맑음", 0)             # 밤 몇 시간 값이 주 최저처럼 보임
         late.daily_summary = lambda: rows
-        dong_reply.fetch_dong = lambda z, n: late
-        tonight = dong_reply._dong_reply("1100000000", "서울특별시", days=3)
-        assert f"`{dong_reply.day_label(first)}` 21시 이후 10~12℃" in tonight, tonight
+        dong.fetch_dong = lambda z, n: late
+        tonight = dong._dong_reply("1100000000", "서울특별시", days=3)
+        assert f"`{dong.day_label(first)}` 21시 이후 10~12℃" in tonight, tonight
         assert "시 이후" not in tonight.split("\n")[2], tonight
         # 오늘 줄의 밤 기온은 조언에 쓰지 않음
         rows[0] = (first, 2.0, 4.0, "맑음", 0)
-        cold_night = dong_reply._dong_reply("1100000000", "서울특별시", days=3)
+        cold_night = dong._dong_reply("1100000000", "서울특별시", days=3)
         assert ":cold_face:" not in cold_night and "아침 최저" not in cold_night, cold_night
 
-        dong_reply.fetch_dong = lambda z, n: fake_fetch(z, n, 4)
-        mountain = dong_reply._dong_reply("5121060000", "설악산 아래 속초시 대포동", 4,
-                                       dt.date(2026, 9, 16), quiet=True)
+        dong.fetch_dong = lambda z, n: fake_fetch(z, n, 4)
+        mountain = dong._quiet_dong_reply("5121060000", "설악산 아래 속초시 대포동", 4,
+                                          dt.date(2026, 9, 16))
         assert mountain and "더 먼 날이 필요" not in mountain, mountain
 
-        dong_reply.fetch_dong = lambda z, n: fake_fetch(z, n, 3)
-        seoul = dong_reply._dong_reply("1100000000", "서울특별시", days=3)
-        busan = dong_reply._dong_reply("2600000000", "부산광역시", days=3)
+        dong.fetch_dong = lambda z, n: fake_fetch(z, n, 3)
+        seoul = dong._dong_reply("1100000000", "서울특별시", days=3)
+        busan = dong._dong_reply("2600000000", "부산광역시", days=3)
         def tip(r):
             return [ln for ln in r.split("\n") if ln.startswith(":")]
         assert tip(seoul) and tip(busan), (seoul, busan)
         assert tip(seoul) != tip(busan), (tip(seoul), tip(busan))
     finally:
-        dong_reply.fetch_dong = orig
+        dong.fetch_dong = orig
     print("[ok] 꼬리말은 필요할 때만, 조언은 지역마다 다르게")
 
 
 # --- 단풍 -------------------------------------------------------------------
 
 def fake_snapshot(stages=None, first=None, peak=None, *, in_service=True, outlook=True):
-    from src.season.foliage import Outlook, Snapshot, Status
-    from src.season.mountains import MOUNTAINS
+    from src.season.foliage.data import Outlook, Snapshot, Status
+    from src.season.foliage.mountains import MOUNTAINS
 
     d = dt.date
     status = Status(
@@ -891,24 +933,23 @@ def fake_snapshot(stages=None, first=None, peak=None, *, in_service=True, outloo
 
 
 def test_foliage_season() -> None:
-    """9월 둘째 월요일 ~ 11월 둘째 월요일이 든 주. 해마다 날짜가 다름."""
-    from src.season.foliage import in_season, next_season, season_bounds
-
+    """기간은 자료가 정함 — 기상청 관측 중이거나, 관측 전이라도 올해 예상일이 남았을 때만."""
     d = dt.date
-    assert season_bounds(2026) == (d(2026, 9, 14), d(2026, 11, 15))
-    assert season_bounds(2027) == (d(2027, 9, 13), d(2027, 11, 14))   # 11/1 이 월요일인 해
-    assert not in_season(d(2026, 9, 13)) and in_season(d(2026, 9, 14))
-    assert in_season(d(2026, 11, 15)) and not in_season(d(2026, 11, 16))
-    assert next_season(d(2026, 9, 1)) == season_bounds(2026)
-    assert next_season(d(2026, 12, 1)) == season_bounds(2027)
-    print("[ok] 단풍 기간 — 9월 둘째 주 ~ 11월 둘째 주")
+    peaked = fake_snapshot({"두륜산": 2}, peak={"두륜산": d(2026, 11, 9)})
+    assert peaked.showing(d(2026, 11, 16)) and peaked.showing(d(2026, 12, 7))     # 기상청이 관측을 이어 가는 동안
+    before = fake_snapshot(in_service=False)                                      # 웨더아이 예상만 나온 9월 초
+    assert before.showing(d(2026, 9, 7)) and before.showing(d(2026, 10, 3))       # 첫 예상일(설악산 첫단풍 10/3)까지
+    # 첫 예상일이 지났는데 서비스가 꺼져 있으면 접은 것 — 한라산 절정 예상(11/13)이 남아도 «아직 시작 안 함» 이 아님
+    assert not before.showing(d(2026, 10, 4)) and not before.showing(d(2026, 11, 10))
+    assert not fake_snapshot(in_service=False, outlook=False).showing(d(2026, 6, 1))
+    print("[ok] 단풍 기간 — 기상청 관측 중이거나 남은 예상일이 있을 때만 (고정 기간 없음)")
 
 
 def test_foliage_parse() -> None:
     """기상청 JSONP 와 웨더아이 표. 지난 시즌 값·잘못 읽은 표는 버림."""
     import json
 
-    from src.season.foliage import FoliageError, parse_outlook_text, parse_status
+    from src.season.foliage.data import FoliageError, parse_outlook_text, parse_status
     from src.season.sources import shot_date
 
     def jsonp(service: bool, statuses: dict[str, str], flower: dict) -> str:
@@ -956,8 +997,8 @@ def test_foliage_parse() -> None:
 
 
 def test_mountain_lookup() -> None:
-    from src.season.foliage_map import LAT0, LAT1, LON0, LON1
-    from src.season.mountains import MOUNTAINS, find_mountain, unknown_mountain
+    from src.season.basemap import LAT0, LAT1, LON0, LON1
+    from src.season.foliage.mountains import MOUNTAINS, find_mountain, unknown_mountain
 
     assert len(MOUNTAINS) == 21 and len({m.zone for m in MOUNTAINS}) == 21
     assert all(LON0 < m.lon < LON1 and LAT0 < m.lat < LAT1 for m in MOUNTAINS), "지도 밖 좌표"
@@ -984,12 +1025,10 @@ def test_mountain_lookup() -> None:
     assert find_mountain("주말 설악 날씨").name == "설악산"
 
     from src.kma.regions import REGIONS
-    from src.season.mountains import REGION_MOUNTAINS, in_region, in_zone
+    from src.season.foliage.mountains import in_region, in_zone
 
-    names = {m.name for m in MOUNTAINS}
-    assert set(REGION_MOUNTAINS) <= {r.key for r in REGIONS}, "없는 구역 이름"
-    assert all(set(v) <= names for v in REGION_MOUNTAINS.values()), "없는 산 이름"
-    assert names == {n for v in REGION_MOUNTAINS.values() for n in v}, "어느 구역에도 없는 산"
+    assert {k for m in MOUNTAINS for k in m.regions} <= {r.key for r in REGIONS}, "없는 구역 이름"
+    assert all(m.regions for m in MOUNTAINS), "어느 구역에도 없는 산"
     assert [m.name for m in in_region("강원")] == ["설악산", "오대산", "치악산"]
     for code, want in (("1100000000", ["북한산"]), ("2700000000", ["팔공산"]), ("1230000000", ["무등산"]),
                        ("5000000000", ["한라산"]), ("2600000000", [])):
@@ -1002,9 +1041,10 @@ def test_foliage_routing() -> None:
     from types import SimpleNamespace
 
     import src.mention.answer as answer_mod
-    import src.mention.dong_reply as dong_reply
-    import src.mention.region_reply as region_reply
-    import src.season.foliage as foliage_mod
+    import src.mention.forecast as forecast
+    import src.mention.weather.dong as dong
+    import src.season.foliage.data as foliage_mod
+    import src.season.foliage.map as foliage_map
 
     snap = fake_snapshot({"설악산": 1}, first={"설악산": dt.date(2026, 9, 28)})
     dong_calls: list = []
@@ -1029,11 +1069,11 @@ def test_foliage_routing() -> None:
         scraped.append(region.key)
         return Scrape(days={}, narratives=[])
 
-    orig = (foliage_mod.fetch_snapshot, dong_reply.fetch_dong, answer_mod.render_foliage_png, region_reply.scrape_range)
-    foliage_mod.fetch_snapshot = lambda today: snap
-    dong_reply.fetch_dong = fake_dong
-    answer_mod.render_foliage_png = fake_render          # Chromium 없이
-    region_reply.scrape_range = fake_scrape
+    orig = (foliage_mod.fetch_snapshot, dong.fetch_dong, foliage_map.render_png, forecast.scrape_range)
+    foliage_mod.fetch_snapshot = lambda today, **k: snap
+    dong.fetch_dong = fake_dong
+    foliage_map.render_png = fake_render                 # Chromium 없이
+    forecast.scrape_range = fake_scrape
     now = dt.datetime(2026, 10, 1, 15, 0, tzinfo=KST)
     clear()
     try:
@@ -1069,10 +1109,14 @@ def test_foliage_routing() -> None:
 
         for when in (now, dt.datetime(2026, 4, 1, tzinfo=KST)):
             assert "꽃 개화 소식은 다루지 않습니다" in ask("벚꽃 피었어?", when)
+        # 기간은 자료가 정함 — 기상청 관측 중이면 12월에도 답하고, 관측을 접었고 예상도 지났으면 철이 아님
+        assert "단풍 현황" in ask("단풍 어때", dt.datetime(2026, 12, 1, tzinfo=KST))
+        foliage_mod.fetch_snapshot = lambda today, **k: fake_snapshot(in_service=False)
         late = ask("단풍 어때", dt.datetime(2026, 12, 1, tzinfo=KST))
-        assert "9월 둘째 주 ~ 11월 둘째 주" in late and "2027년 9/13" in late, late
-        early = ask("설악산 단풍", dt.datetime(2026, 9, 1, tzinfo=KST))
-        assert "올해는 9/14(월)부터" in early, early
+        assert "단풍 관측 기간이 아닙니다" in late and "단풍 현황" not in late, late
+        early = ask("설악산 단풍", dt.datetime(2026, 9, 7, tzinfo=KST))          # 관측 전, 웨더아이 예상만
+        assert "아직 시작되지 않았습니다" in early and "10/3 예상" in early, early
+        foliage_mod.fetch_snapshot = lambda today, **k: snap
 
         assert "지난 날씨는" in ask("작년 여름")
 
@@ -1089,22 +1133,22 @@ def test_foliage_routing() -> None:
                   "설악산 단풍 절정 10/25 맞아?"):
             assert "동네예보" not in ask(q), q
         assert not dong_calls, dong_calls
-        dong_reply.fetch_dong = lambda z, n: (_ for _ in ()).throw(dong_reply.DongError("점검"))
+        dong.fetch_dong = lambda z, n: (_ for _ in ()).throw(dong.DongError("점검"))
         failed = ask("주말 설악산 단풍")
         assert "가져오지 못했습니다" in failed and "광역" not in failed, failed
-        dong_reply.fetch_dong = fake_dong
+        dong.fetch_dong = fake_dong
         # '다음 주 주말' 은 10/10 — 동네예보(5일) 밖이라 안내만
         next_weekend = ask("다음 주 주말 설악산 단풍")
         assert "10/03" not in next_weekend and "5일까지" in next_weekend, next_weekend
 
         # 촬영일이 아직 없으면 지난 단계의 예상일을 꺼내지 않음
-        foliage_mod.fetch_snapshot = lambda today: fake_snapshot({"설악산": 1})
+        foliage_mod.fetch_snapshot = lambda today, **k: fake_snapshot({"설악산": 1})
         bare = ask("설악산 단풍")
         assert "*관측* (촬영일은" in bare and "예상이었지만" not in bare, bare
         assert ask("단풍 어디까지").count("*설악산* 첫단풍") == 1
     finally:
-        (foliage_mod.fetch_snapshot, dong_reply.fetch_dong, answer_mod.render_foliage_png,
-         region_reply.scrape_range) = orig
+        (foliage_mod.fetch_snapshot, dong.fetch_dong, foliage_map.render_png,
+         forecast.scrape_range) = orig
         clear()
     print("[ok] 단풍 멘션 — 현황 · 산별 · 산 날씨 · 목록 밖 산 · 꽃/기간 밖 거절")
 
@@ -1114,12 +1158,13 @@ def test_foliage_in_weather() -> None:
     from types import SimpleNamespace
 
     import src.mention.answer as answer_mod
-    import src.mention.dong_reply as dong_reply
-    import src.mention.region_reply as region_reply
-    import src.season.foliage as foliage_mod
+    import src.mention.forecast as forecast
+    import src.mention.weather.dong as dong
+    import src.season.foliage.data as foliage_mod
     from src.common.cache import clear
     from src.kma.page import Scrape, ScrapedDay
-    from src.season.foliage import FoliageError
+    from src.season.foliage.data import FoliageError
+    from src.season.snow import data as snow
 
     now = dt.datetime(2026, 10, 1, 15, 0, tzinfo=KST)        # 단풍철, 목요일
     snaps = [fake_snapshot({"설악산": 1}, first={"설악산": dt.date(2026, 9, 28)})]
@@ -1137,17 +1182,19 @@ def test_foliage_in_weather() -> None:
                 for d in (start + dt.timedelta(days=i) for i in range(span))}
         return Scrape(days=days, narratives=[])
 
-    def fake_snap(today):
+    def fake_snap(today, **k):
         if isinstance(snaps[0], Exception):
             raise snaps[0]
         return snaps[0]
 
     wide = {"제주": ("5000000000", "제주특별자치도"), "서울": ("1100000000", "서울특별시")}
     snaps_base = [now.date()]
-    orig = (foliage_mod.fetch_snapshot, dong_reply.fetch_dong, region_reply.scrape_range, answer_mod.find_wide)
+    orig = (foliage_mod.fetch_snapshot, dong.fetch_dong, forecast.scrape_range, answer_mod.find_wide,
+            snow.fetch_status)
+    snow.fetch_status = lambda day: snow.Status(day.year)   # 날씨 답마다 첫눈 한 줄을 봄(기간 없음)
     foliage_mod.fetch_snapshot = fake_snap
-    dong_reply.fetch_dong = fake_dong
-    region_reply.scrape_range = fake_scrape
+    dong.fetch_dong = fake_dong
+    forecast.scrape_range = fake_scrape
     answer_mod.find_wide = lambda q: wide.get(q.strip())
     try:
         def ask(q, when=now):
@@ -1165,10 +1212,13 @@ def test_foliage_in_weather() -> None:
         assert dong_calls == ["5121060000"] and "*전국*" not in hike, (dong_calls, hike)
         dong_calls.clear()
         assert "내장산 아래" in ask("내장산 가는데 다음 주 날씨") and dong_calls == ["5218053500"]
-        snaps_base[0] = dt.date(2026, 12, 1)
+        # 기상청이 관측을 접었고 올해 예상도 지났으면 산 날씨만 — 기간은 자료가 정함
+        snaps_base[0], kept = dt.date(2026, 12, 1), snaps[0]
+        snaps[0] = fake_snapshot(in_service=False)
         winter = ask("설악산 날씨", dt.datetime(2026, 12, 1, 9, 0, tzinfo=KST))
         assert "설악산 아래" in winter and "단풍" not in winter, winter
-        snaps_base[0] = now.date()
+        assert ":maple_leaf:" not in ask("강원 날씨", dt.datetime(2026, 12, 1, 9, 0, tzinfo=KST))
+        snaps_base[0], snaps[0] = now.date(), kept
 
         # 지역 날씨 — 물든 산과 그 기간의 예상만
         gangwon = ask("강원 날씨")
@@ -1181,7 +1231,7 @@ def test_foliage_in_weather() -> None:
         nationwide = ask("전국 날씨")
         assert "나머지 20곳은 단풍 전" in nationwide and "*오대산* 10/7" in nationwide, nationwide
         assert ":maple_leaf:" not in ask("경남 날씨")
-        assert ":maple_leaf:" not in ask("제주")                 # 한라산 첫단풍 예상 10/31 은 기간 밖
+        assert ":maple_leaf:" not in ask("제주")                 # 한라산 첫단풍 예상 10/31 은 답의 날짜 밖
         snaps[0] = fake_snapshot({"북한산": 1}, first={"북한산": dt.date(2026, 9, 30)})
         assert "*북한산* 첫단풍 9/30" in ask("서울")
         # 단풍철 밖이거나 단풍을 못 받아 와도 날씨는 그대로
@@ -1189,9 +1239,9 @@ def test_foliage_in_weather() -> None:
         failed = ask("강원 날씨")
         assert "*강원*" in failed and ":maple_leaf:" not in failed, failed
         assert "설악산 아래" in ask("설악산") and "단풍 —" not in ask("설악산")
-        assert ":maple_leaf:" not in ask("강원 날씨", dt.datetime(2026, 12, 1, 9, 0, tzinfo=KST))
     finally:
-        foliage_mod.fetch_snapshot, dong_reply.fetch_dong, region_reply.scrape_range, answer_mod.find_wide = orig
+        (foliage_mod.fetch_snapshot, dong.fetch_dong, forecast.scrape_range, answer_mod.find_wide,
+         snow.fetch_status) = orig
         clear()
     print("[ok] 날씨 속 단풍 — 산 이름은 산 날씨와 단풍, 지역 날씨는 그 지역 산 한 줄")
 
@@ -1215,7 +1265,7 @@ def test_foliage_fetch() -> None:
     """산별 날짜: 목록에 딸려 온 상세는 다시 부르지 않고, 촬영일이 빈 상세는 캐시하지 않음."""
     import json
 
-    import src.season.foliage as foliage
+    import src.season.foliage.data as foliage
     from src.common.cache import clear
 
     def jsonp(places: dict[str, str], flower: dict) -> str:
@@ -1231,7 +1281,7 @@ def test_foliage_fetch() -> None:
     }
     calls: list = []
 
-    def fake_kma(place=""):
+    def fake_kma(place="", timeout=None):
         calls.append(place)
         return jsonp(places, details[place])
 
@@ -1263,12 +1313,31 @@ def test_foliage_fetch() -> None:
 
     foliage._get = fake_get
     try:
-        assert foliage.fetch_outlook(2026) is None and foliage.fetch_outlook(2026) is None
-        assert len(gets) == 1, f"아직 없는 예상을 {len(gets)}번 받으러 갔습니다"
+        with fresh_data_dir() as tmp:
+            assert foliage.fetch_outlook(2026) is None and foliage.fetch_outlook(2026) is None
+            assert len(gets) == 1, f"아직 없는 예상을 {len(gets)}번 받으러 갔습니다"
+            assert not (tmp / "cache").exists(), "미발표를 디스크에 남겼습니다"
     finally:
         foliage._get = orig_get
         clear()
-    print("[ok] 단풍 수집 — 목록 상세 재사용 · 빈 상세 미캐시 · 미발표 짧게 기억")
+
+    # 읽은 표는 디스크에 남김 — 다음 실행(메모리 캐시가 빈 새 프로세스)은 웨더아이 목록·게시물·PDF 를 받지 않음
+    d = dt.date
+    table = foliage.Outlook({"설악산": d(2026, 10, 3)}, {"설악산": d(2026, 10, 25)}, published=d(2026, 9, 4),
+                            url="https://example.invalid/post")
+    loads: list = []
+    orig_load = foliage._load_outlook
+    foliage._load_outlook = lambda year, timeout: loads.append(year) or table
+    try:
+        with fresh_data_dir() as tmp:
+            assert foliage.fetch_outlook(2026) == table
+            clear()
+            assert foliage.fetch_outlook(2026) == table and loads == [2026], loads
+            assert (tmp / "cache" / "weatheri-foliage-2026.json").is_file()
+    finally:
+        foliage._load_outlook = orig_load
+        clear()
+    print("[ok] 단풍 수집 — 목록 상세 재사용 · 빈 상세 미캐시 · 미발표 짧게 기억 · 읽은 예상표는 디스크에")
 
 
 def test_cache_failures() -> None:
@@ -1301,15 +1370,89 @@ def test_cache_failures() -> None:
     time.sleep(0.02)
     cache.get_or_set("new", 60, lambda: "y")
     assert "old" not in cache._STORE and "new" in cache._STORE
+
+    # 같은 키를 동시에 찾으면 한 번만 만들고 뒤에 온 쪽은 그 값을 씀
+    import threading
+    made, started, got = [], threading.Event(), []
+
+    def slow():
+        made.append(1)
+        started.set()
+        time.sleep(0.05)
+        return "v"
+
+    first = threading.Thread(target=lambda: got.append(cache.get_or_set("s", 60, slow)))
+    first.start()
+    started.wait(1)
+    got.append(cache.get_or_set("s", 60, slow))
+    first.join()
+    assert made == [1] and got == ["v", "v"], (made, got)
+
+    # 기억하지 않는 실패도 기다린 쪽은 같은 실패를 받음 — 줄지어 다시 만들지 않음
+    made.clear()
+    started.clear()
+
+    def slow_fail():
+        made.append(1)
+        started.set()
+        time.sleep(0.05)
+        raise ValueError("점검 중")
+
+    failed: list[str] = []
+
+    def ask():
+        try:
+            cache.get_or_set("f", 60, slow_fail)
+        except ValueError as exc:
+            failed.append(str(exc))
+
+    first = threading.Thread(target=ask)
+    first.start()
+    started.wait(1)
+    ask()
+    first.join()
+    assert made == [1] and failed == ["점검 중", "점검 중"], (made, failed)
+    assert not cache._FLIGHTS and "f" not in cache._STORE
     cache.clear()
-    print("[ok] 캐시 — 실패 기억, 지난 항목 정리")
+    print("[ok] 캐시 — 실패 기억, 지난 항목 정리, 동시에 찾은 같은 키는 한 번만")
+
+
+def test_disk_cache() -> None:
+    """디스크 캐시 — 한 번 만든 값은 다음 실행이 파일에서 읽음. 아직 없음(None)·실패는 남기지 않고, 깨진 파일은 다시 만듦."""
+    import json
+
+    from src.common import store
+
+    def again():
+        raise AssertionError("디스크에 있는데 다시 만들었습니다")
+
+    codec = {"dump": lambda v: {"v": v}, "load": lambda raw: raw["v"]}
+    with fresh_data_dir() as tmp:
+        cache = tmp / "cache"
+        assert store.cache_dir() == cache
+        assert store.kept("t-2026", lambda: "표", **codec) == "표"
+        assert store.kept("t-2026", again, **codec) == "표"
+        assert json.loads((cache / "t-2026.json").read_text(encoding="utf-8")) == {"v": "표"}
+        assert store.kept("t-none", lambda: None, **codec) is None
+        try:
+            store.kept("t-fail", lambda: (_ for _ in ()).throw(ValueError("점검")), **codec)
+            raise AssertionError("만들기 실패가 묻혔습니다")
+        except ValueError:
+            pass
+        assert [p.name for p in cache.iterdir()] == ["t-2026.json"], list(cache.iterdir())
+        (cache / "t-2026.json").write_text("{", encoding="utf-8")
+        assert store.kept("t-2026", lambda: "새 표", **codec) == "새 표"
+        assert store.kept("t-2026", again, **codec) == "새 표"
+        os.environ["DATA_DIR"] = "data"                     # 상대 경로는 저장소 기준 — 어디서 띄워도 같은 자리
+        assert store.cache_dir() == pathlib.Path(__file__).resolve().parents[1] / "data" / "cache"
+    print("[ok] 디스크 캐시 — 다음 실행은 파일에서, None·실패는 남기지 않음, 깨진 파일은 다시 만듦")
 
 
 def test_foliage_render() -> None:
-    from src.season.foliage import STAGES
-    from src.season.foliage_map import build_html
-    from src.season.foliage_map import render_png as render_map
-    from src.season.foliage_text import observed_line
+    from src.season.foliage.data import STAGES
+    from src.season.foliage.map import build_html
+    from src.season.foliage.map import render_png as render_map
+    from src.season.foliage.text import observed_line
 
     d = dt.date
     early = fake_snapshot({"설악산": 1}, first={"설악산": d(2026, 9, 28)})
@@ -1339,23 +1482,87 @@ def test_foliage_render() -> None:
     print(f"[ok] 단풍 지도 {len(png):,}B -> {IMG / 'foliage-test.png'}")
 
 
+def test_map_emoji() -> None:
+    """지도 표지 그림(Noto Emoji) — 편집기 자료는 빼고, 한 장에 여럿 넣어도 그러데이션 id 가 겹치지 않음."""
+    import re
+
+    from src.season.basemap import EMOJI, emoji
+
+    svg = "".join(emoji(name, 10, 10, 20) for name in EMOJI) + emoji("maple", 40, 10, 20, opacity=0.45)
+    assert "i:" not in svg and "<?xml" not in svg and "DOCTYPE" not in svg
+    ids = re.findall(r'id="([^"]+)"', svg)
+    assert all(i.split("-", 1)[0] in EMOJI for i in ids), ids
+    once = re.findall(r'id="([^"]+)"', "".join(emoji(name, 10, 10, 20) for name in EMOJI))
+    assert len(set(once)) == len(once), "같은 그림 두 번 말고는 id 가 겹치면 안 됨"
+    assert all(ref in ids for ref in re.findall(r"url\(#([^)]+)\)", svg)), "가리키는 그러데이션이 없음"
+    assert 'opacity="0.45"' in svg and svg.count('viewBox="0 0 128 128"') == len(EMOJI) + 1
+    print("[ok] 지도 표지 그림 — Noto 🍁 🍂 ❄️, 편집기 자료 제거, id 겹침 없음, 옅게 그리기")
+
+
+def test_foliage_after_peak() -> None:
+    """절정 뒤 — 기상청은 낙엽을 관측하지 않아 «졌다» 대신 절정 사진 뒤 지난 날수만 사실로 적음."""
+    from src.common.text import bold
+    from src.season.foliage.map import build_html
+    from src.season.foliage.map import render_png as render_map
+    from src.season.foliage.mountains import MOUNTAINS
+    from src.season.foliage.text import observed_line, past_peak, peak_age, week_line
+
+    d = dt.date
+    monday = d(2026, 11, 16)
+    late = {"두륜산": d(2026, 11, 9), "금오산": d(2026, 11, 6)}
+    snap = fake_snapshot({m.name: 2 for m in MOUNTAINS},
+                         peak={m.name: d(2026, 10, 20) for m in MOUNTAINS} | late)
+
+    assert peak_age(snap, "두륜산", monday) == 7 and peak_age(snap, "설악산", monday) == 27
+    assert peak_age(snap, "두륜산", d(2026, 11, 8)) is None                  # 앞날의 관측은 셈하지 않음
+    assert past_peak(snap, monday) == ([("두륜산", d(2026, 11, 9)), ("금오산", d(2026, 11, 6))], 19)
+
+    line = observed_line(snap, bold, day=monday)
+    assert line.startswith("절정 21곳(2주 넘음 19곳) — 최근 *두륜산* 절정 11/9"), line
+    assert observed_line(snap, bold).startswith("절정 21곳 — "), "day 없이는 지난 날수를 붙이지 않음"
+
+    # 남은 예상 변화가 없으면 절정 2주 안인 산을 적음 — 늦가을 내내 «예상된 변화가 없습니다» 만 나오지 않게
+    week = week_line(snap, monday, monday + dt.timedelta(days=6), bold, muted=lambda s: s)
+    assert week == "예상된 변화 없음 · 절정 2주 안 *두륜산* 11/9 · *금오산* 11/6", week
+    later = week_line(snap, d(2026, 11, 30), d(2026, 12, 6), bold, muted=lambda s: s)
+    assert later == "예상된 변화 없음 · 모든 산이 절정 뒤 2주를 넘겼습니다", later
+    many = fake_snapshot({m.name: 2 for m in MOUNTAINS}, peak={m.name: d(2026, 11, 10) for m in MOUNTAINS})
+    assert week_line(many, monday, monday, bold).endswith(" 외 17곳"), "많으면 넷만 적고 나머지는 개수로"
+    assert "졌" not in week + line + later, "관측하지 않은 낙엽을 말했습니다"
+
+    html_text = build_html(snap, monday)
+    assert "절정 2주 넘음" in html_text and "(2주 넘음 19곳)" in html_text
+    # 기준일을 따로 주면(주 중간 실행) 지도도 그날로 셈 — 금오산이 11/21 에는 절정 2주를 넘김
+    assert "(2주 넘음 20곳)" in build_html(snap, monday, day=d(2026, 11, 21))
+    assert "절정 2주 넘음" not in build_html(fake_snapshot({"설악산": 1}), d(2026, 10, 5)), "옅은 표지가 없으면 범례도 없음"
+
+    IMG.mkdir(parents=True, exist_ok=True)
+    png = render_map(snap, monday)
+    assert png.startswith(PNG_MAGIC)
+    (IMG / "foliage-after-peak.png").write_bytes(png)
+    print(f"[ok] 단풍 절정 뒤 — 2주 넘음 개수 · 절정 2주 안 산 · 옅은 표지 {len(png):,}B -> {IMG / 'foliage-after-peak.png'}")
+
+
 # --- 게시물 문단 --------------------------------------------------------------
 
 def test_paragraph() -> None:
     """문단 부품. 줄을 조립하고, 빈 줄·빈 문단은 빠지고, 게시물은 본문 → 문단 → 출처 순."""
-    from src.weekly.paragraph import Attachment, Block, Message, Paragraph
+    from src.weekly.paragraph import Block, Message, Paragraph
 
     p = Paragraph("이번 주 벚꽃", emoji=":cherry_blossom:").add("관측", "*진해* 개화 3/24").add("올해", "")
     assert [r.label for r in p.rows] == ["관측"], "빈 내용 줄이 들어갔습니다"
     assert p.to_slack() == ":cherry_blossom: *이번 주 벚꽃*\n• 관측 — *진해* 개화 3/24"
     assert Paragraph("제목").add("줄", "내용").to_slack() == "*제목*\n• 줄 — 내용"
 
-    att = Attachment("foliage", b"PNG", "단풍 지도", "지도")
-    msg = (Message("날씨 본문", credits=["지상일기도 · 기상청"])
-           .add(Block(Paragraph("이번 주 단풍", ":maple_leaf:").add("관측", "설악산"), "단풍 지도 · 기상청", att))
+    chart, leaves = fake_attachment("surf"), fake_attachment("foliage")
+    msg = (Message("날씨 본문")
+           .add(Block(None, "지상일기도 · 기상청", chart))           # 글 없이 그림·출처만
+           .add(Block(Paragraph("이번 주 단풍", ":maple_leaf:").add("관측", "설악산"), "단풍 지도 · 기상청", leaves))
            .add(Block(Paragraph("빈 문단"), "쓰이지 않는 출처"))
+           .add(Block(None, "그림도 없는 출처"))
            .add(Block(p, "벚꽃 · 기상청")))
-    assert msg.attachments == [att]
+    assert msg.attachments == [chart, leaves]
+    assert leaves.upload() == {"filename": "foliage.png", "file": b"PNG", "title": "foliage", "alt_txt": "그림"}
     assert msg.to_slack() == (
         "날씨 본문\n\n"
         ":maple_leaf: *이번 주 단풍*\n• 관측 — 설악산\n\n"
@@ -1363,29 +1570,31 @@ def test_paragraph() -> None:
         "_지상일기도 · 기상청_\n_단풍 지도 · 기상청_\n_벚꽃 · 기상청_"
     ), msg.to_slack()
     assert Message("본문만").to_slack() == "본문만"
-    print("[ok] 문단 조립 — 줄 · 빈 줄/빈 문단 제외 · 본문 → 문단 → 출처 · 첨부")
+    print("[ok] 문단 조립 — 줄 · 빈 줄/빈 문단 제외 · 글 없는 그림 덩어리 · 본문 → 문단 → 출처 · 첨부")
 
 
 # --- 벚꽃 -------------------------------------------------------------------
 
 def test_blossom_season() -> None:
-    """2월 마지막 월요일 ~ 3월 마지막 월요일이 든 주. 윤년·월말 요일에 따라 달라짐."""
-    from src.season.blossom import in_season, season_bounds
+    """기간은 자료가 정함 — 기상청 관측 중이거나, 관측 전이라도 올해 개화 예상일이 남았을 때만."""
+    from src.season.blossom.data import Outlook, showing
 
     d = dt.date
-    assert season_bounds(2026) == (d(2026, 2, 23), d(2026, 4, 5))
-    assert season_bounds(2027) == (d(2027, 2, 22), d(2027, 4, 4))
-    assert season_bounds(2028) == (d(2028, 2, 28), d(2028, 4, 2))      # 2/29 가 화요일인 윤년
-    assert not in_season(d(2026, 2, 22)) and in_season(d(2026, 2, 23))
-    assert in_season(d(2026, 4, 5)) and not in_season(d(2026, 4, 6))
-    print("[ok] 벚꽃 기간 — 2월 마지막 주 ~ 3월 마지막 주")
+    expected = Outlook(expected={"서귀포": d(2026, 3, 20), "서울": d(2026, 4, 3)}, normal={})
+    borrowed = Outlook(expected={}, normal={"서울": d(2026, 4, 8)})             # 올해 예상 전 — 지난해 표의 평년만
+    nothing = Outlook(expected={}, normal={})
+    assert showing(True, borrowed, d(2026, 4, 6)) and showing(True, nothing, d(2026, 4, 13))   # 4월 서울 개화까지 관측을 따라감
+    assert showing(False, expected, d(2026, 2, 23)) and showing(False, expected, d(2026, 3, 20))   # 첫 예상일까지
+    assert not showing(False, expected, d(2026, 3, 30))        # 첫 예상일이 지났는데 서비스가 꺼져 있으면 접은 것
+    assert not showing(False, borrowed, d(2026, 2, 23)) and not showing(False, nothing, d(2026, 11, 16))
+    print("[ok] 벚꽃 기간 — 기상청 관측 중이거나 남은 개화 예상일이 있을 때만 (고정 기간 없음)")
 
 
 def test_blossom_parse() -> None:
     """기상청 JSONP 와 웨더아이 표. 해마다 바뀐 날짜 표기, 군락지·평균 줄, 깨진 표."""
     import json
 
-    from src.season.blossom import BlossomError, parse_outlook_text, parse_status
+    from src.season.blossom.data import BlossomError, parse_outlook_text, parse_status
     from src.season.sources import posted_on
 
     def jsonp(service: bool) -> str:
@@ -1394,11 +1603,7 @@ def test_blossom_parse() -> None:
         return "\r\n\r\napplyFlowerData(" + json.dumps(
             {"places": places, "isService": service, "flower": {}}, ensure_ascii=False) + ")"
 
-    stages, live = parse_status(jsonp(True))
-    assert live and stages == {"진해 여좌천": 2, "여의도 윤중로": 1, "춘천 소양강댐": 0}, stages
-    # 서비스 기간 밖이면 지난 봄 값이라 버림
-    stages, live = parse_status(jsonp(False))
-    assert not live and set(stages.values()) == {0}, stages
+    assert parse_status(jsonp(True)) is True and parse_status(jsonp(False)) is False   # 다룰 때인지만 봄
 
     cities = ["서귀포", "부산", "창원", "울산", "여수", "광주", "목포", "전주", "대구", "포항",
               "안동", "대전", "청주", "서산", "수원", "서울", "인천", "강릉", "춘천"]
@@ -1430,15 +1635,9 @@ def test_blossom_parse() -> None:
 
 
 def test_blossom_text() -> None:
-    """벚꽃 줄 문구. 예상 전엔 평년, 이번 주가 비면 다음 개화, 출처는 받은 쪽만."""
-    from src.season.blossom import (
-        Outlook,
-        Status,
-        observed_line,
-        sources,
-        week_line,
-        year_line,
-    )
+    """벚꽃 줄 문구. 예상 전엔 평년, 이번 주가 비면 다음 개화, 출처는 웨더아이만."""
+    from src.season.blossom.data import Outlook
+    from src.season.blossom.text import sources, week_line, year_line
 
     d = dt.date
     normal = {"서귀포": d(2026, 3, 24), "부산": d(2026, 3, 28), "서울": d(2026, 4, 8)}
@@ -1446,41 +1645,201 @@ def test_blossom_text() -> None:
                                 "서울": d(2026, 4, 3)},
                       normal=normal | {"울산": d(2026, 3, 30)}, published=d(2026, 2, 26))
     unpublished = Outlook(expected={}, normal=normal)
-    idle = Status(stages={"진해 여좌천": 0, "여의도 윤중로": 0}, in_service=False)
 
-    assert "아직 시작되지 않았습니다" in observed_line(idle)
     assert "아직 나오지 않았습니다" in week_line(unpublished, d(2026, 2, 23), d(2026, 3, 1))
     assert year_line(unpublished) == "*서귀포* 3/24 무렵 시작해 *서울* 4/8 무렵 핍니다"
 
     assert week_line(outlook, d(2026, 3, 2), d(2026, 3, 8)) == "개화 예상 없음 · 다음은 *서귀포*·*부산* 3/25 (예상)"
     # 평년차 +1 · -3 · -4 · -5 → 평균 -2.75 → 3일
     assert year_line(outlook) == "평년보다 3일가량 이르겠습니다 (서울 4/3, 평년 4/8)"
-
-    bloom = Status(stages={"진해 여좌천": 1, "여의도 윤중로": 0}, bloom={"진해 여좌천": d(2026, 3, 24)})
-    assert observed_line(bloom) == "*진해 여좌천* 개화 3/24, 나머지 1곳은 개화 전"
     assert week_line(outlook, d(2026, 3, 23), d(2026, 3, 29)) == \
         "개화 *서귀포*·*부산* 3/25 · *울산* 3/26 (예상)"
 
-    assert sources(bloom, outlook) == "관측 기상청 날씨누리 · 예상 웨더아이(2/26 발표)"
-    assert sources(None, unpublished) == "평년 웨더아이"
+    assert sources(outlook) == "예상 웨더아이(2/26 발표)"
+    assert sources(unpublished) == "평년 웨더아이"
     print("[ok] 벚꽃 문구 — 평년 · 다음 개화 · 이번 주 묶음 · 출처")
 
 
+# 웨더아이 2026년 표의 도시 — 지도 좌표가 빠짐없이 있어야 함
+BLOSSOM_CITIES = ("서귀포", "부산", "창원", "울산", "여수", "광주", "목포", "전주", "대구", "포항",
+                  "안동", "대전", "청주", "서산", "수원", "서울", "인천", "강릉", "춘천")
+
+
+def test_blossom_fetch() -> None:
+    """기상청 목록은 한 번만 — 다룰 때인지(isService)만 보고 군락지 상세는 부르지 않음. 형식이 바뀌면 BlossomError."""
+    import json
+
+    import src.season.blossom.data as blossom
+
+    calls: list = []
+
+    def fake_kma():
+        calls.append("목록")
+        return "applyFlowerData(" + json.dumps({
+            "isService": True, "flower": {"obsPlace": "인천자유공원"},
+            "places": [{"obsPlace": "진해 여좌천", "status": "만발"}, {"obsPlace": "여의도 윤중로", "status": "개화"}],
+        }, ensure_ascii=False) + ")"
+
+    orig = blossom._kma
+    blossom._kma = fake_kma
+    try:
+        assert blossom.fetch_status() is True and calls == ["목록"], calls
+        for broken in ("[1]", "[]"):
+            blossom._kma = lambda: 'applyFlowerData({"isService": true, "places": %s})' % broken
+            try:
+                blossom.fetch_status()
+                raise AssertionError(f"깨진 목록이 통과했습니다: {broken}")
+            except blossom.BlossomError:
+                pass
+    finally:
+        blossom._kma = orig
+
+    # 웨더아이 표 — 읽은 해는 디스크에 남겨 다음 실행은 목록도 받지 않음. 아직 없는 해는 남기지 않음
+    from types import SimpleNamespace
+
+    d = dt.date
+    table = blossom.Outlook(expected={"서귀포": d(2026, 3, 25)}, normal={"서귀포": d(2026, 3, 24)},
+                            published=d(2026, 2, 26), url="https://example.invalid/2026")
+    gets, posts = [], []
+    orig = (blossom._get, blossom._load_post)
+    blossom._get = lambda url, **k: gets.append(url) or SimpleNamespace(text="목록", encoding="utf-8")
+    blossom._load_post = lambda html, year: posts.append(year) or (table if year == 2026 else None)
+    try:
+        with fresh_data_dir() as tmp:
+            assert blossom.fetch_outlook(2026) == table and blossom.fetch_outlook(2026) == table
+            assert posts == [2026] and len(gets) == 1, (posts, gets)
+            # 올해 표 전 — 목록은 올해 것을 찾으러 한 번, 평년을 빌릴 지난해 표는 디스크에서
+            gets.clear()
+            posts.clear()
+            borrowed = blossom.fetch_outlook(2027)
+            assert borrowed.normal == {"서귀포": d(2027, 3, 24)} and not borrowed.expected
+            assert posts == [2027] and len(gets) == 1, (posts, gets)
+            assert [p.name for p in (tmp / "cache").iterdir()] == ["weatheri-blossom-2026.json"]
+    finally:
+        blossom._get, blossom._load_post = orig
+    print("[ok] 벚꽃 수집 — 기상청 목록 한 번 · 형식 변경은 BlossomError · 읽은 웨더아이 표는 디스크에")
+
+
+def test_blossom_spots() -> None:
+    """벚꽃 지도 좌표 — 웨더아이 도시가 빠짐없이, 바탕 지도 안에, 라벨이 서로·남의 표지와 안 겹치게."""
+    from src.season.basemap import (
+        INSET_BOX,
+        INSET_LON,
+        LAT0,
+        LAT1,
+        LON0,
+        LON1,
+        hits,
+        label_box,
+        nudge,
+        place,
+    )
+    from src.season.blossom.map import MARK_R, RING_GAP, RING_LABEL_PAD
+    from src.season.blossom.spots import CITIES
+    from src.season.mapcard import glyph_size
+
+    assert sorted(s.name for s in CITIES) == sorted(BLOSSOM_CITIES), "웨더아이 도시와 지도 좌표가 다릅니다"
+    assert all(LAT0 < s.lat < LAT1 and (LON0 < s.lon < LON1 or s.lon > INSET_LON) for s in CITIES)
+    # 가장 나쁜 때로 봄 — 모두 이번 주(고리 · 밀린 라벨)이고 날짜는 가장 넓은 4/12. 고리는 🌸 의 반 + 틈 + 선 굵기
+    r = glyph_size(MARK_R) / 2 + RING_GAP + 0.7
+    at = {s.name: place(s.lon, s.lat) for s in CITIES}
+    boxes = [(s.name, label_box(*nudge(*at[s.name], s.label, RING_LABEL_PAD), f"{s.name} 4/12", s.label))
+             for s in CITIES]
+    marks = {name: (x - r, y - r, x + r, y + r) for name, (x, y) in at.items()}
+    for i, (name, box) in enumerate(boxes):
+        assert not hits(box, INSET_BOX), f"{name} 라벨이 울릉도 상자에 걸립니다"
+        assert not any(hits(box, other) for _, other in boxes[i + 1:]), f"{name} 라벨이 다른 라벨과 겹칩니다"
+        assert not any(hits(box, m) for n, m in marks.items() if n != name), f"{name} 라벨이 남의 표지를 가립니다"
+    print("[ok] 벚꽃 지점 — 도시 19 좌표, 지도 안, 라벨 겹침 없음")
+
+
+def test_blossom_render() -> None:
+    """벚꽃 지도 — 한 장, 웨더아이 도시 예상: 남은 곳 회색 원 · 이번 주 옅은 🌸 와 점선 고리 · 지난 곳 🌸. 관측은 싣지 않음."""
+    from src.season.blossom.data import Outlook
+    from src.season.blossom.map import build_html
+    from src.season.blossom.map import render_png as render_map
+
+    d = dt.date
+    monday = d(2026, 3, 30)
+    outlook = Outlook(expected={"서귀포": d(2026, 3, 25), "부산": d(2026, 3, 25), "대전": d(2026, 3, 31),
+                                "서울": d(2026, 4, 3), "춘천": d(2026, 4, 8)},
+                      normal={"서귀포": d(2026, 3, 24), "서울": d(2026, 4, 8)}, published=d(2026, 2, 26))
+    html_text = build_html(outlook, monday)
+    assert html_text.count('role="img"') == 1 and "<th>도시</th>" in html_text
+    assert html_text.count('<tr><th scope="row">') == 3                       # 도시 5곳은 두 갈래 3줄
+    assert '<span class="prd week">3/31</span>' in html_text and '<span class="prd past">3/25</span>' in html_text
+    assert "개화 <b>대전</b> 3/31 · <b>서울</b> 4/3 (예상)" in html_text and "(2/26 발표, 5개 도시)" in html_text
+    assert "관측" not in html_text and "기상청" not in html_text, "기상청 군락지 관측이 남았습니다"
+
+    # 지난 곳 2 🌸 · 이번 주 2 옅은 🌸 + 고리 · 남은 곳 1 회색 원
+    svg, legend = html_text.split('<div class="legend">')
+    assert svg.count('viewBox="0 0 128 128"') == 4 and svg.count('opacity="0.65"') == 2
+    assert svg.count('stroke-dasharray="2.6 2.2"') == 2 and svg.count('stroke="#898781"') == 1
+    assert svg.count('class="lbl strong"') == 2 and svg.count('<g class="past"><text class="lbl"') == 2
+    assert all(w in legend for w in ("개화 예상 전", "이번 주 개화 예상", "개화 예상일 지남"))
+    early = build_html(outlook, d(2026, 3, 16)).split('<div class="legend">')[1]
+    assert "개화 예상 전" in early and "이번 주" not in early and "지남" not in early, "범례는 지도에 나온 표지만"
+
+    # 올해 예상 전 — 지난해 표의 평년, 표지는 같고 낱말만 «평년»
+    borrowed = build_html(Outlook(expected={}, normal=outlook.normal), monday)
+    assert "평년 개화일 전" in borrowed and "평년 개화일 지남" in borrowed and "<th>예상</th>" not in borrowed
+    assert "평년 웨더아이 지난해 표" in borrowed
+
+    IMG.mkdir(parents=True, exist_ok=True)
+    png = render_map(outlook, monday)
+    assert png.startswith(PNG_MAGIC)
+    (IMG / "blossom-test.png").write_bytes(png)
+    print(f"[ok] 벚꽃 지도 {len(png):,}B -> {IMG / 'blossom-test.png'}")
+
+
+def fake_attachment(slug: str):
+    from src.weekly.paragraph import Attachment
+
+    return Attachment(b"PNG", slug, "그림", f"{slug}.png", 14, f"{slug}-*.png")
+
+
+def weekly_cfg():
+    from types import SimpleNamespace
+
+    return SimpleNamespace(card_scale=2, card_keep_days=14, chart_keep_days=30, chart_product="surf")
+
+
+def weekly_ctx(start: dt.date, today: dt.date | None = None, *, can_render: bool = True, days=None,
+               narratives=(), body: str = "본문"):
+    """주간 영역의 Context. days 를 주면 1번 날씨가 그 예보(예보관 서술 narratives · 본문 body)로 끝난 것으로 둠."""
+    from concurrent.futures import Future
+
+    from src.season.weeks import week_start_of
+    from src.weekly.sections import Context, Weather
+
+    today = today or start
+    offset = (start - week_start_of(today)).days // 7
+    weather = None
+    if days is not None:
+        weather = Future()
+        weather.set_result(Weather(WeekForecast("전국", start, days, narratives=list(narratives)), body))
+    ctx = Context(weekly_cfg(), dt.datetime.combine(today, dt.time(7, 50), tzinfo=KST), offset, can_render, weather)
+    assert ctx.week_start == start, (ctx.week_start, start)
+    return ctx
+
+
 def test_weekly_themes() -> None:
-    """주간 게시의 철 소식. 단풍은 글과 지도, 벚꽃은 글. 못 만들어도 날씨 게시는 나감."""
-    import src.season.blossom as blossom
-    import src.season.foliage as foliage
-    import src.season.foliage_map as foliage_map
-    from src.season.blossom import BlossomError, Outlook, Status
-    from src.season.foliage import FoliageError
-    from src.weekly import themes
+    """주간 게시의 철 소식. 단풍·벚꽃은 글과 지도. 수집 실패는 예외로 올려 pipeline 이 그 영역만 뺌."""
+    import src.season.blossom.data as blossom
+    import src.season.blossom.map as blossom_map
+    import src.season.foliage.data as foliage
+    import src.season.foliage.map as foliage_map
+    from src.season.blossom.data import BlossomError, Outlook
+    from src.season.foliage.data import FoliageError
+    from src.season.foliage.mountains import MOUNTAINS
+    from src.weekly import pipeline, themes
 
     d = dt.date
     renders: list = []
     fail_render = [False]
 
-    def fake_render(snap, start, scale=2):
-        renders.append(start)
+    def fake_render(snap, start, *, day=None, scale=2):
+        renders.append((start, day))
         if fail_render[0]:
             raise RuntimeError("Chromium 없음")
         return b"PNG"
@@ -1488,45 +1847,981 @@ def test_weekly_themes() -> None:
     def labels(block):
         return [r.label for r in block.paragraph.rows]
 
-    orig = (foliage.fetch_snapshot, foliage_map.render_png, blossom.fetch_status, blossom.fetch_outlook)
-    foliage.fetch_snapshot = lambda today: fake_snapshot({"설악산": 1}, first={"설악산": d(2026, 9, 28)})
+    autumn_ctx = weekly_ctx(d(2026, 10, 5), d(2026, 10, 2))
+    spring_ctx = weekly_ctx(d(2026, 3, 23))
+    assert [s.name for s in pipeline.SECTIONS] == ["카드", "일기도", "벚꽃", "장마", "폭염", "태풍", "단풍", "첫눈"]   # 기간 없이 늘 돎
+
+    orig = (foliage.fetch_snapshot, foliage_map.render_png, blossom.fetch_status, blossom.fetch_outlook,
+            blossom_map.render_png)
+    foliage.fetch_snapshot = lambda today, **k: fake_snapshot({"설악산": 1}, first={"설악산": d(2026, 9, 28)})
     foliage_map.render_png = fake_render
-    blossom.fetch_status = lambda today: Status(stages={"진해 여좌천": 0}, in_service=False)
-    blossom.fetch_outlook = lambda year: Outlook(expected={"서귀포": d(2026, 3, 25)},
+    # 실제와 같은 인자 꼴로 받음 — 부르는 쪽 인자가 어긋나면 그림이 빠져 아래 단언에 걸림
+    blossom_map.render_png = lambda outlook, start, *, scale=2: fake_render(outlook, start, scale=scale)
+    blossom.fetch_status = lambda: False
+    blossom.fetch_outlook = lambda year, **k: Outlook(expected={"서귀포": d(2026, 3, 25)},
                                                 normal={"서귀포": d(2026, 3, 24)}, published=d(2026, 2, 26))
     try:
-        (autumn,) = themes.blocks_for(d(2026, 10, 5), d(2026, 10, 2), 2)
+        autumn = themes.foliage_block(autumn_ctx)
         assert autumn.paragraph.title == "이번 주 단풍" and labels(autumn) == ["관측", "이번 주"]
         text = autumn.paragraph.to_slack()
         assert "*설악산* 첫단풍 9/28" in text and "첫단풍 *오대산* 10/7 · *치악산* 10/10 (예상)" in text, text
-        assert autumn.attachment.slug == "foliage" and autumn.attachment.png == b"PNG"
+        assert autumn.attachment.png == b"PNG" and autumn.attachment.title == "단풍 지도"
+        assert autumn.attachment.filename == "foliage-20261005.png" and autumn.attachment.pattern == "foliage-*.png"
         assert autumn.credit.startswith("단풍 지도 · "), autumn.credit
         # 지도를 못 그려도 글은 남고, 출처에서 '지도' 가 빠짐
         fail_render[0] = True
-        (autumn,) = themes.blocks_for(d(2026, 10, 5), d(2026, 10, 2), 2)
+        autumn = themes.foliage_block(autumn_ctx)
         assert autumn.attachment is None and autumn.credit.startswith("단풍 · ") and autumn.paragraph.rows
-
-        (spring,) = themes.blocks_for(d(2026, 3, 23), d(2026, 3, 23), 2)
-        assert spring.paragraph.title == "이번 주 벚꽃" and spring.attachment is None
-        assert labels(spring) == ["관측", "이번 주", "올해"], labels(spring)
-        assert "*서귀포* 3/25" in spring.paragraph.to_slack() and spring.credit.startswith("벚꽃 · ")
-        blossom.fetch_outlook = lambda year: Outlook(expected={}, normal={"서귀포": d(2026, 3, 24)})
-        (spring,) = themes.blocks_for(d(2026, 2, 23), d(2026, 2, 23), 2)
-        assert labels(spring) == ["관측", "이번 주", "평년"], labels(spring)
-        # 관측만 실패하면 예상 줄만, 둘 다 실패하면 벚꽃 소식 없이
-        blossom.fetch_status = lambda today: (_ for _ in ()).throw(BlossomError("점검"))
-        (spring,) = themes.blocks_for(d(2026, 3, 23), d(2026, 3, 23), 2)
-        assert labels(spring) == ["이번 주", "평년"], labels(spring)
-        blossom.fetch_outlook = lambda year: (_ for _ in ()).throw(BlossomError("점검"))
-        assert themes.blocks_for(d(2026, 3, 23), d(2026, 3, 23), 2) == []
-        foliage.fetch_snapshot = lambda today: (_ for _ in ()).throw(FoliageError("점검"))
-        assert themes.blocks_for(d(2026, 10, 5), d(2026, 10, 2), 2) == []
-
+        # 헬스체크에서 Chromium 이 실패했으면 그리려 하지도 않음
+        fail_render[0] = False
         renders.clear()
-        assert themes.blocks_for(d(2026, 6, 1), d(2026, 6, 1), 2) == [] and not renders
+        autumn = themes.foliage_block(weekly_ctx(d(2026, 10, 5), d(2026, 10, 2), can_render=False))
+        assert autumn.attachment is None and autumn.credit.startswith("단풍 · ") and not renders
+        # 주 중간에 돌리면 절정 뒤 지난 날수는 오늘 기준(첫눈과 같은 ctx.as_of) — 월요일 뒤의 절정도 셈
+        peaks = {m.name: d(2026, 10, 20) for m in MOUNTAINS} | {"두륜산": d(2026, 11, 17), "금오산": d(2026, 11, 4)}
+        foliage.fetch_snapshot = lambda today, **k: fake_snapshot({m.name: 2 for m in MOUNTAINS}, peak=peaks)
+        monday = themes.foliage_block(weekly_ctx(d(2026, 11, 16))).paragraph.to_slack()
+        assert "절정 21곳(2주 넘음 19곳)" in monday and "절정 2주 안 *금오산* 11/4" in monday, monday
+        renders.clear()
+        thursday = themes.foliage_block(weekly_ctx(d(2026, 11, 16), d(2026, 11, 19))).paragraph.to_slack()
+        assert "절정 21곳(2주 넘음 20곳)" in thursday and "절정 2주 안 *두륜산* 11/17" in thursday, thursday
+        assert renders == [(d(2026, 11, 16), d(2026, 11, 19))], renders     # 지도도 같은 기준일
+
+        spring = themes.blossom_block(spring_ctx)
+        assert spring.paragraph.title == "이번 주 벚꽃" and spring.attachment.title == "벚꽃 지도"
+        assert spring.attachment.filename == "blossom-20260323.png" and spring.attachment.pattern == "blossom-*.png"
+        assert labels(spring) == ["이번 주", "올해"], labels(spring)       # 기상청 군락지 관측은 싣지 않음
+        assert "*서귀포* 3/25" in spring.paragraph.to_slack()
+        assert spring.credit == "벚꽃 지도 · 예상 웨더아이(2/26 발표)", spring.credit
+        # 벚꽃 지도도 못 그리면 글만, Chromium 이 없으면 그리려 하지도 않음
+        fail_render[0] = True
+        spring = themes.blossom_block(spring_ctx)
+        assert spring.attachment is None and spring.credit.startswith("벚꽃 · ") and spring.paragraph.rows
+        fail_render[0] = False
+        renders.clear()
+        spring = themes.blossom_block(weekly_ctx(d(2026, 3, 23), can_render=False))
+        assert spring.attachment is None and spring.credit.startswith("벚꽃 · ") and not renders
+        # 관측 중인지 못 받아도 관측 전 첫 예상일까지는 예상으로 실음
+        blossom.fetch_status = lambda: (_ for _ in ()).throw(BlossomError("점검"))
+        spring = themes.blossom_block(spring_ctx)
+        assert labels(spring) == ["이번 주", "올해"], labels(spring)
+        # 올해 예상 전 — 기상청이 관측 중이면 평년으로, 관측 전이면 다룰 때가 아님(자료가 기간을 정함)
+        blossom.fetch_outlook = lambda year, **k: Outlook(expected={}, normal={"서귀포": d(2026, 3, 24)})
+        blossom.fetch_status = lambda: True
+        spring = themes.blossom_block(weekly_ctx(d(2026, 2, 23)))
+        assert labels(spring) == ["이번 주", "평년"] and spring.credit == "벚꽃 지도 · 평년 웨더아이", spring.credit
+        blossom.fetch_status = lambda: False
+        assert themes.blossom_block(weekly_ctx(d(2026, 2, 23))) is None
+        # 관측 중이어도 웨더아이 표가 올해·지난해 모두 없으면 실을 것이 없음
+        blossom.fetch_status = lambda: True
+        blossom.fetch_outlook = lambda year, **k: Outlook(expected={}, normal={})
+        assert themes.blossom_block(spring_ctx) is None
+        # 웨더아이 수집 실패는 «해당 없음» 이 아니라 실패 — 실을 것이 예상뿐이라 관측 중이든(앞) 기상청까지
+        # 실패했든(뒤) 영역 경계가 경고로 남기고 뺌
+        blossom.fetch_outlook = lambda year, **k: (_ for _ in ()).throw(BlossomError("점검"))
+        for status_of in (blossom.fetch_status, lambda: (_ for _ in ()).throw(BlossomError("점검"))):
+            blossom.fetch_status = status_of
+            try:
+                themes.blossom_block(spring_ctx)
+                raise AssertionError("웨더아이 수집 실패가 묻혔습니다")
+            except BlossomError:
+                pass
+        # 단풍도 기상청이 관측을 접었고 올해 예상도 지났으면 해당 없음
+        foliage.fetch_snapshot = lambda today, **k: fake_snapshot(in_service=False)
+        assert themes.foliage_block(weekly_ctx(d(2026, 11, 16))) is None
+        # 단풍 수집 실패는 예외로 올림 — 영역 경계(pipeline)가 빈 결과로 바꿈
+        foliage.fetch_snapshot = lambda today, **k: (_ for _ in ()).throw(FoliageError("점검"))
+        try:
+            themes.foliage_block(autumn_ctx)
+            raise AssertionError("단풍 수집 실패가 묻혔습니다")
+        except FoliageError:
+            pass
     finally:
-        foliage.fetch_snapshot, foliage_map.render_png, blossom.fetch_status, blossom.fetch_outlook = orig
-    print("[ok] 철 소식 — 단풍 글·지도, 벚꽃 글, 실패해도 날씨는 나간다")
+        (foliage.fetch_snapshot, foliage_map.render_png, blossom.fetch_status, blossom.fetch_outlook,
+         blossom_map.render_png) = orig
+    print("[ok] 철 소식 — 단풍·벚꽃 글·지도, 지도·Chromium 실패엔 글만, 수집 실패는 영역 경계로")
+
+
+def test_weekly_pipeline() -> None:
+    """영역을 동시에 돌려 합침 — 실패·해당 없음·기한 초과는 빠지고, 날씨가 실패하면 게시하지 않음."""
+    import threading
+    import time
+
+    from src.weekly import pipeline, sections
+    from src.weekly.forecast import ForecastError
+    from src.weekly.paragraph import Block, Paragraph
+    from src.weekly.sections import Section, Weather
+
+    week = fake_week()
+    card, chart = fake_attachment("weekly-weather"), fake_attachment("surf")
+    card_drawn = [True]
+    met = threading.Event()
+
+    def slow_weather(ctx):
+        time.sleep(0.2)                    # 카드·눈이 기다려 받는지 보려고 늦게 끝냄
+        return Weather(week, "본문")
+
+    def card_section(ctx):
+        assert ctx.forecast() is week
+        return Block(None, attachment=card) if card_drawn[0] else None
+
+    def snow(ctx):
+        got = ctx.forecast()
+        return Block(Paragraph("눈").add("이번 주", f"예보 {len(got.days)}일"), "눈 · 기상청")
+
+    def waits_for_partner(ctx):
+        # 동시에 돌아야만 짝이 깃발을 올려 줌 — 차례로 돌면 1초 기다리고 빈 결과
+        return Block(Paragraph("동시").add("짝", "만남")) if met.wait(1.0) else None
+
+    def partner(ctx):
+        met.set()
+        return None
+
+    stragglers: list[threading.Thread] = []
+
+    def too_slow(ctx):
+        stragglers.append(threading.current_thread())
+        time.sleep(1.5)
+        return Block(Paragraph("느림").add("줄", "기한 초과"))
+
+    fake = (
+        Section("카드", card_section),
+        Section("일기도", lambda ctx: Block(None, "지상일기도 · 기상청", chart)),
+        Section("고장", lambda ctx: (_ for _ in ()).throw(RuntimeError("점검"))),
+        Section("없음", lambda ctx: None),
+        Section("동시", waits_for_partner),
+        Section("짝", partner),
+        Section("느림", too_slow),
+        Section("눈", snow),
+    )
+    now = dt.datetime(2026, 11, 16, 7, 50, tzinfo=KST)
+    orig = (pipeline.SECTIONS, sections.weather, pipeline.SECTIONS_TIMEOUT_SEC)
+    pipeline.SECTIONS, sections.weather, pipeline.SECTIONS_TIMEOUT_SEC = fake, slow_weather, 1.0
+    try:
+        post = pipeline.compose(weekly_cfg(), now)
+        assert post.text == (
+            "본문\n\n*동시*\n• 짝 — 만남\n\n*눈*\n• 이번 주 — 예보 7일\n\n_지상일기도 · 기상청_\n_눈 · 기상청_"
+        ), post.text
+        assert post.attachments == [card, chart] and post.week is week
+        # 기한을 넘긴 영역은 아직 도는 채로 두고 돌아옴 — 데몬이라 게시 뒤 프로세스 종료도 붙들지 않음
+        assert stragglers[-1].is_alive() and stragglers[-1].daemon, stragglers
+
+        # 카드를 못 그렸으면(헬스체크 Chromium 실패 포함) 첨부는 나머지만
+        card_drawn[0] = False
+        assert pipeline.compose(weekly_cfg(), now).attachments == [chart]
+
+        # 날씨가 실패하면 게시하지 않음 — 지어낸 날씨를 올리지 않기. 남은 영역은 기다리지 않음
+        sections.weather = lambda ctx: (_ for _ in ()).throw(ForecastError("7일 중 4일의 기온을 얻지 못해"))
+        started = time.monotonic()
+        assert pipeline.compose(weekly_cfg(), now) is None
+        assert time.monotonic() - started < 1.0, "날씨가 실패했는데 남은 영역을 기다렸습니다"
+        sections.weather = lambda ctx: (_ for _ in ()).throw(KeyError("버그"))
+        assert pipeline.compose(weekly_cfg(), now) is None
+    finally:
+        pipeline.SECTIONS, sections.weather, pipeline.SECTIONS_TIMEOUT_SEC = orig
+
+    # 날씨를 기다리던 영역은 경고·traceback 없이 한 줄(INFO)로 빠짐 — 원인은 날씨 영역이 이미 남김
+    import logging
+    from concurrent.futures import Future
+
+    failed = Future()
+    failed.set_exception(ForecastError("7일 중 4일의 기온을 얻지 못해"))
+    records: list[logging.LogRecord] = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    level = pipeline.log.level
+    pipeline.log.addHandler(handler)
+    pipeline.log.setLevel(logging.INFO)
+    try:
+        ctx = sections.Context(weekly_cfg(), now, weather=failed)
+        assert pipeline._build(Section("카드", sections.card_block), ctx) is None
+        assert pipeline._build(Section("고장", lambda ctx: (_ for _ in ()).throw(RuntimeError("점검"))), ctx) is None
+        # 날씨가 붙지 않은 Context(영역을 따로 부를 때)도 같은 한 줄 — forecast() 는 None 을 돌려주지 않음
+        assert pipeline._build(Section("카드", sections.card_block), sections.Context(weekly_cfg(), now)) is None
+    finally:
+        pipeline.log.removeHandler(handler)
+        pipeline.log.setLevel(level)
+    assert [(r.levelname, r.getMessage()) for r in records][0] == ("INFO", "카드 영역 — 날씨가 없어 건너뜀"), records
+    assert records[1].levelname == "WARNING" and records[1].exc_info, "날씨와 무관한 실패는 그대로 경고"
+    assert (records[2].levelname, records[2].getMessage()) == ("INFO", "카드 영역 — 날씨가 없어 건너뜀"), records
+    print("[ok] 주간 영역 — 동시 실행, 실패·해당 없음·기한 초과는 빠짐, 카드·눈은 날씨 예보를 받음, 날씨 실패면 게시 안 함"
+          " · 날씨를 기다리던 영역은 한 줄로")
+
+
+def test_weekly_health() -> None:
+    """헬스체크 — 슬랙이 안 되면 영역을 돌리지 않고 멈춤(dry-run 은 계속), Chromium 결과는 영역에 넘김."""
+    from src.weekly import health, pipeline, post
+    from src.weekly.health import Health
+
+    calls: list = []
+    orig = (post.setup, health.check, pipeline.compose,
+            health.check_slack, health.check_kma, health.check_chromium)
+    post.setup = lambda name: None
+    pipeline.compose = lambda cfg, now, offset, can_render: calls.append(can_render)
+    try:
+        health.check = lambda cfg: Health(slack=False, chromium=True)
+        assert post.main([]) == 1 and calls == [], calls
+        assert post.main(["--dry-run"]) == 1 and calls == [True], calls   # compose 가 None — 날씨 실패로 끝남
+        health.check = lambda cfg: Health(slack=True, chromium=False)
+        calls.clear()
+        assert post.main(["--no-wait"]) == 1 and calls == [False], calls
+
+        health.check = orig[1]
+        health.check_slack = lambda token, channel: (True, "슬랙")
+        health.check_kma = lambda: calls.append("기상청") or (False, "기상청 접속 실패")   # 기록만
+        health.check_chromium = lambda: (True, "Chromium")
+        calls.clear()
+        assert health.check(post.Config()) == Health(slack=True, chromium=True) and calls == ["기상청"]
+    finally:
+        (post.setup, health.check, pipeline.compose,
+         health.check_slack, health.check_kma, health.check_chromium) = orig
+    assert health.check_slack("", "C1")[0] is False and health.check_slack("xoxp-1", "C1")[0] is False
+    assert health.check_slack("xoxb-1", "")[0] is False
+
+    # 그림이 하나도 없으면(Chromium 실패 + 일기도 실패) 글만 — files_upload_v2 는 빈 첨부를 받지 않음
+    from types import SimpleNamespace
+
+    import slack_sdk
+
+    sent: list = []
+
+    class FakeWeb:
+        def __init__(self, token):
+            pass
+
+        def files_upload_v2(self, **kw):
+            sent.append(("files", len(kw["file_uploads"])))
+            return {"files": [{"permalink": "p"}]}
+
+        def chat_postMessage(self, **kw):
+            sent.append(("text", kw["text"]))
+            return {"ts": "1"}
+
+    orig_web, slack_sdk.WebClient = slack_sdk.WebClient, FakeWeb
+    try:
+        cfg = SimpleNamespace(slack_bot_token="xoxb-1", slack_channel_id="C1")
+        assert post._send(pipeline.Post(fake_week(), "본문", []), cfg) == 0
+        assert post._send(pipeline.Post(fake_week(), "본문", [fake_attachment("surf")]), cfg) == 0
+    finally:
+        slack_sdk.WebClient = orig_web
+    assert sent == [("text", "본문"), ("files", 1)], sent
+    print("[ok] 헬스체크 — 슬랙 실패면 멈춤(dry-run 은 계속), Chromium 결과를 영역에 넘김, 그림 없으면 글만")
+
+
+def test_snow_data() -> None:
+    """첫눈 관측 읽기 — 시즌 연도, 이상 행, 형식 변경, 주간 게시 기간, 지점 찾기."""
+    from src.kma.regions import REGIONS
+    from src.season.basemap import INSET_LON, LAT0, LAT1, LON0, LON1
+    from src.season.snow import data as snow
+    from src.season.snow import stations
+
+    def snow_html(rows: dict[str, list[tuple[str, str]]]) -> str:
+        """계절관측 조회 화면 꼴 — 지점 머리 뒤에 표 하나, caption 은 지점과 무관한 고정 문구."""
+        parts = []
+        for name, cells in rows.items():
+            body = "".join(f"<tr><td> {y}</td><td> {d}</td><td> 1일</td><td></td><td></td></tr>" for y, d in cells)
+            parts.append(f'<div class="info_tbl"><dl><dt>조회기간</dt><dd>2025 ~ 2026년</dd></dl>'
+                         f'<dl><dt><b>지점</b></dt><dd>{name}</dd></dl></div><div class="wrap_tbl">'
+                         f'<table class="tbl"><caption>코스모스, 매화</caption><thead><tr><th>년도</th>'
+                         f'<th>눈</th></tr></thead><tbody>{body}</tbody></table></div>')
+        return "<html>" + "".join(parts) + "</html>"
+
+    d = dt.date
+    status = snow.parse_status(snow_html({
+        "서울": [("2025", "2025-12-04"), ("2026", "2026-11-26")],
+        "안동": [("2026", "2026-01-10")],              # 2026 시즌인데 1월 — 실제 응답에 있음
+        "부산": [("2025", "2026-02-07")],
+        "홍성": [("2026", "2026-11-18")],
+        "대구": [],                                      # 아직 — 표머리만 옴
+    }), 2026)
+    assert status.first == {"서울": d(2026, 11, 26), "홍성": d(2026, 11, 18)}, status.first
+    assert status.last == {"서울": d(2025, 12, 4), "부산": d(2026, 2, 7)}, status.last
+    # 표가 빠진 지점은 다음 지점의 표를 집지 않고, 머리와 표 사이에 다른 칸이 끼어도 읽음
+    odd = ('<dl><dt><b>지점</b></dt><dd>광주</dd></dl>'
+           '<dl><dt><b>지점</b></dt><dd>서울</dd></dl><dl><dt>요소</dt><dd>눈</dd></dl>'
+           '<table><tr><td>2026</td><td>2026-11-26</td></tr></table>')
+    assert snow.parse_status(odd, 2026).first == {"서울": d(2026, 11, 26)}
+    try:
+        snow.parse_status("<html>점검 중입니다</html>", 2026)
+        raise AssertionError("형식이 바뀐 응답을 읽었습니다")
+    except snow.SnowError:
+        pass
+
+    assert [snow.season_year(x) for x in (d(2026, 7, 31), d(2026, 8, 1), d(2027, 1, 10))] == [2025, 2026, 2026]
+    seoul, busan, hongseong = (stations.BY_NAME[n] for n in ("서울", "부산", "홍성"))
+    assert snow.gap_days(seoul, d(2026, 11, 26)) == 6 and snow.gap_days(busan, d(2027, 2, 7)) == 46
+    assert snow.gap_days(hongseong, d(2026, 11, 18)) is None
+
+    # 기간 없이 자료로 — 7일 안에 관측됐거나, 아직인 곳에 눈 예보가 있을 때만
+    assert [s.name for s in snow.recent(status, d(2026, 11, 30))] == ["서울"]          # 홍성 11/18 은 12일 전
+    assert [s.name for s in snow.recent(status, d(2026, 11, 25))] == ["홍성"]          # 앞날의 관측은 셈하지 않음
+    assert snow.showing(status, d(2026, 11, 30), snowy=False)
+    assert not snow.showing(status, d(2026, 12, 7), snowy=False) and snow.showing(status, d(2026, 12, 7), snowy=True)
+    nothing = snow.Status(2026)
+    assert not snow.showing(nothing, d(2026, 9, 7), snowy=False)                       # 관측도 눈 예보도 없음
+    assert snow.showing(nothing, d(2026, 10, 19), snowy=True)                          # 10월이라도 눈 예보면
+    everywhere = snow.Status(2026, {s.name: d(2026, 11, 1) for s in stations.STATIONS})
+    assert not snow.showing(everywhere, d(2027, 1, 4), snowy=True)                     # 다 관측된 뒤의 눈은 첫눈이 아님
+
+    assert len(stations.STATIONS) == 24 and len({s.stn for s in stations.STATIONS}) == 24
+    assert [s.name for s in stations.STATIONS if s.normal is None] == ["홍성"]
+    assert all(LAT0 < s.lat < LAT1 and (LON0 < s.lon < LON1 or s.lon > INSET_LON) for s in stations.STATIONS)
+    assert {k for s in stations.STATIONS for k in s.regions} <= {r.key for r in REGIONS}
+    assert [s.name for s in stations.stations_in_region("영동")] == ["속초", "북강릉"]
+    assert [s.name for s in stations.stations_in_zone("1168064000")] == ["서울"]
+    assert stations.stations_in_zone("3611000000") == ()                  # 세종 — 관측 지점 없음
+    assert stations.find_station("강릉 첫눈 왔어").name == "북강릉" and stations.find_station("첫눈 언제") is None
+    # 포털이 가끔 한 번만 늦음 — retries 만큼 더 받고, 그래도 안 되면 실패
+    from types import SimpleNamespace
+
+    from src.common.cache import clear
+    from src.season import sources
+
+    calls: list = []
+
+    def flaky(url, **kw):
+        calls.append(kw.get("timeout"))
+        if len(calls) == 1:
+            raise snow.SnowError("Read timed out")
+        return SimpleNamespace(text=snow_html({"서울": [("2026", "2026-11-08")]}))
+
+    orig = sources.get
+    sources.get = flaky
+    try:
+        clear()
+        assert snow.fetch_status(d(2026, 11, 16), timeout=20.0, retries=1).first == {"서울": d(2026, 11, 8)}
+        assert calls == [20.0, 20.0], calls
+        clear()
+        calls.clear()
+        try:
+            snow.fetch_status(d(2026, 11, 16), timeout=5.0)          # 멘션 덧말은 다시 받지 않음
+            raise AssertionError("재시도 없이 첫 실패를 넘겼습니다")
+        except snow.SnowError:
+            assert calls == [5.0], calls
+    finally:
+        sources.get = orig
+        clear()
+    print("[ok] 첫눈 자료 — 시즌 연도 · 이상 행 버림 · 형식 변경 거절 · 게시 기간 · 지점 · 포털 재시도")
+
+
+def test_snow_text() -> None:
+    from types import SimpleNamespace
+
+    from src.common.text import bold, short_day_label
+    from src.season.snow.data import Status
+    from src.season.snow.text import observed_line, week_line
+
+    d = dt.date
+    last = {"서울": d(2025, 12, 4)}
+    assert observed_line(Status(2026, {}, last)) == \
+        "아직 첫눈이 관측된 곳이 없습니다 — <b>서울</b> 아직 (평년 11/20, 지난겨울 12/4)"
+    assert observed_line(Status(2026, {"울릉도": d(2026, 11, 18)}, last), bold) == \
+        "*울릉도* 11/18 (평년보다 2일 늦음), 나머지 23곳은 아직 / *서울* 아직 (평년 11/20, 지난겨울 12/4)"
+    many = Status(2026, {"울릉도": d(2026, 11, 18), "서울": d(2026, 11, 20), "대전": d(2026, 11, 22)})
+    line = observed_line(many, bold)
+    assert line == "3곳 관측 · 21곳 아직 — 최근 *대전* 11/22 (평년보다 2일 늦음) · *서울* 11/20 (평년과 같음)", line
+
+    week = d(2026, 11, 30)
+    days = [SimpleNamespace(date=week + dt.timedelta(days=i), sky=s)
+            for i, s in enumerate(["맑음", "흐리고 비/눈", "흐림", "흐리고 눈", "맑음", "맑음", "맑음"])]
+    snowy = f"{short_day_label(d(2026, 12, 1))} · {short_day_label(d(2026, 12, 3))} 눈 예보"
+    assert week_line(many, days, muted=lambda s: s) == \
+        f"{snowy} (첫눈이 될 수 있음)"
+    assert week_line(many, days[:1], muted=lambda s: s) == "예보에 눈 소식이 없습니다"
+    print("[ok] 첫눈 문장 — 관측 0·1·여러 곳, 서울 기준, 눈 예보")
+
+
+def test_snow_weekly() -> None:
+    """주간 게시의 첫눈 덩어리 — 새 소식(최근 관측·아직인 곳의 눈 예보)이 있을 때만, «이번 주» 는 날씨 예보에서."""
+    from types import SimpleNamespace
+
+    from src.season.snow import data as snow
+    from src.season.snow import map as snow_map
+    from src.weekly import pipeline, themes
+    from src.weekly.sections import WeatherUnavailable
+
+    d = dt.date
+    week = d(2026, 11, 30)
+    days = [SimpleNamespace(date=week + dt.timedelta(days=1), sky="흐리고 눈")]
+    status = snow.Status(2026, {"서울": d(2026, 11, 26)})
+    orig = (snow.fetch_status, snow_map.render_png)
+    snow.fetch_status = lambda today, **_: status
+    drawn: list = []
+    snow_map.render_png = lambda st, start, days=(), scale=2: drawn.append(days) or b"PNG"
+    try:
+        assert [s.name for s in pipeline.SECTIONS] == ["카드", "일기도", "벚꽃", "장마", "폭염", "태풍", "단풍", "첫눈"]
+        block = themes.snow_block(weekly_ctx(week, days=days))
+        assert block.paragraph.title == "이번 주 첫눈" and [r.label for r in block.paragraph.rows] == ["관측", "이번 주"]
+        text = block.paragraph.to_slack()
+        assert "*서울* 11/26 (평년보다 6일 늦음)" in text and "눈" in text.split("이번 주 —")[1], text
+        assert drawn == [days], drawn
+        assert block.attachment.filename == "snow-20261130.png" and block.credit.startswith("첫눈 지도 · ")
+        # 날씨 결과가 없으면 WeatherUnavailable — 영역 경계(pipeline._build)가 한 줄로 뺌
+        try:
+            themes.snow_block(weekly_ctx(week))
+            raise AssertionError("날씨 없이 첫눈 덩어리를 만들었습니다")
+        except WeatherUnavailable:
+            pass
+        # 주 중간에 돌려도 월요일 뒤의 관측을 «최근» 으로 셈
+        midweek = snow.Status(2026, {"서울": d(2026, 12, 1)})
+        snow.fetch_status = lambda today, **_: midweek
+        clear_week = [SimpleNamespace(date=d(2026, 12, 3), sky="맑음")]
+        assert themes.snow_block(weekly_ctx(week, d(2026, 12, 2), days=clear_week)) is not None
+        snow.fetch_status = lambda today, **_: status
+        # 서울 관측 다다음 주 — 새 관측은 없지만 아직인 곳에 눈 예보가 있으면 계속, 눈 예보도 없으면 해당 없음
+        later = weekly_ctx(d(2026, 12, 7), week, days=days)
+        assert "첫눈이 될 수 있음" in themes.snow_block(later).paragraph.to_slack()
+        clear = [SimpleNamespace(date=d(2026, 12, 8), sky="맑음")]
+        assert themes.snow_block(weekly_ctx(d(2026, 12, 7), week, days=clear)) is None
+        snow_map.render_png = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("Chromium 없음"))
+        block = themes.snow_block(weekly_ctx(week, days=days))
+        assert block.attachment is None and block.credit.startswith("첫눈 · ")
+        snow.fetch_status = lambda today, **_: (_ for _ in ()).throw(snow.SnowError("점검"))
+        try:
+            themes.snow_block(weekly_ctx(week, days=days))
+            raise AssertionError("첫눈 수집 실패가 묻혔습니다")
+        except snow.SnowError:
+            pass
+    finally:
+        snow.fetch_status, snow_map.render_png = orig
+    print("[ok] 첫눈 주간 게시 — 새 소식이 있을 때만(기간 없음), 날씨 예보로 «이번 주», 지도 실패에도 글")
+
+
+def test_snow_mention() -> None:
+    """첫눈 멘션 — 전국 현황(지도), 지점·지역, 날씨 질문은 날씨로, 지역 답 한 줄."""
+    import src.mention.answer as answer_mod
+    import src.mention.forecast as forecast
+    from src.common.cache import clear
+    from src.kma.page import Narrative, Scrape, ScrapedDay, ScrapeError
+    from src.kma.regions import NATIONWIDE
+    from src.mention.snow.note import _snow_note
+    from src.season.snow import data as snow
+    from src.season.snow import map as snow_map
+
+    d = dt.date
+    now = dt.datetime(2026, 11, 25, 9, 0, tzinfo=KST)
+    today = now.date()
+    status = snow.Status(2026, {}, {"서울": d(2025, 12, 4), "부산": d(2026, 2, 7)})
+
+    def fake_scrape(_now, start, span, region):
+        days = {start + dt.timedelta(days=i): ScrapedDay(start + dt.timedelta(days=i), 0.0, 2.0, 5.0, 8.0,
+                                                         "흐리고 눈" if i == 2 else "맑음", 60, "중기예보")
+                for i in range(span)}
+        return Scrape(days=days, narratives=[Narrative("중기예보", "", None, [])])
+
+    orig = (snow.fetch_status, forecast.scrape_range, snow_map.render_png, answer_mod.find_wide,
+            *_quiet_season_notes())      # 날씨 답의 단풍 한 줄이 기상청을 부르지 않게
+    snow.fetch_status = lambda day: status
+    forecast.scrape_range = fake_scrape
+    snow_map.render_png = lambda *a, **k: b"PNG"
+    answer_mod.find_wide = lambda q: None
+    try:
+        clear()
+        overview = answer_mod.answer("<@U1> 첫눈 언제 와?", now)
+        assert overview.text.startswith("*첫눈 현황* (11/25 기준 · 2026~27년 겨울)"), overview.text
+        assert overview.image == b"PNG" and "*서울* 아직 (평년 11/20, 지난겨울 12/4)" in overview.text
+        assert (overview.slug, overview.title) == ("snow", "첫눈 지도")
+        assert "• 앞으로 7일 — 11/27(" in overview.text, overview.text
+
+        busan = answer_mod.answer("<@U1> 부산 첫눈 왔어?", now)
+        assert busan.text.startswith("*부산 첫눈*") and busan.image is None, busan.text
+        assert "• *부산* 아직 (평년 12/23, 지난겨울 2/7)" in busan.text, busan.text
+        assert "눈 예보 (첫눈이 될 수 있음)" in busan.text, busan.text
+        gangwon = answer_mod.answer("<@U1> 강원 첫눈", now).text
+        assert gangwon.startswith("*강원 첫눈*") and all(n in gangwon for n in ("속초", "북춘천", "북강릉"))
+
+        weather = answer_mod.answer("<@U1> 첫눈 온다는 서울 날씨", now).text
+        assert "첫눈 현황" not in weather and "*첫눈* —" in weather, weather   # 날씨 답 + 첫눈 한 줄
+
+        snow.fetch_status = lambda day: (_ for _ in ()).throw(snow.SnowError("점검"))
+        assert "가져오지 못했습니다" in answer_mod.answer("<@U1> 첫눈", now).text
+        snow.fetch_status = lambda day: status
+        # 예보를 못 받으면 «눈 소식이 없다» 고 단정하지 않음
+        clear()
+        forecast.scrape_range = lambda *a: (_ for _ in ()).throw(ScrapeError("점검"))
+        assert "• 앞으로 7일 — 예보를 받지 못했습니다" in answer_mod.answer("<@U1> 첫눈", now).text
+        forecast.scrape_range = fake_scrape
+
+        seoul = "1168064000"                                          # 역삼동 — 서울 지점
+        snowy = [(d(2026, 11, 27), "흐리고 눈")]
+        (_, line, _) = _snow_note(seoul, snowy, today)
+        assert line.startswith(":snowflake: *첫눈* — *서울* 아직 (평년 11/20, 지난겨울 12/4) — 11/27("), line
+        assert _snow_note(seoul, [(d(2026, 11, 27), "맑음")], today) == []        # 말할 것이 없음
+        assert _snow_note(seoul, snowy, d(2026, 11, 28)) == []                   # 지난 눈 예보는 소식이 아님 (기간 없음)
+        status.first["서울"] = d(2026, 11, 24)
+        (_, line, _) = _snow_note(seoul, [], today)
+        assert line == ":snowflake: *첫눈* — *서울* 11/24 (평년보다 4일 늦음)", line
+        assert _snow_note(seoul, [], d(2026, 12, 2)) == []                       # 7일 지나면 그만
+        (_, line, _) = _snow_note(NATIONWIDE, snowy, today)
+        assert "*서울* 11/24" in line and "나머지 23곳은 아직" in line, line
+    finally:
+        _restore_season_notes(orig[4:])
+        snow.fetch_status, forecast.scrape_range, snow_map.render_png, answer_mod.find_wide = orig[:4]
+        clear()
+    print("[ok] 첫눈 멘션 — 전국 현황·지도, 지점·지역, 날씨 질문은 날씨로, 지역 답 한 줄")
+
+
+def test_snow_render() -> None:
+    from types import SimpleNamespace
+
+    from src.season.snow.data import Status
+    from src.season.snow.map import build_html
+
+    d = dt.date
+    status = Status(2026, {"서울": d(2026, 11, 26)}, {"서울": d(2025, 12, 4)})
+    days = [SimpleNamespace(date=d(2026, 12, 1), sky="흐리고 비/눈"),
+            SimpleNamespace(date=d(2026, 12, 9), sky="눈")]           # 머리의 기간 밖 — 빠져야 함
+    html_text = build_html(status, d(2026, 11, 30), days)
+    assert "12/9" not in html_text, "지도 기간 밖의 눈 예보가 실렸습니다"
+    assert "예보를 받지 못했습니다" in build_html(status, d(2026, 11, 30), None)
+    assert html_text.count('<tr><th scope="row">') == 24
+    assert '<span class="obs">11/26</span> <span class="gap">+6일</span>' in html_text
+    assert "<b>서울</b> 11/26 (평년보다 6일 늦음)" in html_text and "눈 예보" in html_text
+    assert "2026~27년 겨울" in html_text and html_text.count("울릉도") == 2   # 표 한 줄 + 상자 이름(점 라벨 없음)
+    from src.season.blossom.map import INFO as BLOSSOM_MAP
+    from src.season.foliage.map import INFO as FOLIAGE_MAP
+    from src.season.snow.map import INFO as SNOW_MAP
+    from src.season.typhoon.map import INFO as TYPHOON_MAP
+    cleanup = (pathlib.Path(__file__).resolve().parents[1] / "bin" / "cleanup.py").read_text(encoding="utf-8")
+    assert all(f'"{m.slug}-*.png"' in cleanup for m in (FOLIAGE_MAP, SNOW_MAP, BLOSSOM_MAP, TYPHOON_MAP)), \
+        "정리 패턴이 지도 이름과 다릅니다"
+    print("[ok] 첫눈 지도 — 24곳 표 · 관측일·평년차 · 눈 예보")
+
+
+SUMMER_WEEK = dt.date(2027, 7, 19)
+
+
+def summer_day(i: int, tmin: tuple, tmax: tuple, sky: str = "구름많음", pop: int | None = None) -> DayForecast:
+    return DayForecast(SUMMER_WEEK + dt.timedelta(days=i), *tmin, *tmax, sky=sky, pop=pop)
+
+
+def summer_notes(*lines: str) -> list[Narrative]:
+    return [Narrative("기상청 예보 통보문", "", None, list(lines))]
+
+
+def test_narrative_quote() -> None:
+    """예보관 인용 — 짧으면 원문 그대로, 길면 낱말 경계에서 자르고 «…» (말을 보태지 않음)."""
+    from src.season import narrative
+
+    assert narrative.quote("(내일) 흐리고 비") == '"(내일) 흐리고 비"'
+    long = "(오늘, 16일) 전국 구름많겠으나, " + "강원동해안.산지와 경북동해안.북동산지 곳에 따라 비, " * 6
+    quoted = narrative.quote(long)
+    assert quoted.endswith('…"') and len(quoted) <= narrative.QUOTE_CHARS + 3, quoted
+    assert long.startswith(quoted[1:-2]), "앞부분이 원문과 다릅니다"
+    assert not quoted[1:-2].endswith((",", " ")), quoted
+    print("[ok] 예보관 인용 — 짧으면 그대로, 길면 낱말 경계에서 자르고 «…»")
+
+
+def test_heat_weekly() -> None:
+    """폭염·열대야 — 기상청 기준(낮 최고 33℃↑ · 아침 최저 25℃↑)의 경계, 예보관 인용, 선선하면 해당 없음."""
+    from src.weekly import themes
+    from src.weekly.sections import WeatherUnavailable
+
+    days = [summer_day(0, (22, 24.9), (28, 32.9)),          # 둘 다 경계 바로 아래 — 빠짐
+            summer_day(1, (23, 25), (29, 33)),              # 경계값은 듦
+            summer_day(2, (24, 27), (30, 36)),
+            DayForecast(SUMMER_WEEK + dt.timedelta(days=3)),  # 예보 없는 날
+            *(summer_day(i, (20, 23), (27, 31)) for i in range(4, 7))]
+    block = themes.heat_block(weekly_ctx(SUMMER_WEEK, days=days))
+    rows = {r.label: r.text for r in block.paragraph.rows}
+    assert block.paragraph.title == "이번 주 더위" and block.paragraph.emoji == ":hot_face:"
+    assert list(rows) == ["폭염 기준(33℃↑)", "열대야 기준(25℃↑)"], list(rows)
+    assert rows["폭염 기준(33℃↑)"] == "*7/20(화)~7/21(수)* 2일 · 최고 36℃ 7/21(수) (일부 지역 낮 최고)", rows
+    assert rows["열대야 기준(25℃↑)"] == "*7/20(화)~7/21(수)* 2일 · 최고 27℃ 7/21(수) (일부 지역 아침 최저)", rows
+    # 도시별 값(중기예보)이 없는 주는 지도 없이 글만
+    assert block.credit.startswith("더위 · 기상청") and block.attachment is None
+
+    # 날짜는 이어진 구간으로 줄이고 날마다의 값은 늘어놓지 않음 — 최고값이 같으면 이른 날
+    from src.season.heat.text import span_text
+    d = dt.date
+    assert span_text([(d(2027, 7, 21), 36.0)]) == "*7/21(수)* 36℃"
+    assert span_text([(d(2027, 7, 19), 34.0), (d(2027, 7, 21), 36.0), (d(2027, 7, 22), 36.0),
+                      (d(2027, 7, 25), 33.0)]) == "*7/19(월)* · *7/21(수)~7/22(목)* · *7/25(일)* 4일 · 최고 36℃ 7/21(수)"
+
+    # 예보관 서술은 글머리만 떼고 그대로, 본문이 이미 인용한 (종합) 줄은 되풀이하지 않음, 둘까지
+    notes = summer_notes("□ (종합) 무더위 계속, 일부 지역 폭염특보 발효 중",
+                         "○ (모레, 21일) 낮 기온 35℃ 이상 오르는 곳 있어 폭염특보 확대 가능성",
+                         "○ (기온) 도심과 해안 중심 열대야 나타나는 곳 있겠습니다.",
+                         "○ (글피, 22일) 폭염 이어지겠음")
+    body = '기상청은 "*무더위 계속, 일부 지역 폭염특보 발효 중*"이라고 전하고 있습니다.'
+    quoted = [r.text for r in themes.heat_block(weekly_ctx(SUMMER_WEEK, days=days, narratives=notes,
+                                                             body=body)).paragraph.rows if r.label == "예보관"]
+    assert quoted == ['"(모레, 21일) 낮 기온 35℃ 이상 오르는 곳 있어 폭염특보 확대 가능성"',
+                      '"(기온) 도심과 해안 중심 열대야 나타나는 곳 있겠습니다."'], quoted
+
+    cool = [summer_day(i, (20, 24), (26, 32)) for i in range(7)]
+    assert themes.heat_block(weekly_ctx(SUMMER_WEEK, days=cool, narratives=summer_notes("○ (내일) 흐리고 비"))) is None
+    # 수치가 기준에 못 미쳐도 예보관이 말했으면 그 인용만
+    only = themes.heat_block(weekly_ctx(SUMMER_WEEK, days=cool, narratives=summer_notes("○ (내일) 열대야 나타나겠음")))
+    assert [r.label for r in only.paragraph.rows] == ["예보관"], only.paragraph.rows
+    try:
+        themes.heat_block(weekly_ctx(SUMMER_WEEK))
+        raise AssertionError("날씨 없이 더위 덩어리를 만들었습니다")
+    except WeatherUnavailable:                                          # 영역 경계가 한 줄로 뺌
+        pass
+    print("[ok] 폭염·열대야 — 33℃·25℃ 경계, 일부 지역, 예보관 인용(본문과 안 겹치게), 선선하면 해당 없음")
+
+
+def test_monsoon_weekly() -> None:
+    """장마 — 예보관이 장마·정체전선을 말할 때만, 비 오는 날은 하늘상태·강수확률에서. 정체전선만이면 장마라 부르지 않음."""
+    from src.weekly import themes
+
+    days = [summer_day(0, (22, 25), (27, 31), sky="흐리고 비"),
+            summer_day(1, (22, 25), (27, 31), sky="흐리고 소나기"),
+            summer_day(2, (22, 25), (27, 31), sky="흐림"),
+            summer_day(3, (22, 25), (27, 31), sky="구름많음", pop=70),     # 하늘상태에 비가 없어도 강수확률로
+            summer_day(4, (22, 25), (27, 31), sky="구름많음", pop=30),
+            summer_day(5, (22, 25), (27, 31), sky="맑음", pop=59),
+            summer_day(6, (22, 25), (27, 31), sky="흐리고 비", pop=60)]
+    notes = summer_notes("□ (종합) 제주도 장마 시작, 남부지방 많은 비",
+                         "○ (내일, 20일) 정체전선의 영향으로 남부지방과 제주도에 비",
+                         "○ (기온) 평년과 비슷")
+    block = themes.monsoon_block(weekly_ctx(SUMMER_WEEK, days=days, narratives=notes))
+    text = block.paragraph.to_slack()
+    assert block.paragraph.title == "이번 주 장마", block.paragraph.title
+    assert [r.label for r in block.paragraph.rows] == ["예보관", "예보관", "비 예보"], text
+    assert '"(종합) 제주도 장마 시작, 남부지방 많은 비"' in text and "평년과 비슷" not in text, text
+    assert block.paragraph.rows[-1].text == "*7/19(월)* · *7/20(화)* · *7/22(목)* · *7/25(일)*", text
+    assert "철이 끝난 뒤 확정" in block.credit and block.attachment is None
+    # 수집 순서는 중기예보가 앞이지만 인용은 통보문(가까운 날)부터 — 둘을 넘는 중기예보 줄이 잘림
+    mid = Narrative("기상청 중기예보", "", None, ["○ (강수) 23일(금)은 장마전선의 영향으로 중부지방에 비"])
+    rows = themes.monsoon_block(weekly_ctx(SUMMER_WEEK, days=days, narratives=[mid, *notes])).paragraph.rows
+    assert "23일(금)" not in " ".join(r.text for r in rows) and rows[0].text.startswith('"(종합)'), rows
+
+    front = summer_notes("○ (내일, 20일) 정체전선의 영향으로 남부지방에 비")
+    assert themes.monsoon_block(weekly_ctx(SUMMER_WEEK, days=days, narratives=front)).paragraph.title == \
+        "이번 주 정체전선"
+    dry = [summer_day(i, (22, 25), (27, 31), sky="맑음") for i in range(7)]
+    rows = themes.monsoon_block(weekly_ctx(SUMMER_WEEK, days=dry, narratives=front)).paragraph.rows
+    assert [r.label for r in rows] == ["예보관"], rows                   # 비 없는 주는 «비 예보» 줄을 뺌
+    # 비가 잦아도 예보관이 장마·정체전선을 말하지 않으면 해당 없음 — 기간을 정하지 않음
+    assert themes.monsoon_block(weekly_ctx(SUMMER_WEEK, days=days, narratives=summer_notes("○ (내일) 비"))) is None
+    print("[ok] 장마 — 예보관 서술 인용 + 비 오는 날, 정체전선만이면 «정체전선», 언급 없으면 해당 없음")
+
+
+MID_TEMP_HTML = """<table><caption>최대 10일 후 까지의 육상예보 최저/최고기온(℃)</caption>
+<thead><tr><th colspan="2">지역</th><th>23일 (금)</th><th>24일 (토)</th><th>기온범위</th></tr></thead><tbody>
+<tr><td rowspan="2">서울 인천 경기도</td><td>서울</td><td>25 / 34</td><td>26 / 35</td><td>그래프</td></tr>
+<tr><td>인천</td><td>24 / 31</td><td>25 / 32</td><td>그래프</td></tr>
+<tr><td rowspan="1">강원도 영동</td><td>강릉</td><td>27 / 36</td><td>28 / 37</td><td>그래프</td></tr>
+</tbody></table>"""
+
+
+def test_heat_city_parse() -> None:
+    """중기예보 도시 표 — 전국 범위는 그대로, 도시별 값도 남김(구역 행만). 범위 밖 값이 든 도시는 그 도시만 뺌."""
+    from bs4 import BeautifulSoup
+
+    from src.kma import mid_term
+    from src.kma.regions import NATIONWIDE, find_region
+    from src.weekly.forecast import _day
+
+    tbl = BeautifulSoup(MID_TEMP_HTML, "lxml").select_one("table")
+    fri, sat = dt.date(2027, 7, 23), dt.date(2027, 7, 24)
+    days = mid_term._temperatures(tbl, SUMMER_WEEK, NATIONWIDE)
+    assert (days[fri].tmin_lo, days[fri].tmin_hi, days[fri].tmax_lo, days[fri].tmax_hi) == (24, 27, 31, 36)
+    assert days[fri].cities == {"서울": (25, 34), "인천": (24, 31), "강릉": (27, 36)}, days[fri].cities
+    assert days[sat].cities["강릉"] == (28, 37) and days[sat].source == "중기예보"
+    yeongdong = mid_term._temperatures(tbl, SUMMER_WEEK, find_region("영동"))
+    assert yeongdong[fri].cities == {"강릉": (27, 36)} and yeongdong[fri].tmax_lo == 36
+    raw = ScrapedDay(fri, 24, 27, 31, 36, source="중기예보", cities={"서울": (25, 34), "깨짐": (25, 99)})
+    assert _day(fri, raw, []).cities == {"서울": (25, 34)}
+    assert ScrapedDay(fri).cities == {} and DayForecast(fri).cities == {}     # 통보문 날은 비어 있음
+    print("[ok] 더위 도시값 — 중기예보 도시 표를 범위와 함께 도시별로, 구역 행만, 이상한 도시만 뺌")
+
+
+def heat_week(cities: dict[str, tuple[float, float]]) -> list[DayForecast]:
+    """월~목 통보문(범위만), 금~일 중기예보(도시별) — 토요일이 1도 더 높음."""
+    days = [summer_day(i, (22, 26), (29, 35)) for i in range(4)]
+    for i, bump in ((4, 0), (5, 1), (6, 0)):
+        got = {k: (lo + bump, hi + bump) for k, (lo, hi) in cities.items()}
+        lows, highs = [v[0] for v in got.values()], [v[1] for v in got.values()]
+        days.append(DayForecast(SUMMER_WEEK + dt.timedelta(days=i), min(lows), max(lows), min(highs), max(highs),
+                                "구름많음", 30, "중기예보", got))
+    return days
+
+
+def test_heat_map() -> None:
+    """더위 지도 — 🥵 는 낮 최고 33℃↑, 나머지는 회색 빈 원, 라벨은 겹치지 않는 것만, 표는 기준에 닿는 도시 20곳까지."""
+    import re
+
+    from src.season.basemap import hits, place, text_box
+    from src.season.heat import data as heat
+    from src.season.heat import map as heat_map
+    from src.season.heat.cities import SPOTS
+    from src.season.mapcard import glyph_size
+    from src.weekly import themes
+
+    cities = {"대구": (25.0, 36.0), "서울": (24.0, 32.0), "강릉": (23.0, 31.0), "새도시": (20.0, 34.0)}
+    found = heat.read(heat_week(cities), [])
+    by = {c.name: c for c in found.cities}
+    assert by["대구"].high == (dt.date(2027, 7, 24), 37.0) and by["대구"].low == (dt.date(2027, 7, 24), 26.0)
+    assert by["서울"].hot and by["서울"].tropical and not (by["강릉"].hot or by["강릉"].tropical)   # 33·25 경계
+    assert found.city_days == [dt.date(2027, 7, 23), dt.date(2027, 7, 24), dt.date(2027, 7, 25)]
+    html_text = heat_map.build_html(found, SUMMER_WEEK)
+    assert "도시별 예보 7/23(금)~7/25(일)" in html_text      # 지도는 도시별 값이 있는 날만
+    assert html_text.count('viewBox="0 0 128 128"') == 1 + 2        # 범례 + 대구·서울 (새도시는 좌표가 없어 표에만)
+    assert html_text.count('fill="#fcfcfb" stroke="#898781"') == 1 + 1     # 범례 + 강릉
+    assert html_text.count('<tr><th scope="row">') == 3 and "새도시" in html_text     # 기준 미만 강릉은 표에 없음
+    assert '<td class="met">37 <small>토</small></td>' in html_text and "일 최고기온이 33℃ 이상인 날" in html_text
+
+    # 41곳이 모두 더워도 라벨끼리·남의 표지와 겹치지 않음 — 못 붙인 곳은 라벨 없이
+    hot_all = heat.read(heat_week({name: (26.0, 36.0) for name in SPOTS}), [])
+    marks = heat_map._marks(hot_all)
+    labels = re.findall(r'<text class="lbl[^"]*" x="([\d.-]+)" y="([\d.-]+)" text-anchor="(\w+)">([^<]+)</text>', marks)
+    shift = {"start": 0.0, "middle": 0.5, "end": 1.0}
+    boxes = [(text_box(float(x), float(y), t, shift[a], heat_map.LABEL_PX), t.split()[0]) for x, y, a, t in labels]
+    assert len(boxes) >= 25, len(boxes)
+    half = glyph_size(heat_map.HOT_R) / 2
+    for i, (box, owner) in enumerate(boxes):
+        assert not any(hits(box, other) for other, _ in boxes[i + 1:]), (box, owner)
+        for name, spot in SPOTS.items():
+            px, py = place(spot.lon, spot.lat)
+            assert name == owner or not hits(box, (px - half, py - half, px + half, py + half)), (owner, name)
+    rows = heat_map._table(hot_all)
+    assert rows.count('<tr><th scope="row">') == heat_map.MAX_ROWS and f"외 {len(SPOTS) - heat_map.MAX_ROWS}곳" in rows
+
+    # 주간 게시: 도시별 값이 있으면 지도, 못 그리면 글만(출처의 «지도» 도 뺌), Chromium 이 없으면 그리지 않음
+    orig, drawn = heat_map.render_png, []
+    heat_map.render_png = lambda h, start, scale=2: drawn.append(start) or b"PNG"
+    try:
+        block = themes.heat_block(weekly_ctx(SUMMER_WEEK, days=heat_week(cities)))
+        assert block.attachment.filename == "heat-20270719.png" and block.credit.startswith("더위 지도 · ")
+        assert block.attachment.pattern == "heat-*.png" and drawn == [SUMMER_WEEK]
+        heat_map.render_png = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("Chromium 없음"))
+        block = themes.heat_block(weekly_ctx(SUMMER_WEEK, days=heat_week(cities)))
+        assert block.attachment is None and block.credit.startswith("더위 · ") and block.paragraph.rows
+        drawn.clear()
+        heat_map.render_png = lambda h, start, scale=2: drawn.append(start) or b"PNG"
+        block = themes.heat_block(weekly_ctx(SUMMER_WEEK, can_render=False, days=heat_week(cities)))
+        assert block.attachment is None and not drawn
+    finally:
+        heat_map.render_png = orig
+    cleanup = (pathlib.Path(__file__).resolve().parents[1] / "bin" / "cleanup.py").read_text(encoding="utf-8")
+    assert f'"{heat_map.INFO.slug}-*.png"' in cleanup, "정리 패턴이 더위 지도 이름과 다릅니다"
+    print("[ok] 더위 지도 — 🥵·빈 원, 겹치지 않는 라벨, 표 20곳, 지도 실패·Chromium 없음엔 글만")
+
+
+# 날씨누리 typhoonContent.js 주석에 실린 2019년 제2호 우딥 경로표 그대로 — 뒤에 붙는 빈 줄까지
+WUTIP_OSP = """2019,2,우딥,WUTIP
+201902190900,4.8,160.6,괌 동남동쪽 약 1980 km 부근 해상,W,41,1004,15,TD,0,,0,0,,0,0,2019,1,TD
+201902191500,5.0,158.6,괌 동남동쪽 약 1780 km 부근 해상,W,37,1004,15,TD,0,,0,0,,0,0,2019,1,TD
+201902192100,5.1,156.2,괌 남동쪽 약 1560 km 부근 해상,W,44,1002,15,TD,0,,0,0,,0,0,2019,1,TD
+201902200300,5.1,155.2,괌 남동쪽 약 1470 km 부근 해상,W,18,1000,18,TS,,,,250,SW,200,0,,,
+201902200900,4.8,154.7,괌 남동쪽 약 1450 km 부근 해상,WSW,11,996,20,TS,,,,250,SW,200,0,,,
+201902201500,4.9,153.8,괌 남동쪽 약 1370 km 부근 해상,W,17,990,24,TS,,,,280,SW,230,0,,,
+201902211500,6.5,150.0,괌 남동쪽 약 960 km 부근 해상,WNW,19,975,32,0,0,0,0,300,SW,250,110,,,
+201902221500,8.9,146.0,괌 남남동쪽 약 520 km 부근 해상,WNW,22,960,39,0,0,0,0,330,SW,280,170,,,
+201902231500,11.2,142.9,괌 남서쪽 약 330 km 부근 해상,NW,18,955,40,0,0,0,0,350,SW,300,260,,,
+201902241500,12.9,141.2,괌 서쪽 약 390 km 부근 해상,NW,11,950,43,0,0,0,0,370,SW,320,370,,,
+201902251500,14.6,140.0,괌 서북서쪽 약 530 km 부근 해상,NW,9,955,40,0,0,0,0,350,WSW,300,480,,,
+,,,,,,,0,,0,0,0,0,,,,,,
+,,,,,,,0,,0,0,0,0,,,,,,
+,,,,,,,0,,0,0,0,0,,,,,,
+,,,,,,,0,,0,0,0,0,,,,,,
+,,,,,,,0,,0,0,0,0,,,,,,
+"""
+WUTIP_URL = "/repositary/xml/typ/raw/DAOU/RTKO63/2019/RTKO63_201902201600_2_3.osp?ver=20190220173301"
+
+
+def test_typhoon_parse() -> None:
+    """태풍정보 — 빈 목록은 «없음», 경로표의 현재·예상 구분, 약화, 형식이 바뀌면 TyphoonError."""
+    from src.common.cache import clear
+    from src.season.typhoon import data as typhoon
+    from src.season.typhoon.data import TyphoonError, parse_list, parse_track
+
+    def rejects(parse, text: str) -> None:
+        try:
+            parse(text)
+        except TyphoonError:
+            return
+        raise AssertionError(f"형식 변경을 못 알아챘습니다: {text[:40]!r}")
+
+    at = dt.datetime
+    assert parse_list("") == [] and parse_list("\n \n") == []          # 진행 중인 태풍 없음 — 200, 0바이트
+    listing = f"{WUTIP_URL},{WUTIP_URL.replace('.osp', '.ini')}\n"
+    (url,) = parse_list(listing)
+    assert url == "https://www.weather.go.kr/w" + WUTIP_URL, url
+    rejects(parse_list, "<!DOCTYPE html><html>오류</html>")            # 없는 경로도 200 + HTML
+    rejects(parse_list, "RTKO63_2019.txt,RTKO63_2019.ini")
+
+    storm = parse_track(WUTIP_OSP, typhoon.issued_of(url))
+    assert storm.title == "제2호 태풍 우딥(WUTIP)" and storm.weakened == ""
+    assert storm.issued == at(2019, 2, 20, 16, 0, tzinfo=KST)
+    assert storm.now.at == at(2019, 2, 20, 15, 0, tzinfo=KST) and storm.now.when == "2/20(수) 15시"
+    assert storm.now.summary == "괌 남동쪽 약 1370 km 부근 해상 · 중심기압 990hPa · 최대풍속 24m/s"
+    assert [p.at.day for p in storm.forecast] == [21, 22, 23, 24, 25]
+    assert storm.forecast[-1].place == "괌 서북서쪽 약 530 km 부근 해상"
+    # 지도에 쓰는 값 — 좌표, 예상 위치의 70% 확률반경, 현재 위치의 강풍반경(예외 방위·반경 포함), 빈 폭풍반경은 없음
+    assert (storm.now.lat, storm.now.lon, storm.now.radius) == (4.9, 153.8, None)
+    assert [p.radius for p in storm.forecast] == [110, 170, 260, 370, 480]
+    assert storm.now.gale.text == "280km(남서쪽 230km)" and storm.now.storm is None
+    assert [p.at.hour for p in storm.past] == [9, 15, 21, 3, 9] and storm.past[0].gale is None   # TD 줄은 반경 0
+    # 같은 시각이 두 줄이면 뒤의 것
+    current = "201902201500,4.9,153.8,괌 남동쪽 약 1370 km 부근 해상,W,17,990,24,TS,,,,280,SW,230,0,,,"
+    fixed = current.replace(",990,24,", ",992,23,")
+    assert parse_track(WUTIP_OSP.replace(current, f"{current}\n{fixed}")).now.pressure == 992
+    # 약화 — 날씨누리 지도의 문구 그대로, 예상이 없으면 빈 진로
+    weakened = WUTIP_OSP.split("\n201902211500")[0] + \
+        "\n201902260900,16.0,139.0,괌 서북서쪽 약 700 km 부근 해상,NW,15,1004,15,TD,,,,0,,0,0,,,TD-END\n"
+    storm = parse_track(weakened)
+    assert storm.weakened == "열대저압부로 약화" and storm.forecast == () and storm.now.wind == 15
+    assert storm.issued is None and typhoon.issued_of("RTKO63_201913991600_2_3.osp") is None
+
+    head, rows = WUTIP_OSP.split("\n", 1)
+    rejects(parse_track, "")
+    rejects(parse_track, "<html><body>오류</body></html>")
+    rejects(parse_track, "우딥,WUTIP\n" + rows)                          # 머리가 바뀜
+    rejects(parse_track, head + "\n" + rows.replace("201902201500", "2019-02-20 15:00"))
+    forecast_only = "\n".join(line for line in rows.splitlines() if line.startswith("2019022") and
+                              line > "201902210000")
+    rejects(parse_track, f"{head}\n{forecast_only}")                     # 현재 위치가 없음
+    assert typhoon._decode("2019,2,우딥".encode("cp949")) == "2019,2,우딥"
+    assert typhoon._decode("﻿2019,2,우딥".encode()) == "2019,2,우딥"
+
+    calls: list[str] = []
+    orig = typhoon._get
+    typhoon._get = lambda u, timeout: calls.append(u) or (listing if u == typhoon.LIST_URL else WUTIP_OSP)
+    clear()
+    try:
+        assert [s.no for s in typhoon.fetch_active()] == [2] and calls == [typhoon.LIST_URL, url], calls
+        typhoon.fetch_active()
+        assert len(calls) == 2, calls                                     # 캐시
+        clear()
+        typhoon._get = lambda u, timeout: ""
+        assert typhoon.fetch_active() == []
+        clear()
+        typhoon._get = lambda u, timeout: (_ for _ in ()).throw(TyphoonError("요청 실패"))
+        rejects(lambda _: typhoon.fetch_active(), "")
+    finally:
+        typhoon._get = orig
+        clear()
+    print("[ok] 태풍정보 — 빈 목록은 없음, 현재·예상 구분, 같은 시각은 뒤의 것, 약화 문구, 형식 변경은 TyphoonError")
+
+
+def test_typhoon_weekly() -> None:
+    """주간 게시의 태풍 덩어리 — 진행 중일 때만 글로, 태풍정보를 못 받으면 예보관 서술만, 둘 다 없으면 실패."""
+    from dataclasses import replace
+
+    from src.season.typhoon import data as typhoon
+    from src.season.typhoon import map as typhoon_map
+    from src.season.typhoon.data import TyphoonError, parse_track
+    from src.weekly import pipeline, themes
+
+    week = dt.date(2019, 2, 18)
+    days = [DayForecast(date=week)]
+    storm = parse_track(WUTIP_OSP, typhoon.issued_of(WUTIP_URL))
+    headline = "□ (종합) 제2호 태풍 우딥 북상, 주 후반 남해안 너울 유의"
+    notice = Narrative("기상청 예보 통보문", "https://www.weather.go.kr/w/forecast/notice.do", None,
+                       [headline, "○ (내일, 19일) 대체로 맑음"])
+    mid = Narrative("기상청 중기예보", "https://www.weather.go.kr/w/forecast/overall/mid-term.do", None,
+                    ["○ (해상) 제2호 태풍 우딥의 영향으로 24일 남해상 물결 매우 높겠음", headline])
+
+    def labels(block) -> list[str]:
+        return [r.label for r in block.paragraph.rows]
+
+    drawn: list = []
+    fail_render = [False]
+
+    def fake_render(storms, week_start, scale=2):
+        drawn.append([s.no for s in storms])
+        if fail_render[0]:
+            raise RuntimeError("Chromium 없음")
+        return b"PNG"
+
+    orig = (typhoon.fetch_active, typhoon_map.render_png)
+    typhoon_map.render_png = fake_render
+    try:
+        assert [s.name for s in pipeline.SECTIONS] == ["카드", "일기도", "벚꽃", "장마", "폭염", "태풍", "단풍", "첫눈"]
+        # 기상청 목록이 비면 해당 없음 — 서술의 «태풍» 은 발생 가능성만 말하는 줄일 수 있음
+        typhoon.fetch_active = lambda: []
+        assert themes.typhoon_block(weekly_ctx(week, days=days, narratives=[notice])) is None
+
+        typhoon.fetch_active = lambda: [storm]
+        block = themes.typhoon_block(weekly_ctx(week, days=days, narratives=[mid, notice]))
+        rows = block.paragraph.rows
+        assert block.paragraph.title == "이번 주 태풍" and block.paragraph.emoji == ":cyclone:"
+        assert labels(block) == ["현재", "예상", "이번 주"] and drawn == [[2]]
+        assert block.attachment.filename == "typhoon-20190218.png" and block.attachment.title == "태풍 예상 경로 지도"
+        assert block.attachment.pattern == "typhoon-*.png"
+        assert rows[0].text == ("*제2호 태풍 우딥(WUTIP)* · 괌 남동쪽 약 1370 km 부근 해상 · 중심기압 990hPa · "
+                                "최대풍속 24m/s (2/20(수) 15시 기준)"), rows[0].text
+        assert rows[1].text == "2/24(일) 15시 괌 서쪽 약 390 km 부근 해상", rows[1].text   # 2/25(월) 은 다음 주
+        # 통보문(가까운 날)이 먼저, 같은 줄은 한 번, 원문 그대로
+        assert rows[2].text == ('"(종합) 제2호 태풍 우딥 북상, 주 후반 남해안 너울 유의" / '
+                                '"(해상) 제2호 태풍 우딥의 영향으로 24일 남해상 물결 매우 높겠음"'), rows[2].text
+        assert block.credit == "태풍 예상 경로 지도 · 기상청 태풍정보(2/20 16시 발표) · 기상청 예보 통보문 · 기상청 중기예보", \
+            block.credit
+        # 지도를 못 그려도 글은 남고 출처의 «예상 경로 지도» 가 빠짐, Chromium 이 없으면 그리지도 않음
+        fail_render[0] = True
+        block = themes.typhoon_block(weekly_ctx(week, days=days, narratives=[mid, notice]))
+        assert block.attachment is None and block.credit.startswith("태풍 · 기상청 태풍정보") and block.paragraph.rows
+        fail_render[0] = False
+        drawn.clear()
+        block = themes.typhoon_block(weekly_ctx(week, days=days, narratives=[notice], can_render=False))
+        assert block.attachment is None and not drawn and block.credit.startswith("태풍 · ")
+        # 예보관이 태풍을 말하지 않으면 멀리 있는 태풍은 싣지 않음(사용자 결정) — 태풍정보도 받지 않음
+        asked: list = []
+        typhoon.fetch_active = lambda: asked.append(1) or [storm]
+        assert themes.typhoon_block(weekly_ctx(week, days=days)) is None and not asked
+        # 본문이 이미 인용한 줄은 «이번 주» 에서 빼되, 태풍 사실(현재·예상)은 실음
+        quoted_body = '기상청은 "*제2호 태풍 우딥 북상, 주 후반 남해안 너울 유의*"이라고 전하고 있습니다.'
+        block = themes.typhoon_block(weekly_ctx(week, days=days, narratives=[notice], body=quoted_body))
+        assert labels(block) == ["현재", "예상"] and block.credit == "태풍 예상 경로 지도 · 기상청 태풍정보(2/20 16시 발표)"
+        # 둘이면 «예상» 에 이름을 붙임
+        typhoon.fetch_active = lambda: [storm, replace(storm, no=3, name="세파트", en_name="SEPAT")]
+        block = themes.typhoon_block(weekly_ctx(week, days=days, narratives=[notice]))
+        assert labels(block) == ["현재", "예상"] * 2 + ["이번 주"], labels(block)
+        assert block.paragraph.rows[3].text.startswith("세파트 2/24(일)")
+        assert drawn[-1] == [2, 3]                                   # 태풍이 여럿이어도 지도는 한 장
+        # 태풍정보를 못 받으면 예보관 서술만 — 위험 신호를 영역 실패로 묻지 않음
+        typhoon.fetch_active = lambda: (_ for _ in ()).throw(TyphoonError("점검"))
+        drawn.clear()
+        block = themes.typhoon_block(weekly_ctx(week, days=days, narratives=[notice]))
+        assert labels(block) == ["이번 주"] and block.credit == "태풍 · 기상청 예보 통보문", block.credit
+        assert block.attachment is None and not drawn                # 그릴 경로가 없음
+        assert themes.typhoon_block(weekly_ctx(week, days=days)) is None    # 서술에도 없으면 해당 없음
+    finally:
+        typhoon.fetch_active, typhoon_map.render_png = orig
+    print("[ok] 태풍 주간 게시 — 예보관이 말하고 진행 중일 때만, 이번 주 안의 예상, 본문과 안 겹치는 인용, 실패엔 서술만")
+
+
+def test_typhoon_map() -> None:
+    """태풍 예상 경로 지도 — 시각·중심기압 글자, 경로표에 있는 반경만 그리고 범례도 그만큼, 기압선은 일기도로."""
+    from dataclasses import replace
+
+    from src.season.typhoon import data as typhoon
+    from src.season.typhoon import pacific
+    from src.season.typhoon.map import build_html, render_png
+
+    storm = typhoon.parse_track(WUTIP_OSP, typhoon.issued_of(WUTIP_URL))
+    week = dt.date(2019, 2, 18)
+    html_text = build_html([storm], week)
+    assert "<h1>태풍 예상 경로</h1>" in html_text and "기상청 태풍정보(2/20 16시 발표) · 바탕 지도" in html_text
+    assert "기압선은 기상청 지상일기도에서 볼 수 있습니다" in html_text
+    assert ">20일 15시 990hPa<" in html_text and ">제2호 우딥<" in html_text     # 현재 위치
+    assert '<text class="when" x="' in html_text and ">24일 15시 950hPa<" in html_text
+    assert 'class="when later"' in html_text and ">25일 15시 955hPa<" in html_text   # 다음 주 예상은 옅게
+    assert "강풍반경 280km(남서쪽 230km)" in html_text                              # 머리 줄에 원문 반경
+    assert "70% 확률반경 —" in html_text and "강풍반경 — 초속 15m" in html_text
+    assert "폭풍반경" not in html_text and 'class="storm"' not in html_text        # 경로표가 비워 둔 반경은 없음
+    assert "emoji" not in html_text and ">한국<" in html_text
+    # 머리 줄은 슬랙 «현재» 줄과 같은 말 — 약화 문구까지
+    weak = build_html([replace(storm, weakened="열대저압부로 약화")], week)
+    assert "<b>제2호 태풍 우딥(WUTIP)</b> 열대저압부로 약화 · 괌 남동쪽" in weak
+    # 반경이 하나도 없으면 범례 둘째 줄도 없음
+    bare = replace(storm, now=replace(storm.now, gale=None), forecast=tuple(replace(p, radius=None) for p in storm.forecast))
+    bare_html = build_html([bare], week)
+    assert "확률반경" not in bare_html and "강풍반경" not in bare_html and "<ellipse" not in bare_html
+    # 범위는 경로·반경과 한국을 다 담고, 카드 높이 안에 맞춤
+    view = pacific.fit([(160.6, 4.8), (140.0, 14.6)], 652, 560, 380)
+    assert view.lon0 < 124 and view.lon1 > 160.6 and view.lat0 < 4.8 and view.lat1 > 38.8, view
+    assert 380 - 1 <= view.height <= 560 + 1, view.height
+
+    IMG.mkdir(parents=True, exist_ok=True)
+    png = render_png([storm], week)
+    assert png.startswith(PNG_MAGIC)
+    (IMG / "typhoon-test.png").write_bytes(png)
+    print(f"[ok] 태풍 지도 — 시각·중심기압 글자, 있는 반경만 그림·범례, 기압선은 일기도로 {len(png):,}B -> {IMG / 'typhoon-test.png'}")
 
 
 if __name__ == "__main__":
@@ -1563,10 +2858,31 @@ if __name__ == "__main__":
     test_period_next_weekend()
     test_foliage_fetch()
     test_cache_failures()
+    test_disk_cache()
     test_foliage_render()
+    test_map_emoji()
+    test_foliage_after_peak()
     test_paragraph()
     test_blossom_season()
     test_blossom_parse()
     test_blossom_text()
+    test_blossom_fetch()
+    test_blossom_spots()
+    test_blossom_render()
     test_weekly_themes()
+    test_weekly_pipeline()
+    test_weekly_health()
+    test_snow_data()
+    test_snow_text()
+    test_snow_weekly()
+    test_snow_mention()
+    test_snow_render()
+    test_narrative_quote()
+    test_heat_weekly()
+    test_monsoon_weekly()
+    test_heat_city_parse()
+    test_heat_map()
+    test_typhoon_parse()
+    test_typhoon_weekly()
+    test_typhoon_map()
     print("\n전부 통과")

@@ -63,6 +63,11 @@ NATIONWIDE = REGIONS[0]
 REGION_HELP = " · ".join(r.key for r in REGIONS)
 
 
+def region_by_key(key: str) -> Region | None:
+    """구역 키 그대로 — 사람이 쓴 말을 읽는 find_region 과 달리 바꿔 읽지 않음."""
+    return next((r for r in REGIONS if r.key == key), None)
+
+
 def extract_region(text: str) -> tuple[Region | None, str]:
     """문장 속 아는 지역 이름을 긴 것부터 찾음 — 조언어를 지우는 방식은 '무등산' 의 '등산' 까지 지움."""
     flat = (text or "").replace(" ", "")
@@ -71,8 +76,7 @@ def extract_region(text: str) -> tuple[Region | None, str]:
 
     candidates: list[tuple[str, Region | None, str]] = []
     for name, (key, note) in WIDE_AREAS.items():
-        region = next((r for r in REGIONS if r.key == key), None)
-        candidates.append((name, region, note))
+        candidates.append((name, region_by_key(key), note))
     for region in REGIONS:
         for name in (region.key, region.label.replace("·", ""), *region.aliases):
             candidates.append((name, region, ""))
@@ -96,13 +100,10 @@ def resolve_region(query: str | None) -> tuple[Region | None, str]:
     if not text:
         return NATIONWIDE, ""
 
-    def by_key(key: str) -> Region | None:
-        return next((r for r in REGIONS if r.key == key), None)
-
     # 광역 표현을 먼저 봄 — '영동' 처럼 실제 구역과 겹치는 말이 있음
     for name, (key, note) in WIDE_AREAS.items():
         if text == name:
-            return by_key(key), note
+            return region_by_key(key), note
 
     for region in REGIONS:
         canon = {region.key, region.label}
@@ -117,7 +118,7 @@ def resolve_region(query: str | None) -> tuple[Region | None, str]:
 
     for name, (key, note) in WIDE_AREAS.items():
         if name in text:
-            return by_key(key), note
+            return region_by_key(key), note
 
     for region in REGIONS:
         for name in (region.key, *region.aliases):

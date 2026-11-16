@@ -1,6 +1,4 @@
-"""주간 날씨 브리핑을 슬랙 채널에 게시함.
-
-본문(날씨 두 문단 → 철 소식 → 출처 줄)에 카드·지상일기도·철 소식 그림을 붙임.
+"""주간 날씨 브리핑을 슬랙 채널에 게시함 — 헬스체크 → 영역 동시 실행·종합(pipeline) → 전송.
 
     python -m src.weekly.post              # 실제 게시
     python -m src.weekly.post --dry-run    # 슬랙 전송 없이 data/ 에 저장하고 본문만 출력
@@ -14,17 +12,12 @@ import pathlib
 import re
 import sys
 import time
-from dataclasses import dataclass, field
 
 from src.common.config import KST, Config
 from src.common.logsetup import setup
 from src.common.retention import sweep
-from src.kma.chart import fetch_latest_chart
-from src.weekly import themes
-from src.weekly.card import render_png
-from src.weekly.forecast import ForecastError, WeekForecast, build_week
-from src.weekly.paragraph import Message
-from src.weekly.writer import write
+from src.weekly import health, pipeline
+from src.weekly.pipeline import Post
 
 log = logging.getLogger("weekly-weather")
 
@@ -54,15 +47,6 @@ def _md_bullets(text: str) -> str:
     return re.sub(r"^○\s*", "  - ", text, flags=re.M)
 
 
-@dataclass
-class Post:
-    """슬랙에 올릴 한 건. keep 은 uploads 와 같은 순서의 (보존일, 파일명 패턴)."""
-    week: WeekForecast
-    text: str
-    uploads: list[dict] = field(default_factory=list)
-    keep: list[tuple[int, str]] = field(default_factory=list)
-
-
 def main(argv: list[str] | None = None) -> int:
     parser, args = _parse_args(argv)
     setup("weekly-weather")
@@ -72,7 +56,14 @@ def main(argv: list[str] | None = None) -> int:
         # 조용히 무시하면 지정한 자리에서 파일을 찾다 헤맴
         parser.error("--data-dir 은 --dry-run 과 함께 써야 합니다 (실제 게시는 파일을 남기지 않습니다)")
 
-    post = _compose(cfg, dt.datetime.now(tz=KST), args.week_offset)
+    ok = health.check(cfg)
+    if not ok.slack:
+        if not dry_run:
+            log.error("슬랙 점검에 실패해 게시하지 않습니다 — python -m tests.check_credentials 로 확인하세요")
+            return 1
+        log.warning("슬랙 점검에 실패했지만 dry-run 이라 계속합니다")
+
+    post = pipeline.compose(cfg, dt.datetime.now(tz=KST), args.week_offset, can_render=ok.chromium)
     if post is None:
         return 1
     if dry_run:
@@ -97,59 +88,20 @@ def _parse_args(argv: list[str] | None) -> tuple[argparse.ArgumentParser, argpar
     return parser, parser.parse_args(argv)
 
 
-def _compose(cfg: Config, now: dt.datetime, week_offset: int) -> Post | None:
-    try:
-        week = build_week(cfg, now, week_offset=week_offset)
-    except ForecastError as exc:
-        log.error("%s", exc)
-        log.error("지어낸 날씨를 올리지 않기 위해 게시를 건너뜁니다.")
-        return None
-    for warning in week.warnings:
-        log.warning("예보 검증: %s", warning)
-    for n in week.narratives:
-        stamp = f"{n.issued_at:%m/%d %H시}" if n.issued_at else "발표시각 미상"
-        log.info("자료: %s (%s)", n.title, stamp)
-
-    written = write(week, cfg)
-    week.lead, week.sections, week.alerts = written.lead, written.sections, written.alerts
-    log.info("특이사항 %d건", len(week.alerts))
-
-    card_png = render_png(week, scale=cfg.card_scale)
-    chart = fetch_latest_chart(cfg.chart_product, back=5)
-    log.info("카드 %s bytes / 일기도 %s (%s bytes)", f"{len(card_png):,}", chart.url, f"{len(chart.png):,}")
-
-    message = Message(written.body, credits=[f"{chart.label} · 기상청"])
-    for block in themes.blocks_for(week.week_start, now.date(), cfg.card_scale):
-        message.add(block)
-
-    post = Post(week, message.to_slack())
-    post.uploads += [
-        {"filename": f"weekly-weather-{week.week_start:%Y%m%d}.png", "file": card_png,
-         "title": f"이번 주 날씨 전망 ({week.area})", "alt_txt": "이번 주 기온·강수 전망 요약 카드"},
-        {"filename": chart.filename, "file": chart.png, "title": chart.label, "alt_txt": f"기상청 {chart.label}"},
-    ]
-    post.keep += [(cfg.card_keep_days, "weekly-weather-*.png"), (cfg.chart_keep_days, f"{cfg.chart_product}_*.png")]
-    for att in message.attachments:
-        post.uploads.append({"filename": f"{att.slug}-{week.week_start:%Y%m%d}.png", "file": att.png,
-                             "title": att.title, "alt_txt": att.alt})
-        post.keep.append((cfg.card_keep_days, f"{att.slug}-*.png"))   # 카드처럼 다시 만들 수 있음
-    return post
-
-
 def _save_dry_run(post: Post, img_dir: pathlib.Path, channel: str) -> None:
     img_dir.mkdir(parents=True, exist_ok=True)
     saved = []
-    for item, (keep_days, pattern) in zip(post.uploads, post.keep, strict=True):
-        sweep(img_dir, keep_days, pattern=pattern)
-        path = img_dir / item["filename"]
-        path.write_bytes(item["file"])
+    for att in post.attachments:
+        sweep(img_dir, att.keep_days, pattern=att.pattern)
+        path = img_dir / att.filename
+        path.write_bytes(att.png)
         saved.append(path)
     print("=" * 72)
     print(_md_bullets(post.week.as_digest()))
     print("=" * 72)
     print(post.text)
     print("=" * 72)
-    print(f"[dry-run] 채널 {channel} · 첨부 {len(post.uploads)}건")
+    print(f"[dry-run] 채널 {channel} · 첨부 {len(post.attachments)}건")
     for path in saved:
         print(f"           {path}")
 
@@ -158,10 +110,16 @@ def _send(post: Post, cfg: Config) -> int:
     from slack_sdk import WebClient
     from slack_sdk.errors import SlackApiError
 
+    client = WebClient(token=cfg.slack_bot_token)
     try:
-        result = WebClient(token=cfg.slack_bot_token).files_upload_v2(
-            channel=cfg.slack_channel_id, initial_comment=post.text, file_uploads=post.uploads,
-        )
+        if post.attachments:
+            result = client.files_upload_v2(
+                channel=cfg.slack_channel_id, initial_comment=post.text,
+                file_uploads=[att.upload() for att in post.attachments],
+            )
+        else:
+            # 카드·일기도·지도가 모두 빠진 날 — files_upload_v2 는 빈 첨부를 받지 않아 글만 올림
+            result = client.chat_postMessage(channel=cfg.slack_channel_id, text=post.text)
     except SlackApiError as exc:
         err = exc.response.get("error")
         if err in ("not_in_channel", "channel_not_found"):
@@ -175,7 +133,7 @@ def _send(post: Post, cfg: Config) -> int:
         else:
             log.error("슬랙 전송 실패: %s", exc.response.data)
         return 1
-    log.info("게시 완료: %s", (result.get("files") or [{}])[0].get("permalink", ""))
+    log.info("게시 완료: %s", (result.get("files") or [{}])[0].get("permalink", "") or result.get("ts", ""))
     return 0
 
 

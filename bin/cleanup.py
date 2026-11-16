@@ -63,8 +63,13 @@ def main(argv: list[str] | None = None) -> int:
     data_targets = [
         (img_root, _int_env("CARD_KEEP_DAYS", 14), False, "weekly-weather-*.png"),
         (img_root, _int_env("CHART_KEEP_DAYS", 30), False, f"{chart_product}_*.png"),
-        # 단풍 지도는 카드처럼 언제든 다시 만들 수 있음
+        # 철 소식 지도는 카드처럼 언제든 다시 만들 수 있음. 패턴은 지도 모듈 INFO.slug 와 같게 — 철 소식 코드를
+        # 불러오지 않음(정리 타이머가 그쪽 고장에 같이 멈추지 않게)
         (img_root, _int_env("CARD_KEEP_DAYS", 14), False, "foliage-*.png"),
+        (img_root, _int_env("CARD_KEEP_DAYS", 14), False, "snow-*.png"),
+        (img_root, _int_env("CARD_KEEP_DAYS", 14), False, "blossom-*.png"),
+        (img_root, _int_env("CARD_KEEP_DAYS", 14), False, "typhoon-*.png"),
+        (img_root, _int_env("CARD_KEEP_DAYS", 14), False, "heat-*.png"),
     ]
     # *.log* — loguru 가 남기는 .log 와 압축된 .log.gz 를 함께 잡음
     log_target = (log_dir(), _int_env("LOG_KEEP_DAYS", RETENTION_DAYS), True, "*.log*")

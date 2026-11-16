@@ -1,0 +1,197 @@
+"""철 소식 지도의 바탕 — 남한 윤곽(Natural Earth, 퍼블릭 도메인)·투영·라벨·카드 공통 CSS. 태풍 지도는 CSS 만 씀."""
+from __future__ import annotations
+
+import functools
+import html
+import json
+import math
+import re
+from dataclasses import dataclass
+from pathlib import Path
+
+from src.common.browser import CARD_WIDTH
+
+ASSET = Path(__file__).parent / "assets" / "korea_provinces.json"
+# 지도 표지 그림 — Google Noto Emoji(Apache License 2.0, 같은 폴더의 LICENSE). 글꼴에 기대지 않아 서버에 이모지
+# 글꼴이 없어도 같은 그림이 나옴. 원본 파일은 고치지 않고 읽을 때만 다듬음
+EMOJI_DIR = Path(__file__).parent / "assets" / "noto-emoji"
+EMOJI = {"maple": "emoji_u1f341.svg", "fallen": "emoji_u1f342.svg", "snow": "emoji_u2744.svg",   # 🍁 🍂 ❄️
+         "blossom": "emoji_u1f338.svg",                                                          # 🌸
+         "hot": "emoji_u1f975.svg"}                                                              # 🥵
+
+
+@dataclass(frozen=True)
+class MapInfo:
+    """지도마다 다른 이름표. slug 는 올릴 파일 이름 앞부분이자 보존 정리 패턴(slug-*.png)임.
+
+    heading 은 «X 지도» 대신 쓸 그림 이름 — 그림이 빠지면 출처 줄은 name 만 씀.
+    """
+    name: str
+    slug: str
+    alt: str
+    heading: str = ""
+
+    @property
+    def title(self) -> str:
+        return self.heading or f"{self.name} 지도"
+
+# 위도 36° 기준 등장방형 — 남한만 그려 이것으로 충분함
+LON0, LON1, LAT0, LAT1 = 124.55, 130.35, 33.05, 38.68
+_K = math.cos(math.radians(36))
+_S = 74.0
+MAP_W = (LON1 - LON0) * _K * _S
+MAP_H = (LAT1 - LAT0) * _S
+INSET = {"x": MAP_W - 60, "y": 70.0, "w": 56.0, "h": 46.0}
+INSET_LON = 130.5            # 이보다 동쪽(울릉도·독도)은 상자 안에 그림
+
+Box = tuple[float, float, float, float]       # 왼쪽 · 위 · 오른쪽 · 아래 (픽셀)
+INSET_BOX: Box = (INSET["x"], INSET["y"], INSET["x"] + INSET["w"], INSET["y"] + INSET["h"])
+LABEL_PX = 11.5              # .lbl 글자 크기
+# 라벨 자리 → (dx, dy 바탕선, 글자 기준점 0 왼쪽·0.5 가운데·1 오른쪽). 대각선은 더위 지도가 빈자리를 찾을 때만 씀
+OFFSETS = {"r": (11, 4, 0.0), "l": (-11, 4, 1.0), "t": (0, -11, 0.5), "b": (0, 19, 0.5),
+           "tr": (7, -7, 0.0), "br": (7, 15, 0.0), "tl": (-7, -7, 1.0), "bl": (-7, 15, 1.0)}
+_ANCHOR = {0.0: "start", 0.5: "middle", 1.0: "end"}
+
+
+def proj(lon: float, lat: float) -> tuple[float, float]:
+    return (lon - LON0) * _K * _S, (LAT1 - lat) * _S
+
+
+def proj_inset(lon: float, lat: float) -> tuple[float, float]:
+    # 울릉도는 실제 축척 그대로 상자 왼쪽에 둠
+    return INSET["x"] + 10 + (lon - 130.80) * _K * _S, INSET["y"] + 12 + (37.56 - lat) * _S
+
+
+def place(lon: float, lat: float) -> tuple[float, float]:
+    return proj_inset(lon, lat) if lon > INSET_LON else proj(lon, lat)
+
+
+def _path(ring: list[list[float]]) -> str:
+    return "M" + "L".join(f"{x:.1f},{y:.1f}" for x, y in (place(lon, lat) for lon, lat in ring)) + "Z"
+
+
+def nudge(x: float, y: float, side: str, pad: float) -> tuple[float, float]:
+    """점을 라벨 쪽으로 pad 만큼 민 자리 — 고리 두른 점의 라벨을 고리 밖으로 뺄 때."""
+    return (x + (pad if "r" in side else -pad if "l" in side else 0),
+            y + (-pad if "t" in side else pad if "b" in side else 0))
+
+
+def label(x: float, y: float, text: str, side: str, strong: bool) -> str:
+    """점 옆 이름. side 는 OFFSETS 의 자리(점의 어느 쪽에 붙는지)."""
+    dx, dy, anchor = OFFSETS[side]
+    cls = "lbl strong" if strong else "lbl"
+    return (f'<text class="{cls}" x="{x + dx:.1f}" y="{y + dy:.1f}" text-anchor="{_ANCHOR[anchor]}">'
+            f'{html.escape(text)}</text>')
+
+
+def text_box(x: float, y: float, text: str, anchor: float = 0.0, size: float = LABEL_PX) -> Box:
+    """(x, y) 바탕선에 anchor(0 왼쪽 · 0.5 가운데 · 1 오른쪽)로 쓴 글자의 어림 상자."""
+    scale = size / 10.5
+    # 10.5px 글꼴에서 넉넉히 어림한 폭 — 작게 잡으면 겹침. 글자 상자는 바탕선 위 9 · 아래 2
+    width = sum(10.6 if "가" <= c <= "힣" else 6.3 if c.isalnum() else 3.2 for c in text) * scale
+    left = x - width * anchor
+    return left, y - 9 * scale, left + width, y + 2 * scale
+
+
+def label_box(x: float, y: float, text: str, side: str, size: float = LABEL_PX) -> Box:
+    """label(x, y, text, side) 로 그린 라벨의 어림 상자."""
+    dx, dy, anchor = OFFSETS[side]
+    return text_box(x + dx, y + dy, text, anchor, size)
+
+
+def hits(a: Box, b: Box) -> bool:
+    return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
+
+
+def frame(inner: str, aria_label: str) -> str:
+    """바탕 지도를 깐 SVG. 지도 끝에 붙은 점(백령도)이 잘리지 않게 카드 여백까지 그림."""
+    return (f'<svg width="{MAP_W:.0f}" height="{MAP_H:.0f}" viewBox="0 0 {MAP_W:.0f} {MAP_H:.0f}" '
+            f'overflow="visible" role="img" aria-label="{aria_label}">{basemap()}{inner}</svg>')
+
+
+@functools.cache
+def _emoji_body(name: str) -> str:
+    """그림의 안쪽만. 한 SVG 에 여럿 넣어도 그러데이션이 섞이지 않게 id 에 이름을 붙이고, Illustrator 자료는 뺌."""
+    text = (EMOJI_DIR / EMOJI[name]).read_text(encoding="latin-1")      # 🍁 원본이 iso-8859-1 로 선언됨
+    body = re.search(r"<svg[^>]*>(.*)</svg>", text, re.S).group(1)
+    body = re.sub(r"<i:(\w+)[^>]*>.*?</i:\1>", "", body, flags=re.S)      # 50KB 남짓한 편집기 자료
+    body = re.sub(r'\si:\w+="[^"]*"', "", body)
+    body = re.sub(r'id="([^"]+)"', rf'id="{name}-\1"', body)
+    return re.sub(r"url\(#([^)]+)\)", rf"url(#{name}-\1)", body)
+
+
+def emoji(name: str, x: float, y: float, size: float, opacity: float = 1.0) -> str:
+    """(x, y) 가운데에 size 크기로 그린 Noto 이모지 — 원본 보기 상자는 128×128."""
+    faded = f' opacity="{opacity}"' if opacity < 1 else ""
+    return (f'<svg x="{x - size / 2:.1f}" y="{y - size / 2:.1f}" width="{size:.1f}" height="{size:.1f}" '
+            f'viewBox="0 0 128 128"{faded}>{_emoji_body(name)}</svg>')
+
+
+@functools.cache
+def basemap() -> str:
+    doc = json.loads(ASSET.read_text(encoding="utf-8"))
+    main, islands = [], []
+    for prov in doc["provinces"]:
+        d_main = "".join(_path(r) for r in prov["rings"] if r[0][0] <= INSET_LON)
+        d_isl = "".join(_path(r) for r in prov["rings"] if r[0][0] > INSET_LON)
+        if d_main:
+            main.append(f'<path d="{d_main}"/>')
+        if d_isl:
+            islands.append(f'<path d="{d_isl}"/>')
+    x, y, w, h = INSET["x"], INSET["y"], INSET["w"], INSET["h"]
+    dokdo_x, dokdo_y = x + w - 12, y + 22   # 원자료에 없어 점만 — 실제 거리로는 상자 밖
+    return (
+        f'<g class="land">{"".join(main)}</g>'
+        f'<rect x="{x:.1f}" y="{y:.1f}" width="{w}" height="{h}" rx="4" fill="none" '
+        f'stroke="#c3c2b7" stroke-width="1" stroke-dasharray="3 2"/>'
+        f'<g class="land">{"".join(islands)}</g>'
+        f'<circle cx="{dokdo_x:.1f}" cy="{dokdo_y:.1f}" r="1.8" fill="#d9d7cf"/>'
+        f'<text class="inset" x="{x + w / 2:.1f}" y="{y + h - 5:.1f}" text-anchor="middle">울릉도·독도</text>'
+    )
+
+
+# 카드 틀·지도·표 — 지도마다 다른 것(.lead 바탕색·이번 주 칸 색 --week·표 칸)은 각 지도에서 덧붙임
+BASE_CSS = f"""
+* {{ box-sizing: border-box; margin: 0; padding: 0; }}
+body {{ background: #ffffff; }}
+#card {{
+  --ink: #0b0b0b; --ink2: #52514e; --muted: #898781; --hair: #e1e0d9;
+  width: {CARD_WIDTH}px; padding: 22px 24px 18px; background: #ffffff;
+  font-family: 'Apple SD Gothic Neo', 'Noto Sans KR', 'Noto Sans CJK KR', 'Malgun Gothic', sans-serif;
+  color: var(--ink); line-height: 1.6; font-size: 14px; -webkit-font-smoothing: antialiased;
+  word-break: keep-all;   /* 한국어는 낱말 단위로 줄을 바꾼다 ("첫단|풍" 방지) */
+}}
+.head {{ display: flex; align-items: baseline; gap: 10px; }}
+h1 {{ font-size: 19px; font-weight: 700; letter-spacing: -0.2px; }}
+.period {{ color: var(--ink2); font-size: 13.5px; }}
+h2 {{ font-size: 14px; font-weight: 700; margin-bottom: 4px; }}
+.muted {{ color: var(--muted); }}
+.lead {{ margin: 8px 0 14px; padding: 9px 12px; border-radius: 8px; font-size: 13.5px; }}
+.lead div {{ display: flex; }}
+.lead div + div {{ margin-top: 2px; }}
+.lead .k {{ flex: none; width: 56px; color: var(--ink2); font-size: 12.5px; padding-top: 1px; }}
+.body {{ display: flex; gap: 18px; align-items: flex-start; }}
+.map {{ flex: none; }}
+.land path {{ fill: #eeede8; stroke: #ffffff; stroke-width: 1; stroke-linejoin: round; }}
+.lbl {{ font-size: 11.5px; fill: var(--ink2); paint-order: stroke; stroke: #ffffff;
+        stroke-width: 3px; stroke-linejoin: round; }}
+.lbl.strong {{ fill: var(--ink); font-weight: 700; }}
+.inset {{ font-size: 9px; fill: var(--muted); }}
+.legend {{ display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font-size: 12px; color: var(--ink2); }}
+.legend span {{ display: inline-flex; align-items: center; gap: 4px; }}
+table {{ border-collapse: collapse; width: 100%; font-size: 12.5px; font-variant-numeric: tabular-nums; }}
+caption {{ text-align: left; font-size: 12px; color: var(--ink2); padding-bottom: 6px; }}
+caption b {{ color: var(--ink); }}
+thead th {{ font-weight: 600; color: var(--ink2); text-align: left; font-size: 12px;
+            border-bottom: 1px solid #c3c2b7; padding: 0 4px 4px; }}
+tbody tr {{ line-height: 1.4; }}
+tbody th {{ text-align: left; font-weight: 600; padding: 1px 4px; white-space: nowrap; }}
+tbody td {{ padding: 1px 4px; white-space: nowrap; }}
+tbody tr + tr > * {{ border-top: 1px solid #f0efec; }}
+.obs {{ font-weight: 700; color: var(--ink); }}
+.prd.week {{ color: var(--ink); font-weight: 600; background: var(--week); border-radius: 4px; padding: 0 4px;
+             margin: 0 -4px; }}
+.none {{ color: #c3c2b7; }}
+.foot {{ margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--hair);
+         font-size: 11.5px; color: var(--muted); line-height: 1.55; }}
+"""

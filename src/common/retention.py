@@ -21,7 +21,6 @@ def sweep(
     pattern: str = "*",
     recursive: bool = False,
     dry_run: bool = False,
-    now: dt.datetime | None = None,
 ) -> list[tuple[Path, int]]:
     """`keep_days` 보다 오래된 파일을 지우고 `(경로, 지우기 전 바이트)` 목록을 돌려줌.
 
@@ -34,8 +33,7 @@ def sweep(
     if not root.is_dir():
         return []
 
-    now = now or dt.datetime.now()
-    cutoff = (now - dt.timedelta(days=keep_days)).timestamp()
+    cutoff = (dt.datetime.now() - dt.timedelta(days=keep_days)).timestamp()
 
     found = root.rglob(pattern) if recursive else root.glob(pattern)
     removed: list[tuple[Path, int]] = []

@@ -4,11 +4,10 @@ from __future__ import annotations
 import datetime as dt
 import logging
 
-from src.advice.rules import detect_topic
+from src.advice.topics import detect_topic
 from src.common.text import bold, short_date
 from src.kma.regions import extract_region
-from src.mention.dong_reply import _dong_reply
-from src.mention.foliage_note import _snapshot_quietly
+from src.mention.foliage.note import _snapshot_quietly
 from src.mention.parse import (
     DONG_MAX_DAYS,
     FLOWER_RE,
@@ -17,28 +16,36 @@ from src.mention.parse import (
     RECENT_RE,
     TRIP_SPANS,
     WEATHER_ASK_RE,
+    Period,
     _period,
 )
+from src.mention.reply import Reply, with_map
 from src.mention.texts import NO_EMOJI
-from src.season import foliage
-from src.season.foliage import (
+from src.mention.weather.dong import _quiet_dong_reply
+from src.season.foliage import data as foliage
+from src.season.foliage import map as foliage_map
+from src.season.foliage.data import (
     CRITERIA_TEXT,
     KINDS,
     NOT_STARTED_TEXT,
-    SEASON_TEXT,
+    OFF_SEASON_TEXT,
     STAGES,
     FoliageError,
     Snapshot,
-    in_season,
-    next_season,
 )
-from src.season.foliage import KMA_PAGE as KMA_FOLIAGE_PAGE
-from src.season.foliage_text import gap_text, observed_line, sources, week_line
-from src.season.mountains import (
+from src.season.foliage.data import KMA_PAGE as KMA_FOLIAGE_PAGE
+from src.season.foliage.mountains import (
     MOUNTAINS,
     Mountain,
     find_mountain,
     unknown_mountain,
+)
+from src.season.foliage.text import (
+    gap_text,
+    observed_line,
+    peak_age,
+    sources,
+    week_line,
 )
 from src.season.sources import OUTLOOK_SOURCE
 
@@ -66,6 +73,9 @@ def _stage_line(snap: Snapshot, kind: str, name: str, today: dt.date) -> str:
 def _mountain_text(snap: Snapshot, m: Mountain, today: dt.date) -> str:
     if snap.status.in_service:
         head = f"*{m.name}* 단풍 — 지금 *{STAGES[snap.stage(m.name)]}* (기상청 관측)"
+        # 기상청은 낙엽을 관측하지 않음 — 졌는지 대신 절정 사진 뒤 지난 날수를 사실로
+        if age := peak_age(snap, m.name, today):
+            head += f" · 절정 관측 뒤 {age}일"
     else:
         head = f"*{m.name}* 단풍 — {NOT_STARTED_TEXT}"
     return "\n".join([
@@ -86,22 +96,22 @@ def _overview_text(snap: Snapshot, today: dt.date, unknown: str | None) -> str:
         ]
     lines += [
         f"*단풍 현황* ({short_date(today)} 기준)",
-        f"• 관측 — {observed_line(snap, bold)}",
+        f"• 관측 — {observed_line(snap, bold, day=today)}",
         f"• 앞으로 7일 — {week_line(snap, today, end, bold, muted=lambda s: s)}",
         f"_{sources(snap)} · 산 이름을 함께 불러 주시면 그 산만 자세히 알려드려요_",
     ]
     return "\n".join(lines)
 
 
-def _theme(query: str, now: dt.datetime) -> tuple[str, Snapshot | None] | None:
-    """단풍·꽃 질문이면 (답, 지도로 그릴 현황 또는 None), 아니면 None."""
+def foliage_theme(query: str, now: dt.datetime) -> Reply | None:
+    """단풍·꽃 질문이면 답(전국 현황은 지도와 함께), 아니면 None."""
     today = now.date()
     asks_weather = bool(WEATHER_ASK_RE.search(query))
     if FLOWER_RE.search(query) and not FOLIAGE_RE.search(query):
         if asks_weather:
             return None                   # 꽃구경 날의 날씨 — 날씨로 답함
-        return (f"꽃 개화 소식은 다루지 않습니다. {NO_EMOJI}\n"
-                f"기상청 봄꽃 개화 현황(3월 초~5월 하순)에서 보실 수 있어요 — {FLOWER_URL}"), None
+        return Reply(f"꽃 개화 소식은 다루지 않습니다. {NO_EMOJI}\n"
+                     f"기상청 봄꽃 개화 현황(3월 초~5월 하순)에서 보실 수 있어요 — {FLOWER_URL}")
     if not FOLIAGE_RE.search(query):
         return None
 
@@ -110,22 +120,20 @@ def _theme(query: str, now: dt.datetime) -> tuple[str, Snapshot | None] | None:
     if mountain is None and asks_weather and extract_region(query)[0] is not None:
         return None
 
-    if not in_season(today):
-        start, _ = next_season(today)
-        # 단풍철은 늘 월요일(9월 둘째 월요일)에 시작
-        when = (f"올해는 {short_date(start)}(월)부터입니다" if start.year == today.year
-                else f"다음은 {start.year}년 {short_date(start)}(월)부터입니다")
-        return f"단풍 소식은 *{SEASON_TEXT}* 에만 전해드립니다. {NO_EMOJI}\n_{when}._", None
-
     try:
         snap = foliage.fetch_snapshot(today)
     except FoliageError as exc:
         log.warning("단풍 현황 실패: %s", exc)
-        return ("기상청 단풍 현황을 가져오지 못했습니다. 잠시 뒤 다시 불러 주세요.\n"
-                f"기상청에서 직접 보실 수 있어요 — {KMA_FOLIAGE_PAGE}"), None
+        return Reply("기상청 단풍 현황을 가져오지 못했습니다. 잠시 뒤 다시 불러 주세요.\n"
+                     f"기상청에서 직접 보실 수 있어요 — {KMA_FOLIAGE_PAGE}")
+    # 기간은 자료가 정함 — 기상청이 관측을 접었고 올해 예상도 지났으면 철이 아님
+    if not snap.showing(today):
+        return Reply(f"{OFF_SEASON_TEXT}. {NO_EMOJI}")
 
     if mountain is None:
-        return _overview_text(snap, today, unknown_mountain(query)), snap
+        return with_map(_overview_text(snap, today, unknown_mountain(query)), foliage_map.INFO,
+                        ("foliage-map", today, snap.signature()),
+                        lambda: foliage_map.render_png(snap, today, span_label="앞으로 7일"))
 
     text = _mountain_text(snap, mountain, today)
     # '요즘' 은 '지금' 처럼 단풍 상태를 묻는 말 — 이번 주로 읽어 날씨를 붙이지 않음
@@ -135,20 +143,21 @@ def _theme(query: str, now: dt.datetime) -> tuple[str, Snapshot | None] | None:
         if not trip:
             start, days = today, DONG_MAX_DAYS - 1
         text += f"\n\n{_mountain_weather(mountain, start, days)}"
-    return text, None
+    return Reply(text)
 
 
 def _mountain_weather(m: Mountain, start: dt.date, days: int) -> str:
-    weather = _dong_reply(m.zone, f"{m.name} 아래 {m.zone_name}", days, start, quiet=True)
+    weather = _quiet_dong_reply(m.zone, f"{m.name} 아래 {m.zone_name}", days, start)
     return (f"{weather}\n_산 아래 마을 예보입니다. 산 위는 이보다 춥고 바람이 셉니다._" if weather
             else f"_산 아래 마을 날씨는 가져오지 못했습니다 (동네예보는 오늘부터 {DONG_MAX_DAYS}일까지)._")
 
 
-def _mountain_reply(m: Mountain, start: dt.date, days: int, title: str, today: dt.date) -> str:
+def _mountain_reply(m: Mountain, period: Period, today: dt.date) -> str:
     """단풍 말 없이 산 이름으로 물은 답 ("설악산", "주말 지리산 등산") — 날씨가 먼저, 단풍은 덧붙임."""
-    if title.startswith("앞으로"):
+    start, days = period.start, period.days
+    if period.title.startswith("앞으로"):
         start, days = today, DONG_MAX_DAYS - 1
     text = _mountain_weather(m, start, days)
-    if in_season(today) and (snap := _snapshot_quietly(today)):
+    if (snap := _snapshot_quietly(today)) and snap.showing(today):
         text += f"\n\n{_mountain_text(snap, m, today)}"
     return text

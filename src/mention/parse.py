@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+from typing import NamedTuple
 
 from src.kma.page import _resolve_date
+from src.season.weeks import week_start_of
 
 MENTION_RE = re.compile(r"<@[A-Z0-9]+>")
 
@@ -126,11 +128,18 @@ def _explicit_date(query: str, today: dt.date) -> dt.date | None:
     return None
 
 
-def _period(query: str, now: dt.datetime) -> tuple[dt.date, int, str]:
-    """질문에서 기간을 읽음 → (시작일, 일수, 머리글)."""
+class Period(NamedTuple):
+    """물은 기간 — 답의 머리글(title)도 함께."""
+    start: dt.date
+    days: int
+    title: str
+
+
+def _period(query: str, now: dt.datetime) -> Period:
+    """질문에서 기간을 읽음."""
     today = now.date()
     days = FORWARD_DAYS
-    monday = today - dt.timedelta(days=today.weekday())
+    monday = week_start_of(today)
     explicit = _explicit_date(query, today)
     if explicit is not None:
         start, title, days = explicit, f"{explicit:%-m월 %-d일}", 1
@@ -155,11 +164,14 @@ def _period(query: str, now: dt.datetime) -> tuple[dt.date, int, str]:
         if NEXT_WEEK_RE.search(query) or saturday < today:
             saturday += dt.timedelta(days=7)
         start, days, title = saturday, 2, "주말"
-    return start, days, title
+    return Period(start, days, title)
 
 
-# --- 단풍 ---------------------------------------------------------------------
+# --- 단풍·첫눈 ----------------------------------------------------------------
 FOLIAGE_RE = re.compile(r"단풍|물들|물드")
+
+
+SNOW_RE = re.compile(r"첫\s*눈")
 
 
 FLOWER_RE = re.compile(

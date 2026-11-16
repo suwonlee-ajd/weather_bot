@@ -7,11 +7,33 @@ from typing import Any, Callable
 
 _LOCK = threading.Lock()
 _STORE: dict[Any, tuple[float, Any]] = {}     # key → (만료 시각, 값)
+_FLIGHTS: dict[Any, _Flight] = {}             # key → 지금 만드는 중인 한 번
 
 
 class _Failure:
+    """예외 객체 대신 종류와 인자만 — traceback 이 받은 응답 본문까지 붙들고 있지 않게."""
     def __init__(self, exc: BaseException):
-        self.exc = exc
+        self.kind, self.args, self.text = type(exc), exc.args, str(exc)
+
+    def reraise(self):
+        try:
+            exc = self.kind(*self.args)
+        except Exception:
+            # 인자로 다시 못 만드는 예외(JSONDecodeError 등) — 종류는 살려 부른 쪽 except 에 그대로 걸리게
+            try:
+                exc = self.kind.__new__(self.kind)
+                exc.args = self.args
+            except Exception:
+                exc = RuntimeError(self.text)
+        raise exc
+
+
+class _Flight:
+    """한 번의 만들기 — 기다린 쪽은 성공이든 실패든 같은 결과를 받음."""
+    def __init__(self):
+        self.done = threading.Event()
+        self.value: Any = None
+        self.failure: _Failure | None = None
 
 
 def get_or_set(
@@ -22,25 +44,43 @@ def get_or_set(
     errors: tuple[type[BaseException], ...] = (),
     error_ttl: int = 0,
 ) -> Any:
-    """`errors` 예외는 `error_ttl` 초 동안 기억해 다시 던짐 — 실패할 때마다 같은 페이지를 다시 받지 않게."""
+    """`errors` 예외는 `error_ttl` 초 동안 기억해 다시 던짐 — 실패할 때마다 같은 페이지를 다시 받지 않게.
+
+    같은 키를 동시에 찾으면 하나만 만들고 나머지는 그 결과를 기다림 — 멘션이 몰릴 때 느린 페이지를 답마다
+    따로 받지 않게. 만드는 동안 전체 락은 쥐지 않아 다른 키는 그대로 읽힘.
+    """
     now = time.monotonic()
+    # 저장소 확인과 만들기 등록을 한 락 안에서 — 앞선 만들기가 그 사이 끝나도 다시 만들지 않음
     with _LOCK:
         hit = _STORE.get(key)
-    if hit and now < hit[0]:
+        fresh = hit is not None and now < hit[0]
+        flight = None if fresh else _FLIGHTS.get(key)
+        leading = not fresh and flight is None
+        if leading:
+            flight = _FLIGHTS[key] = _Flight()
+    if fresh:
         if isinstance(hit[1], _Failure):
-            exc = hit[1].exc
-            raise type(exc)(*exc.args)
+            hit[1].reraise()
         return hit[1]
+    if not leading:
+        flight.done.wait()
+        if flight.failure:
+            flight.failure.reraise()
+        return flight.value
 
-    # 락 밖에서 만듦 — 같은 키가 두 번 만들어질 수는 있어도 네트워크 호출 동안 락을 쥐지 않음
     try:
-        value = producer()
-    except errors as exc:
-        if error_ttl > 0:
-            _store(key, now + error_ttl, _Failure(exc), now)
+        flight.value = producer()
+        _store(key, now + ttl_sec, flight.value, now)
+        return flight.value
+    except BaseException as exc:
+        flight.failure = _Failure(exc)
+        if isinstance(exc, errors) and error_ttl > 0:
+            _store(key, now + error_ttl, flight.failure, now)
         raise
-    _store(key, now + ttl_sec, value, now)
-    return value
+    finally:
+        with _LOCK:
+            del _FLIGHTS[key]
+        flight.done.set()
 
 
 def _store(key: Any, expires: float, value: Any, now: float) -> None:

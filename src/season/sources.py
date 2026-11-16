@@ -1,4 +1,4 @@
-"""단풍·벚꽃 공통 수집 — 기상청 계절 관측(JSONP)과 웨더아이 예상 게시물(PDF)."""
+"""철 소식 공통 수집 — 요청(get), 기상청 계절 관측(JSONP), 웨더아이 예상 게시물(PDF)."""
 from __future__ import annotations
 
 import datetime as dt
@@ -91,6 +91,15 @@ def posted_on(post_html: str, year: int) -> dt.date | None:
     """게시일 — 날짜 칸 글자색으로 찾음. 특보 띠에도 오늘 날짜가 있고 작성자 칸이 빈 해도 있음."""
     m = re.search(rf"#124c78\">\s*({year})-(\d{{2}})-(\d{{2}})", post_html)
     return dt.date(*map(int, m.groups())) if m else None
+
+
+def iso_dates(days: dict[str, dt.date]) -> dict[str, str]:
+    """읽은 표를 디스크 캐시(common.store)에 남길 꼴로 — 날짜는 ISO 글자."""
+    return {name: day.isoformat() for name, day in days.items()}
+
+
+def parse_dates(raw: dict[str, str]) -> dict[str, dt.date]:
+    return {name: dt.date.fromisoformat(day) for name, day in raw.items()}
 
 
 def pdf_text(blob: bytes, error: type[Exception]) -> str:

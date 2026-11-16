@@ -17,8 +17,9 @@ from slack_sdk.errors import SlackApiError
 
 from src.common.config import KST
 from src.common.logsetup import setup
-from src.mention.answer import Reply, answer
-from src.mention.region_reply import CACHE_TTL_SEC
+from src.mention.answer import answer
+from src.mention.forecast import CACHE_TTL_SEC
+from src.mention.reply import Reply
 from src.mention.texts import _SELF
 
 log = logging.getLogger("weather-mention")
@@ -147,7 +148,7 @@ def _upload_map(client, where: Thread, res: Reply, loading_ts: str | None) -> bo
     try:
         client.files_upload_v2(
             channel=where.channel, thread_ts=where.ts, initial_comment=res.text, file=res.image,
-            filename=f"foliage-{dt.datetime.now(tz=KST):%Y%m%d}.png", title="단풍 지도",
+            filename=f"{res.slug}-{dt.datetime.now(tz=KST):%Y%m%d}.png", title=res.title,
         )
     except Exception as exc:
         error = exc.response.get("error") if isinstance(exc, SlackApiError) else repr(exc)

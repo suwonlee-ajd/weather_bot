@@ -17,14 +17,7 @@ from src.advice.phrases import (
     RAIN_LINES,
     SPECIAL,
     SPREAD_LINES,
-    UMBRELLA_NO_LINES,
-    UMBRELLA_YES_LINES,
     WARM_LINES,
-    WEAR_COLD_LINES,
-    WEAR_MILD_LINES,
-    WEAR_RAIN_LINES,
-    WEAR_SPREAD_LINES,
-    WEAR_WARM_LINES,
 )
 
 T = TypeVar("T")
@@ -66,30 +59,10 @@ def _days_text(ds) -> str:
 # «평년 대비 대용물» 은 9월에 맞춘 절대 기온이라 철이 바뀌면 어긋남(제대로는 기상청 평년값과의 편차).
 BIG_SPREAD = 12.0      # 일교차 (도) — 평년 대비의 대용물
 COLD_MORNING = 5.0     # 아침 최저 (도) — 방한 조언 기준. 기상청 한파특보 기준이 아니라 자체 기준
-HEAT_WAVE = 33.0       # 폭염주의보 기준 (도) — 기상청 기준이므로 고정
+HEAT_WAVE = 33.0       # 폭염일 기준 (도) — 기상청 기후통계 정의라 고정. 폭염특보는 체감온도 기준이라 다름
 WARM_DAY = 30.0        # 낮 기온 (도) — 평년 대비의 대용물
 RAIN_LIKELY = 60       # 강수확률 (%)
 CHILLY_MORNING = 10.0  # 아침 최저 (도) — 평년 대비의 대용물
-
-
-TOPICS: dict[str, tuple[str, ...]] = {
-    # '입' 은 자주 오는 활용형만 — 어미를 일일이 적을 수는 없음
-    "옷차림": ("뭐 입", "옷", "입고", "입어", "입을", "입나", "입지", "입어야", "입야",
-             "복장", "차림", "겉옷", "코트", "패딩", "반팔", "우비"),
-    "우산": ("우산", "비 와", "비와", "비 올", "비올", "장화", "방수"),
-    "야외": ("등산", "산행", "캠핑", "나들이", "소풍", "피크닉", "운동", "러닝",
-             "자전거", "골프", "낚시", "바다", "해변", "야외", "산책", "축제"),
-    "빨래": ("빨래", "세탁", "건조"),
-    "세차": ("세차",),
-}
-
-
-def detect_topic(text: str) -> str | None:
-    flat = (text or "").replace(" ", "")
-    for topic, words in TOPICS.items():
-        if any(w.replace(" ", "") in flat for w in words):
-            return topic
-    return None
 
 
 RAIN = "비"
@@ -118,86 +91,30 @@ def _spread(day) -> float | None:
     return sum(highs) / len(highs) - sum(lows) / len(lows)
 
 
-def topic_advice(topic: str, days, region: str = "") -> list[Advice]:
-    usable = [d for d in days if d.tmin_lo is not None and d.tmax_hi is not None]
-    if not usable:
-        return []
-
-    rainy = [d for d in usable if (d.pop or 0) >= RAIN_LIKELY
-             or any(w in (d.sky or "") for w in ("비", "눈", "소나기"))]
-    clear = [d for d in usable if "맑" in (d.sky or "") and (d.pop or 0) < 30]
-    coldest = min(usable, key=lambda d: d.tmin_lo)
-    hottest = max(usable, key=lambda d: d.tmax_hi)
-    # 가장 이른 날로 고름 — 같은 기간이면 몇 번 물어도 같은 문장
-    ref = min(d.date for d in usable)
-
-    if topic == "우산":
-        if rainy:
-            return [Advice(":umbrella_with_rain_drops:",
-                           _pick(UMBRELLA_YES_LINES, ref, region).format(days=_days_text(rainy)))]
-        return [Advice(":sunny:", _pick(UMBRELLA_NO_LINES, ref, region))]
-
-    if topic == "옷차림":
-        out = []
-        spread = max((v for d in usable if (v := _spread(d)) is not None), default=0)
-        if spread >= BIG_SPREAD:
-            out.append(Advice(":thermometer:", _pick(WEAR_SPREAD_LINES, ref, region).format(
-                lo=coldest.tmin_lo, hi=hottest.tmax_hi, gap=spread)))
-        elif coldest.tmin_lo <= COLD_MORNING:
-            out.append(Advice(":cold_face:",
-                              _pick(WEAR_COLD_LINES, ref, region).format(t=coldest.tmin_lo)))
-        elif hottest.tmax_hi >= WARM_DAY:
-            out.append(Advice(":sunny:",
-                              _pick(WEAR_WARM_LINES, ref, region).format(t=hottest.tmax_hi)))
-        else:
-            out.append(Advice(":relieved:", _pick(WEAR_MILD_LINES, ref, region).format(
-                lo=coldest.tmin_lo, hi=hottest.tmax_hi)))
-        if rainy:
-            out.append(Advice(":umbrella_with_rain_drops:",
-                              _pick(WEAR_RAIN_LINES, ref, region).format(days=_days_text(rainy))))
-        return out
-
-    if topic == "야외":
-        if rainy:
-            fine = [d for d in usable if d not in rainy]
-            tip = f"{_days_text(rainy)}에 비 소식이 있습니다."
-            if fine:
-                tip += f" {_days_text(fine)}이 나아 보여요."
-            return [Advice(":umbrella_with_rain_drops:", tip)]
-        if hottest.tmax_hi >= HEAT_WAVE:
-            return [Advice(":sun_with_face:",
-                           f"낮 최고 {hottest.tmax_hi:.0f}도까지 올라 한낮 활동은 무리입니다. "
-                           "이른 아침이나 해질 무렵이 낫겠어요.")]
-        best = clear or usable
-        return [Advice(":sunny:",
-                       f"{_days_text(best)}이 좋겠습니다. "
-                       f"아침 {coldest.tmin_lo:.0f}도로 쌀쌀하니 겉옷 하나 챙기세요.")]
-
-    if topic in ("빨래", "세차"):
-        if rainy:
-            fine = [d for d in usable if d not in rainy]
-            tip = f"{_days_text(rainy)}에 비 소식이 있어 피하시는 게 좋겠습니다."
-            if fine:
-                tip += f" {_days_text(fine)}을 노려보세요."
-            return [Advice(":umbrella_with_rain_drops:", tip)]
-        if clear:
-            what = "잘 마르겠습니다" if topic == "빨래" else "괜찮겠습니다"
-            return [Advice(":sunny:", f"{_days_text(clear)}이 맑아 {what}.")]
-        return [Advice(":cloud:", "당분간 흐리지만 비 소식은 없습니다.")]
-
-    return []
+def rainy_days(days) -> list:
+    """강수확률이 높거나 하늘상태에 비·눈이 든 날."""
+    return [d for d in days if (d.pop or 0) >= RAIN_LIKELY
+            or any(w in (d.sky or "") for w in ("비", "눈", "소나기"))]
 
 
-def _dated(emoji: str, kind: str, lines, date: dt.date, value: float, region: str,
-           *, labeled: bool = True) -> Advice | None:
-    picked = _pick_pair(lines, date, region)
+@dataclass(frozen=True)
+class _Temp:
+    """기온 조언 한 갈래."""
+    emoji: str
+    kind: str                                      # TEMP_STEMS 의 키
+    lines: tuple[tuple[str, ...], tuple[str, ...]]
+    labeled: bool = True                           # 사실 앞에 날짜를 붙임
+
+
+def _dated(temp: _Temp, date: dt.date, value: float, region: str) -> Advice | None:
+    picked = _pick_pair(temp.lines, date, region)
     if not picked:
         return None
     fact, act = picked
     fact = fact.format(gap=value, t=value)
-    if labeled:
+    if temp.labeled:
         fact = f"*{date:%m/%d}* {fact}"
-    return Advice(emoji, fact, act, kind, (date,), value)
+    return Advice(temp.emoji, fact, act, temp.kind, (date,), value)
 
 
 def build_advice(days, narratives=None, region: str = "") -> list[Advice]:
@@ -209,24 +126,23 @@ def build_advice(days, narratives=None, region: str = "") -> list[Advice]:
     spreads = [(d, s) for d in usable if (s := _spread(d)) is not None]
     coldest = min(usable, key=lambda d: d.tmin_lo)
     hottest = max(usable, key=lambda d: d.tmax_hi)
-    rainy = [d for d in usable if (d.pop or 0) >= RAIN_LIKELY
-             or any(w in (d.sky or "") for w in ("비", "눈", "소나기"))]
+    rainy = rainy_days(usable)
 
     if spreads:
         worst, gap = max(spreads, key=lambda pair: pair[1])
         if gap >= BIG_SPREAD:
-            out.append(_dated(":thermometer:", "일교차", SPREAD_LINES, worst.date, gap, region))
+            out.append(_dated(_Temp(":thermometer:", "일교차", SPREAD_LINES), worst.date, gap, region))
 
     if coldest.tmin_lo <= COLD_MORNING:
-        out.append(_dated(":cold_face:", "추위", COLD_LINES, coldest.date, coldest.tmin_lo, region))
+        out.append(_dated(_Temp(":cold_face:", "추위", COLD_LINES), coldest.date, coldest.tmin_lo, region))
     elif hottest.tmax_hi >= HEAT_WAVE:
-        out.append(_dated(":sun_with_face:", "더위", HEAT_LINES, hottest.date, hottest.tmax_hi, region))
+        out.append(_dated(_Temp(":sun_with_face:", "더위", HEAT_LINES), hottest.date, hottest.tmax_hi, region))
     elif hottest.tmax_hi >= WARM_DAY:
-        out.append(_dated(":sunny:", "더움", WARM_LINES, hottest.date, hottest.tmax_hi, region,
-                          labeled=False))
+        out.append(_dated(_Temp(":sunny:", "더움", WARM_LINES, labeled=False),
+                          hottest.date, hottest.tmax_hi, region))
     elif coldest.tmin_lo <= CHILLY_MORNING:
-        out.append(_dated(":fallen_leaf:", "쌀쌀", CHILLY_LINES, coldest.date, coldest.tmin_lo, region,
-                          labeled=False))
+        out.append(_dated(_Temp(":fallen_leaf:", "쌀쌀", CHILLY_LINES, labeled=False),
+                          coldest.date, coldest.tmin_lo, region))
 
     if rainy and (picked := _pick_pair(RAIN_LINES, rainy[0].date, region)):
         fact, act = picked

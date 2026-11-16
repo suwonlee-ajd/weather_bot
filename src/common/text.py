@@ -1,4 +1,4 @@
-"""날짜·기온 표기와 슬랙 굵게."""
+"""날짜·기온 표기와 굵게·흐리게 — 슬랙(mrkdwn)과 지도(HTML)."""
 from __future__ import annotations
 
 import datetime as dt
@@ -29,3 +29,11 @@ def range_text(lo: float | None, hi: float | None) -> str | None:
 def bold(text: str) -> str:
     """슬랙 mrkdwn 굵게."""
     return f"*{text}*"
+
+
+def html_bold(text: str) -> str:
+    return f"<b>{text}</b>"
+
+
+def html_muted(text: str) -> str:
+    return f'<span class="muted">{text}</span>'

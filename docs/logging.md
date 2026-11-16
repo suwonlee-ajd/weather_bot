@@ -48,7 +48,7 @@ zcat -f "$D"/*.error.*.log* | grep -c ERROR             # 이번 달 빈도 (압
 `weather-mention` 로거로 찍힘.
 
 ```
-2026-09-12 10:15:02 ERROR   weather-mention:on_mention:862 - 응답 생성 실패 user=U0B2… ch=C0BD… ts=1788.001 query='<@U1> 역삼동 날씨'
+2026-09-12 10:15:02 ERROR   weather-mention:_answer_slowly:137 - 응답 생성 실패 user=U0B2… ch=C0BD… ts=1788.001 query='<@U1> 역삼동 날씨'
 Traceback (most recent call last):
   ...
 ```
@@ -57,7 +57,7 @@ Traceback (most recent call last):
 .venv/bin/python -c "from src.mention.answer import answer; print(answer('역삼동 날씨').text)"
 ```
 
-`answer()` 가 멘션의 진입점임. `build_reply()` 는 단풍·꽃 갈래를 건너뛰어 그쪽 질문은
+`answer()` 가 멘션의 진입점임. `build_reply()` 는 첫눈·단풍·꽃 갈래를 건너뛰어 그쪽 질문은
 재현되지 않음.
 
 ## 로그 읽는 법 — 자주 나오는 것들
@@ -92,6 +92,35 @@ LOG_LEVEL=DEBUG .venv/bin/python -m src.query 부산
   그보다 앞서 `수집 실패 — fetch_…` 줄이 있으면 기상청 장애, 없으면 **진짜 이상** —
   파서를 봐야 함.
 
+### `점검 실패 — …` (주간 게시)
+게시 맨 앞의 헬스체크. 무엇이 실패했느냐로 갈림.
+
+- `슬랙 인증 실패` · `슬랙 접속 실패` → 게시하지 않고 끝남(`슬랙 점검에 실패해 게시하지 않습니다`).
+  `python -m tests.check_credentials` 로 토큰을 봄
+- `기상청 접속 실패` → 기록만. 날씨 영역도 실패하면 뒤이어 `지어낸 날씨를 올리지 않기 위해 게시를 건너뜁니다`
+- `Chromium 실행 실패` → 기록만. 카드·지도 없이 글과 일기도만 올라감
+
+### `X 영역 실패 — 이 영역은 빠짐 (N초)`
+카드·일기도·벚꽃·장마·폭염·태풍·단풍·첫눈 중 하나가 실패해 그 영역만 뺀 것. 같은 줄의 traceback 이 원인 —
+대개 `요청 실패 …`(자료원 장애)라 코드 문제가 아님. 걸린 시간이 20초 안팎이면 자료원 시간 초과.
+`X 영역이 300초 안에 끝나지 않아` 는 영역 전체 한도(`SECTIONS_TIMEOUT_SEC`)를 넘긴 것.
+영역마다 `X 영역 완료` · `해당 없음`(철이지만 실을 것이 없음)도 INFO 로 남음.
+
+### `X 영역 — 날씨가 없어 건너뜀`
+1번 날씨가 실패해, 그 예보를 쓰는 카드·장마·폭염·태풍·첫눈이 만들지 않고 빠진 것(INFO, traceback 없음).
+원인은 앞의 날씨 오류와 `지어낸 날씨를 올리지 않기 위해 게시를 건너뜁니다` 에 한 번만 있음 — 이 줄은 무시해도 됨.
+
+`그림을 그리지 못해 빼고 게시합니다 — X 지도` 는 영역은 살고 그림만 빠진 것(글·출처는 실림). 대개 Chromium 문제.
+
+### `기상청 태풍정보 — 진행 중 N개 …`
+태풍 목록을 읽은 결과(INFO) — 예보관 서술에 «태풍» 이 있는 주에만 받음(그 밖의 주는 이 줄 없이
+`태풍 영역 해당 없음`). 0개면 뒤이어 `태풍 영역 해당 없음` — 진행 중인 태풍이 없다는 뜻이라 정상.
+
+- `기상청 태풍정보를 받지 못해 예보관 서술만 싣습니다 — …` (WARNING) → 태풍정보는 실패했지만 서술에 태풍 줄이
+  있어 그 줄만 실은 것. 서술에도 없으면 `태풍 영역 실패`
+- 원인에 `HTML 이 왔습니다 (경로 변경 의심)` · `형식 변경 의심` 이 있으면 날씨누리 태풍 지도가 읽는 파일의 자리나
+  모양이 바뀐 것 — [`forecast-format.md`](forecast-format.md) «태풍» 을 보고 지도 스크립트와 견줌
+
 ### `슬랙 전송 실패 … error=not_in_channel`
 코드가 아니라 슬랙 설정. 해당 채널에서 봇을 초대함.
 `missing_scope` 면 토큰 스코프(`chat:write`, `files:write`)를 확인함.
@@ -113,17 +142,30 @@ LOG_LEVEL=DEBUG .venv/bin/python -m src.query 부산
 
 ```
 data/img/weekly-weather-20260914.png   ← 우리가 만든 주간 카드
-data/img/foliage-20260914.png          ← 우리가 만든 단풍 지도 (단풍철에만)
+data/img/foliage-20260914.png          ← 우리가 만든 단풍 지도 (단풍 소식이 있을 때만)
+data/img/snow-20261102.png             ← 우리가 만든 첫눈 지도 (첫눈 소식이 있을 때만)
+data/img/blossom-20260330.png          ← 우리가 만든 벚꽃 지도 (벚꽃 소식이 있을 때만)
+data/img/typhoon-20260831.png          ← 우리가 만든 태풍 예상 경로 지도 (태풍 문단이 실릴 때만)
+data/img/heat-20270719.png             ← 우리가 만든 더위 지도 (더위 소식이 있고 중기예보 도시별 값이 있을 때만)
 data/img/surf_2026091200.png           ← 기상청에서 받아 온 지상일기도
+data/cache/weatheri-foliage-2026.json  ← 웨더아이 단풍 예상표를 읽은 결과 (정리하지 않음 — 아래)
+data/cache/weatheri-blossom-2026.json  ← 웨더아이 벚꽃 예상표를 읽은 결과 (정리하지 않음 — 아래)
 ```
 
+**`data/cache/` 는 정리하지 않음.** 웨더아이 예상표(PDF)는 해마다 한 번 나오고 바뀌지 않으므로, 한 번
+읽은 해의 표를 JSON 으로 남겨(`src/common/store.py`) 다음 실행부터는 웨더아이 목록·게시물·PDF 를 받지 않음 —
+주간 게시는 철 밖에도 매주 돌기 때문. 아직 안 올라왔거나 읽다 실패한 해는 남기지 않아 다음 실행이 다시 받음.
+주제·해마다 1KB 남짓이라 쌓여도 문제가 없고, 지우면 다음 실행이 다시 받을 뿐임. 웨더아이가 표를 고쳐
+올렸으면 그해 파일을 지움. 로그의 `디스크 캐시 사용 — …` · `디스크 캐시 저장 — …` 이 읽고 남긴 자리.
+위치는 `DATA_DIR` 을 따름(상대 경로면 저장소 기준) — dry-run 의 `--data-dir` 은 산출물 PNG 만 옮김.
+
 **한 자리에 모으고 보존 기간만 파일명으로 가름.** 디렉터리를 나눠 봐야
-파일명이 이미 `weekly-weather-*` · `foliage-*` · `surf_*` 로 갈리므로 얻는 것이 없음.
+파일명이 이미 `weekly-weather-*` · `foliage-*` · `snow-*` · `blossom-*` · `typhoon-*` · `heat-*` · `surf_*` 로 갈리므로 얻는 것이 없음.
 같은 디렉터리를 패턴만 달리해 여러 번 훑음.
 
 | 설정 | 기본 | 대상 |
 |---|---|---|
-| `CARD_KEEP_DAYS` | `14` | `weekly-weather-*.png` 주간 카드, `foliage-*.png` 단풍 지도 |
+| `CARD_KEEP_DAYS` | `14` | `weekly-weather-*.png` 주간 카드, `foliage-*.png` 단풍 지도, `snow-*.png` 첫눈 지도, `blossom-*.png` 벚꽃 지도, `typhoon-*.png` 태풍 예상 경로 지도, `heat-*.png` 더위 지도 |
 | `CHART_KEEP_DAYS` | `30` | `{CHART_PRODUCT}_*.png` 일기도 (기본 `surf_*.png`) |
 | `LOG_KEEP_DAYS` | `90` | `logs/` — 주간 게시·정리 로그는 이것만 지움(멘션 봇 로그는 loguru 도 지움) |
 
@@ -162,6 +204,10 @@ bin/cleanup.py --days 30 --include-logs   # 로그까지 함께
       weekly-weather-20260914.png
   data/img/surf_*.png (30일) — 지울 것 0개 0B
   data/img/foliage-*.png (14일) — 지울 것 0개 0B
+  data/img/snow-*.png (14일) — 지울 것 0개 0B
+  data/img/blossom-*.png (14일) — 지울 것 0개 0B
+  data/img/typhoon-*.png (14일) — 지울 것 0개 0B
+  data/img/heat-*.png (14일) — 지울 것 0개 0B
   logs/*.log* (90일) — 지울 것 1개 2KB
       2026/2026.06/weekly-weather.2026-06-01.log
 
@@ -174,11 +220,12 @@ bin/cleanup.py --days 30 --include-logs   # 로그까지 함께
 슬랙 토큰 없이 돌아가므로 정리만 하는 자리에서도 쓸 수 있음.
 
 **우리가 만든 파일만 지움.** `data/` 는 사용자도 열어 보는 자리라서
-`weekly-weather-*.png` · `foliage-*.png` · `surf_*.png` 처럼 패턴으로 좁혀 둠
+`weekly-weather-*.png` · `foliage-*.png` · `snow-*.png` · `blossom-*.png` · `typhoon-*.png` · `heat-*.png` · `surf_*.png` 처럼 패턴으로 좁혀 둠
 (`logs/` 는 `*.log*`). 거기 따로 저장해 둔 파일은 아무리 오래돼도 건드리지 않음.
 
 > `data/` 는 **산출물** 자리. 행정동 목록처럼 계속 변하는 참조 자료의
 > 스냅샷은 여기 두지 않음 — 그건 매번 기상청에서 받아 옴(`src/kma/dong_zone.py`).
+> 예외는 한 번 나오면 바뀌지 않는 웨더아이 예상표뿐(`data/cache/`).
 
 ## 시간대
 

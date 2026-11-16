@@ -1,4 +1,4 @@
-"""중기예보 — 도시별 기온 표를 전국 범위로 모으고 하늘상태·강수확률 (D+4~D+10)."""
+"""중기예보 — 도시별 기온 표를 전국 범위로 모으고(도시별 값도 남김) 하늘상태·강수확률 (D+4~D+10)."""
 from __future__ import annotations
 
 import datetime as dt
@@ -54,9 +54,84 @@ def _row_group(cells, current: str | None) -> str | None:
     return current
 
 
-def fetch_mid_term(
-    now: dt.datetime, region: Region = NATIONWIDE
-) -> tuple[dict[dt.date, ScrapedDay], Narrative]:
+PAIR_RE = re.compile(r"-?\d+(\.\d+)?\s*/\s*-?\d+(\.\d+)?")
+
+
+def _city_name(raw_cells, cells: list[str]) -> str:
+    """도시 칸 — 그룹 첫 행은 앞에 rowspan 지역 칸이 붙어 그것을 건너뜀. cells 는 raw_cells 의 글자."""
+    texts = [text for c, text in zip(raw_cells, cells, strict=True) if not c.get("rowspan")]
+    return texts[0] if texts and not PAIR_RE.fullmatch(texts[0]) else ""
+
+
+def _temperatures(tbl, ref: dt.date, region: Region) -> dict[dt.date, ScrapedDay]:
+    """도시별 "18 / 27" 을 날짜별로 모아 분포 범위로 만들고, 도시별 값도 cities 에 그대로 남김."""
+    dates = _header_dates(tbl, ref)
+    n_dates = len(dates)
+    mins: dict[dt.date, list[float]] = {d: [] for _, d in dates}
+    maxs: dict[dt.date, list[float]] = {d: [] for _, d in dates}
+    cities: dict[dt.date, dict[str, tuple[float, float]]] = {d: {} for _, d in dates}
+    group: str | None = None
+    for tr in tbl.select("tbody tr"):
+        raw_cells = tr.find_all(["th", "td"])
+        group = _row_group(raw_cells, group)
+        if region.mid_group and (group is None or region.mid_group not in group):
+            continue
+        cells = [c.get_text(" ", strip=True) for c in raw_cells]
+        pairs = [c for c in cells if PAIR_RE.fullmatch(c)]
+        if len(pairs) < n_dates:
+            continue
+        name = _city_name(raw_cells, cells)
+        for (_, date), cell in zip(dates, pairs[:n_dates]):
+            lo, hi = (float(x) for x in cell.split("/"))
+            mins[date].append(lo)
+            maxs[date].append(hi)
+            if name:
+                cities[date][name] = (lo, hi)
+
+    return {d: ScrapedDay(d, min(mins[d]), max(mins[d]), min(maxs[d]), max(maxs[d]), source="중기예보",
+                          cities=cities[d])
+            for _, d in dates if mins[d]}
+
+
+def _sky_cells(tbl, sky_dates: list[dt.date], region: Region) -> dict[dt.date, tuple[list[str], list[int]]]:
+    """날짜별 (하늘상태 글자들, 강수확률들). 열 수가 가변임 — 앞쪽 날짜는 오전/오후 두 칸, 발표일 +8일 이후는 한 칸."""
+    per_date: dict[dt.date, tuple[list[str], list[int]]] = {d: ([], []) for d in sky_dates}
+    for tr in tbl.select("tbody tr"):
+        cells = [c.get_text(" ", strip=True) for c in tr.find_all(["th", "td"])]
+        if region.mid_group and not (cells and region.mid_group in cells[0]):
+            continue
+        vals = [c for c in cells if POP_RE.search(c)]
+        if len(vals) < len(sky_dates):
+            continue
+        # 남는 칸 수가 곧 오전/오후로 쪼개진 날짜 수
+        split = min(len(vals) - len(sky_dates), len(sky_dates))
+        cursor = 0
+        for i, date in enumerate(sky_dates):
+            width = 2 if i < split else 1
+            skies, pops = per_date[date]
+            for cell in vals[cursor : cursor + width]:
+                pm = POP_RE.search(cell)
+                if pm:
+                    pops.append(int(pm.group(1)))
+                label = POP_RE.sub("", cell).strip()
+                if label:
+                    skies.append(label)
+            cursor += width
+    return per_date
+
+
+def _add_sky(tbl, ref: dt.date, region: Region, days: dict[dt.date, ScrapedDay]) -> None:
+    sky_dates = [d for _, d in _header_dates(tbl, ref)]
+    for date, (skies, pops) in _sky_cells(tbl, sky_dates, region).items():
+        if date not in days:
+            continue
+        if skies:
+            days[date].sky = max(set(skies), key=skies.count)
+        if pops:
+            days[date].pop = max(pops)
+
+
+def fetch_mid_term(now: dt.datetime, region: Region = NATIONWIDE) -> tuple[dict[dt.date, ScrapedDay], Narrative]:
     url = f"{MID_URL}?stnId1={region.mid_stn1}"
     if region.mid_stn2:
         url += f"&stnId2={region.mid_stn2}"
@@ -69,73 +144,9 @@ def fetch_mid_term(
     if temp_tbl is None:
         raise ScrapeError(f"{url} 에서 기온 표를 찾지 못했습니다 (페이지 구조 변경 의심)")
 
-    dates = _header_dates(temp_tbl, ref)
-    n_dates = len(dates)
-    days: dict[dt.date, ScrapedDay] = {}
-
-    # 기온: 도시별 "18 / 27" 을 날짜별로 모아 분포 범위로 만듦
-    mins: dict[dt.date, list[float]] = {d: [] for _, d in dates}
-    maxs: dict[dt.date, list[float]] = {d: [] for _, d in dates}
-    group: str | None = None
-    for tr in temp_tbl.select("tbody tr"):
-        raw_cells = tr.find_all(["th", "td"])
-        group = _row_group(raw_cells, group)
-        if region.mid_group and (group is None or region.mid_group not in group):
-            continue
-        cells = [c.get_text(" ", strip=True) for c in raw_cells]
-        pairs = [c for c in cells if re.fullmatch(r"-?\d+(\.\d+)?\s*/\s*-?\d+(\.\d+)?", c)]
-        if len(pairs) < n_dates:
-            continue
-        for (i, date), cell in zip(dates, pairs[:n_dates]):
-            lo, hi = (float(x) for x in cell.split("/"))
-            mins[date].append(lo)
-            maxs[date].append(hi)
-
-    for _, date in dates:
-        if not mins[date]:
-            continue
-        days[date] = ScrapedDay(
-            date=date,
-            tmin_lo=min(mins[date]),
-            tmin_hi=max(mins[date]),
-            tmax_lo=min(maxs[date]),
-            tmax_hi=max(maxs[date]),
-            source="중기예보",
-        )
-
-    # 하늘상태·강수확률: 열 수가 가변임 — 앞쪽 날짜는 오전/오후 두 칸, 발표일 +8일 이후는 한 칸
+    days = _temperatures(temp_tbl, ref, region)
     if sky_tbl is not None:
-        sky_dates = [d for _, d in _header_dates(sky_tbl, ref)]
-        per_date: dict[dt.date, tuple[list[str], list[int]]] = {d: ([], []) for d in sky_dates}
-        for tr in sky_tbl.select("tbody tr"):
-            cells = [c.get_text(" ", strip=True) for c in tr.find_all(["th", "td"])]
-            if region.mid_group and not (cells and region.mid_group in cells[0]):
-                continue
-            vals = [c for c in cells if POP_RE.search(c)]
-            if len(vals) < len(sky_dates):
-                continue
-            # 남는 칸 수가 곧 오전/오후로 쪼개진 날짜 수
-            split = min(len(vals) - len(sky_dates), len(sky_dates))
-            cursor = 0
-            for i, date in enumerate(sky_dates):
-                width = 2 if i < split else 1
-                skies, pops = per_date[date]
-                for cell in vals[cursor : cursor + width]:
-                    pm = POP_RE.search(cell)
-                    if pm:
-                        pops.append(int(pm.group(1)))
-                    label = POP_RE.sub("", cell).strip()
-                    if label:
-                        skies.append(label)
-                cursor += width
-        for date, (skies, pops) in per_date.items():
-            if date not in days:
-                continue
-            if skies:
-                days[date].sky = max(set(skies), key=skies.count)
-            if pops:
-                days[date].pop = max(pops)
-
+        _add_sky(sky_tbl, ref, region, days)
     if not days:
         raise ScrapeError(f"{url} 기온 표에서 날짜를 하나도 읽지 못했습니다")
 

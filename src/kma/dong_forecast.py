@@ -15,9 +15,6 @@ from src.common.config import KST, UA
 RSS_URL = "https://www.weather.go.kr/w/rss/dfs/hr1-forecast.do"
 
 
-FORECAST_DAYS = 4  # 오늘 + 3일
-
-
 @dataclass
 class HourlyPoint:
     when: dt.datetime

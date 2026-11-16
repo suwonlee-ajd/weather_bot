@@ -1,11 +1,11 @@
-"""철마다 주간 게시에 붙이는 소식(테마) — 영역 3~6 의 덩어리(Block) 조립. 기간과 순서는 pipeline.SECTIONS.
+"""철마다 주간 게시에 붙이는 소식(테마) — 영역 3~6 의 덩어리(Block) 조립. 순서는 pipeline.SECTIONS.
 
 모델에 맡기지 않음 — 지어낸 개화일·단풍일은 그럴듯해서 알아채기 어려움. 수집이 실패하면 예외를 그대로 올려
-pipeline 이 그 영역만 빼고 게시함.
+pipeline 이 그 영역만 빼고 게시함. 기간은 우리가 정하지 않음 — 다룰 때인지는 자료가 정함:
 
-  단풍  9월 둘째 주 ~ 11월 둘째 주      관측 기상청 · 예상 웨더아이 + 지도
-  첫눈  11월 첫째 주 ~ 서울 관측 다음 주  관측 기상청 계절관측 · 평년 · 그 주 예보의 눈 + 지도
-  벚꽃  2월 마지막 주 ~ 3월 마지막 주   관측 기상청 · 예상 웨더아이  (문단 구성은 2027 시즌 전에 다시 봄)
+  벚꽃  기상청 관측 중이거나 올해 웨더아이 개화 예상일이 남았을 때   관측 기상청 · 예상 웨더아이
+  단풍  기상청 관측 중이거나 올해 웨더아이 예상일이 남았을 때        관측 기상청 · 예상 웨더아이 + 지도
+  첫눈  지난 7일 안에 관측됐거나, 아직인 곳에 그 주 눈 예보가 있을 때  관측 기상청 계절관측 · 평년 + 지도
 """
 from __future__ import annotations
 
@@ -34,8 +34,10 @@ def _with_map(ctx: Context, paragraph: Paragraph, info: MapInfo, render: Callabl
     return Block(paragraph, f"{info.title if att else info.name} · {sources}", att)
 
 
-def foliage_block(ctx: Context) -> Block:
+def foliage_block(ctx: Context) -> Block | None:
     snap = foliage.fetch_snapshot(ctx.today)
+    if not snap.showing(ctx.week_start):
+        return None
     paragraph = (Paragraph("이번 주 단풍", emoji=":maple_leaf:")
                  .add("관측", foliage_text.observed_line(snap, bold))
                  .add("이번 주", foliage_text.week_line(snap, ctx.week_start, ctx.week_end, bold,
@@ -45,7 +47,7 @@ def foliage_block(ctx: Context) -> Block:
                      lambda: foliage_map.render_png(snap, ctx.week_start, scale=ctx.scale), foliage_text.sources(snap))
 
 
-def blossom_block(ctx: Context) -> Block:
+def blossom_block(ctx: Context) -> Block | None:
     status = outlook = None
     try:
         status = blossom.fetch_status(ctx.today)
@@ -57,6 +59,8 @@ def blossom_block(ctx: Context) -> Block:
         log.warning("웨더아이 벚꽃 예상을 받지 못했습니다", exc_info=True)
     if status is None and outlook is None:
         raise blossom.BlossomError("기상청 관측과 웨더아이 예상을 모두 받지 못했습니다")
+    if not blossom.showing(status, outlook, ctx.week_start):
+        return None
 
     paragraph = Paragraph("이번 주 벚꽃", emoji=":cherry_blossom:")
     if status is not None:
@@ -69,12 +73,12 @@ def blossom_block(ctx: Context) -> Block:
 
 
 def snow_block(ctx: Context) -> Block | None:
-    """«이번 주» 줄은 1번 날씨 예보의 하늘상태에서 눈을 셈."""
+    """«이번 주» 줄과 다룰지는 1번 날씨 예보의 하늘상태에서 눈을 셈."""
     status = snow.fetch_status(ctx.today, timeout=snow.WEEKLY_TIMEOUT_SEC)
-    if not snow.weekly_open(status, ctx.week_start):
-        return None
     week = ctx.forecast()
     days = week.days if week else None
+    if not snow.showing(status, ctx.week_start, snowy=bool(days and snow_text.snow_days(days))):
+        return None
     paragraph = (Paragraph("이번 주 첫눈", emoji=":snowflake:")
                  .add("관측", snow_text.observed_line(status, bold))
                  .add("이번 주", snow_text.week_line(status, days, muted=lambda s: s)))

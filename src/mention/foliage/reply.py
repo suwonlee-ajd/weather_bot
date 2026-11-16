@@ -27,12 +27,10 @@ from src.season.foliage.data import (
     CRITERIA_TEXT,
     KINDS,
     NOT_STARTED_TEXT,
-    SEASON_TEXT,
+    OFF_SEASON_TEXT,
     STAGES,
     FoliageError,
     Snapshot,
-    in_season,
-    next_season,
 )
 from src.season.foliage.data import KMA_PAGE as KMA_FOLIAGE_PAGE
 from src.season.foliage.mountains import (
@@ -112,19 +110,15 @@ def foliage_theme(query: str, now: dt.datetime) -> Reply | None:
     if mountain is None and asks_weather and extract_region(query)[0] is not None:
         return None
 
-    if not in_season(today):
-        start, _ = next_season(today)
-        # 단풍철은 늘 월요일(9월 둘째 월요일)에 시작
-        when = (f"올해는 {short_date(start)}(월)부터입니다" if start.year == today.year
-                else f"다음은 {start.year}년 {short_date(start)}(월)부터입니다")
-        return Reply(f"단풍 소식은 *{SEASON_TEXT}* 에만 전해드립니다. {NO_EMOJI}\n_{when}._")
-
     try:
         snap = foliage.fetch_snapshot(today)
     except FoliageError as exc:
         log.warning("단풍 현황 실패: %s", exc)
         return Reply("기상청 단풍 현황을 가져오지 못했습니다. 잠시 뒤 다시 불러 주세요.\n"
                      f"기상청에서 직접 보실 수 있어요 — {KMA_FOLIAGE_PAGE}")
+    # 기간은 자료가 정함 — 기상청이 관측을 접었고 올해 예상도 지났으면 철이 아님
+    if not snap.showing(today):
+        return Reply(f"{OFF_SEASON_TEXT}. {NO_EMOJI}")
 
     if mountain is None:
         return with_map(_overview_text(snap, today, unknown_mountain(query)), foliage_map.INFO,
@@ -153,6 +147,6 @@ def _mountain_reply(m: Mountain, start: dt.date, days: int, title: str, today: d
     if title.startswith("앞으로"):
         start, days = today, DONG_MAX_DAYS - 1
     text = _mountain_weather(m, start, days)
-    if in_season(today) and (snap := _snapshot_quietly(today)):
+    if (snap := _snapshot_quietly(today)) and snap.showing(today):
         text += f"\n\n{_mountain_text(snap, m, today)}"
     return text

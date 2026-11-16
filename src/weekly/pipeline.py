@@ -12,22 +12,20 @@ from concurrent.futures import Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 
 from src.common.config import Config
-from src.season.blossom import data as blossom
-from src.season.foliage import data as foliage
-from src.season.snow import data as snow
 from src.weekly import sections, themes
 from src.weekly.forecast import ForecastError, WeekForecast
 from src.weekly.paragraph import Attachment, Block, Message
-from src.weekly.sections import SECTIONS_TIMEOUT_SEC, Context, Section, Weather, always
+from src.weekly.sections import SECTIONS_TIMEOUT_SEC, Context, Section, Weather
 
 log = logging.getLogger(__name__)
 
+# 철 소식은 기간을 따로 두지 않음 — 날마다 자료(기상청 서비스 여부·예상일·관측)를 보고 영역이 스스로 빠짐
 SECTIONS: tuple[Section, ...] = (
-    Section("카드", always, sections.card_block),
-    Section("일기도", always, sections.chart_block),
-    Section("벚꽃", blossom.in_season, themes.blossom_block),
-    Section("단풍", foliage.in_season, themes.foliage_block),
-    Section("첫눈", snow.in_weekly_season, themes.snow_block),
+    Section("카드", sections.card_block),
+    Section("일기도", sections.chart_block),
+    Section("벚꽃", themes.blossom_block),
+    Section("단풍", themes.foliage_block),
+    Section("첫눈", themes.snow_block),
 )
 
 
@@ -48,16 +46,14 @@ def compose(cfg: Config, now: dt.datetime, week_offset: int = 0, *, can_render: 
     try:
         weather_f = pool.submit(sections.weather, base)
         ctx = dataclasses.replace(base, weather=weather_f)
-        active = [s for s in SECTIONS if s.in_season(ctx.week_start)]
-        log.info("영역: %s", " · ".join(["날씨", *(s.name for s in active)]))
-        futures = [pool.submit(_build, s, ctx) for s in active]
+        futures = [pool.submit(_build, s, ctx) for s in SECTIONS]
 
         weather = _weather(weather_f)
         if weather is None:
             return None
         left = max(0.0, SECTIONS_TIMEOUT_SEC - (time.monotonic() - started))
         wait(futures, timeout=left)
-        blocks = [b for s, f in zip(active, futures, strict=True) if (b := _result(s, f))]
+        blocks = [b for s, f in zip(SECTIONS, futures, strict=True) if (b := _result(s, f))]
     finally:
         pool.shutdown(wait=False, cancel_futures=True)
     return merge(weather, blocks)

@@ -80,13 +80,9 @@ class Context:
 
 @dataclass(frozen=True)
 class Section:
+    """영역 하나. 다룰 때인지는 build 가 자료를 보고 정함 — 아니면 None(해당 없음)."""
     name: str
-    in_season: Callable[[dt.date], bool]
     build: Callable[[Context], Block | None]
-
-
-def always(_day: dt.date) -> bool:
-    return True
 
 
 def weather(ctx: Context) -> Weather:

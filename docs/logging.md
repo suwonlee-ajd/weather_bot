@@ -130,8 +130,8 @@ LOG_LEVEL=DEBUG .venv/bin/python -m src.query 부산
 
 ```
 data/img/weekly-weather-20260914.png   ← 우리가 만든 주간 카드
-data/img/foliage-20260914.png          ← 우리가 만든 단풍 지도 (단풍철에만)
-data/img/snow-20261102.png             ← 우리가 만든 첫눈 지도 (첫눈철에만)
+data/img/foliage-20260914.png          ← 우리가 만든 단풍 지도 (기상청 단풍 관측 중에만)
+data/img/snow-20261102.png             ← 우리가 만든 첫눈 지도 (첫눈 소식이 있을 때만)
 data/img/surf_2026091200.png           ← 기상청에서 받아 온 지상일기도
 ```
 

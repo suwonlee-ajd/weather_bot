@@ -12,7 +12,6 @@ from dataclasses import dataclass, field
 import requests
 
 from src.season import sources as shared
-from src.season.weeks import last_monday
 
 log = logging.getLogger(__name__)
 
@@ -27,18 +26,6 @@ _MIN_ROWS = 15
 
 class BlossomError(RuntimeError):
     pass
-
-
-# --- 기간 ------------------------------------------------------------------
-
-def season_bounds(year: int) -> tuple[dt.date, dt.date]:
-    """2월 마지막 월요일 ~ 3월 마지막 월요일이 든 주의 일요일."""
-    return last_monday(year, 2), last_monday(year, 3) + dt.timedelta(days=6)
-
-
-def in_season(day: dt.date) -> bool:
-    start, end = season_bounds(day.year)
-    return start <= day <= end
 
 
 def _get(url: str, **kw) -> requests.Response:
@@ -170,3 +157,13 @@ def fetch_outlook(year: int) -> Outlook:
         return Outlook(expected={}, normal={})
     return Outlook(expected={}, normal={c: d.replace(year=year) for c, d in last.normal.items()},
                    url=last.url)
+
+
+def showing(status: Status | None, outlook: Outlook | None, day: dt.date) -> bool:
+    """다룰 때인지 — 기상청이 관측 중(isService)이거나, 관측 전이라도 올해 개화 예상일이 day 뒤로 남았을 때.
+
+    기간은 우리가 정하지 않고 자료가 정함 — 서울·인천처럼 4월에 피는 곳까지 기상청 관측을 따라감.
+    """
+    if status is not None and status.in_service:
+        return True
+    return outlook is not None and any(d >= day for d in outlook.expected.values())

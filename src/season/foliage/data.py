@@ -15,7 +15,6 @@ import requests
 from src.common.cache import get_or_set
 from src.season import sources as shared
 from src.season.foliage.mountains import BY_NAME
-from src.season.weeks import first_monday
 
 log = logging.getLogger(__name__)
 
@@ -25,9 +24,9 @@ KMA_PAGE = "https://www.weather.go.kr/w/forecast/life/seasonal-observation/autum
 STAGES = ("단풍전", "첫단풍", "절정")
 KINDS = ("first", "peak")             # Status·Outlook 의 필드 이름 (첫단풍·절정)
 
-SEASON_TEXT = "9월 둘째 주 ~ 11월 둘째 주"
 CRITERIA_TEXT = "첫단풍은 산 정상부터 20%, 절정은 80%가 물든 때"
 NOT_STARTED_TEXT = "기상청 단풍 관측이 아직 시작되지 않았습니다 (해마다 9월 하순부터)"
+OFF_SEASON_TEXT = "지금은 기상청 단풍 관측 기간이 아닙니다 (관측은 해마다 9월 하순부터)"
 
 STATUS_TTL_SEC = 3600                 # 현황은 사진이 올라올 때만 바뀜(하루 한두 번)
 OUTLOOK_TTL_SEC = 24 * 3600           # 예상은 한 해 한 번(9월 첫 주)
@@ -47,23 +46,6 @@ class _Incomplete(Exception):
 
 class _NotPublished(Exception):
     """웨더아이 예상 미발표 — 실패처럼 짧게만 캐시함."""
-
-
-# --- 기간 ------------------------------------------------------------------
-
-def season_bounds(year: int) -> tuple[dt.date, dt.date]:
-    """9월 둘째 월요일 ~ 11월 둘째 월요일이 든 주 — 예상 발표(9월 첫 주) 뒤부터 남부 절정(11월 초~중순)까지."""
-    return first_monday(year, 9) + dt.timedelta(weeks=1), first_monday(year, 11) + dt.timedelta(weeks=1, days=6)
-
-
-def in_season(day: dt.date) -> bool:
-    start, end = season_bounds(day.year)
-    return start <= day <= end
-
-
-def next_season(day: dt.date) -> tuple[dt.date, dt.date]:
-    start, end = season_bounds(day.year)
-    return (start, end) if day <= end else season_bounds(day.year + 1)
 
 
 # --- 기상청 현황 -------------------------------------------------------------
@@ -260,6 +242,16 @@ class Snapshot:
         if self.stage(name) > KINDS.index(kind):
             return None, True
         return self.predicted(kind, name), False
+
+    def showing(self, day: dt.date) -> bool:
+        """다룰 때인지 — 기상청이 관측 중(isService)이거나, 관측 전이라도 올해 예상일이 day 뒤로 남았을 때.
+
+        기간은 우리가 정하지 않고 자료가 정함 — 기상청은 남부 절정 뒤까지 서비스를 이어 감.
+        """
+        if self.status.in_service:
+            return True
+        o = self.outlook
+        return o is not None and any(d >= day for d in (*o.first.values(), *o.peak.values()))
 
     def signature(self) -> tuple:
         """그린 지도의 캐시 키 — 내용이 같으면 같은 값."""

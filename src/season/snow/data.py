@@ -12,13 +12,13 @@ from bs4 import BeautifulSoup
 from src.common.cache import get_or_set
 from src.season import sources as shared
 from src.season.snow.stations import BY_NAME, STATIONS, Station
-from src.season.weeks import first_monday
 
 URL = "https://data.kma.go.kr/data/seasonObs/seasonObsDataList.do"
 PGM_NO = "648"               # 계절관측 자료조회 화면
 PAGE = f"{URL}?pgmNo={PGM_NO}"
 SNOW_ELEMENT = "DB006403"     # 계절관측 요소 코드 — 서리 DB006401 · 얼음 DB006402
-HEADLINE = "서울"              # 주간 게시의 철 기간과 «아직» 의 기준
+HEADLINE = "서울"              # «아직» 의 기준
+RECENT_DAYS = 7               # 관측을 «새 소식» 으로 치는 날수 — 주간 게시 한 번, 그 뒤로 되풀이하면 잔소리
 
 STATUS_TTL_SEC = 3600         # 관측 당일 반영됨
 STATUS_RETRY_SEC = 120        # 짧게 — 점검이 끝나면 첫눈 답이 곧 돌아오게
@@ -118,18 +118,19 @@ def fetch_status(today: dt.date, *, timeout: float = TIMEOUT_SEC) -> Status:
                       errors=(SnowError,), error_ttl=STATUS_RETRY_SEC)
 
 
-def in_weekly_season(week_start: dt.date) -> bool:
-    """11월 첫째 월요일 ~ 1월 말. 서울이 관측된 뒤 언제 끝낼지는 weekly_open 이 정함."""
-    year = season_year(week_start)
-    return first_monday(year, 11) <= week_start < dt.date(year + 1, 2, 1)
+def recent(status: Status, day: dt.date, stations: tuple[Station, ...] = STATIONS) -> list[Station]:
+    """day 까지 RECENT_DAYS 안에 첫눈이 관측된 곳."""
+    return [st for st in stations
+            if (d := status.first.get(st.name)) and 0 <= (day - d).days <= RECENT_DAYS]
 
 
-def weekly_open(status: Status, week_start: dt.date) -> bool:
-    """서울 첫눈을 그다음 월요일 게시에서 한 번 알리고 끝냄."""
-    seen = status.first.get(HEADLINE)
-    return seen is None or seen >= week_start - dt.timedelta(days=7)
+def waiting(status: Status, stations: tuple[Station, ...] = STATIONS) -> list[Station]:
+    return [st for st in stations if st.name not in status.first]
 
 
-def in_note_season(day: dt.date) -> bool:
-    """지역 날씨 답에 한 줄을 붙이는 기간 — 11월 ~ 1월."""
-    return day.month in (11, 12, 1)
+def showing(status: Status, day: dt.date, snowy: bool, stations: tuple[Station, ...] = STATIONS) -> bool:
+    """다룰 때인지 — 최근 첫눈이 관측됐거나, 아직인 곳이 남았는데 눈 예보가 있을 때.
+
+    기간은 우리가 정하지 않고 자료가 정함 — 첫눈은 관측만 있고 예상이 없어 «새 소식» 이 있을 때만 다룸.
+    """
+    return bool(recent(status, day, stations)) or (snowy and bool(waiting(status, stations)))

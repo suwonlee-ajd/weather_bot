@@ -1,4 +1,4 @@
-"""날씨 답에 덧붙이는 단풍 한 줄 — 단풍철에, 그 지역 산에 말할 것이 있을 때만."""
+"""날씨 답에 덧붙이는 단풍 한 줄 — 기상청 단풍철에(자료가 정함), 그 지역 산에 말할 것이 있을 때만."""
 from __future__ import annotations
 
 import datetime as dt
@@ -12,7 +12,6 @@ from src.season.foliage.data import (
     STAGES,
     FoliageError,
     Snapshot,
-    in_season,
 )
 from src.season.foliage.mountains import (
     MOUNTAINS,
@@ -69,7 +68,7 @@ def _foliage_note(where: Region | str, start: dt.date, end: dt.date, today: dt.d
         mountains = in_zone(where)
     else:
         mountains = MOUNTAINS if where is NATIONWIDE else in_region(where.key)
-    if not mountains or not in_season(today) or not (snap := _snapshot_quietly(today)):
+    if not mountains or not (snap := _snapshot_quietly(today)) or not snap.showing(today):
         return []
     # 이미 지난 날의 예상은 꺼내지 않음 — 그날 물들었으면 관측으로 나옴
     brief = _foliage_brief(snap, mountains, max(start, today), end, where is NATIONWIDE)

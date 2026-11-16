@@ -12,11 +12,9 @@ from src.season.foliage.data import (
     CRITERIA_TEXT,
     KINDS,
     NOT_STARTED_TEXT,
-    SEASON_TEXT,
+    OFF_SEASON_TEXT,
     STAGES,
     FoliageError,
-    in_season,
-    next_season,
 )
 from src.season.foliage.mountains import MOUNTAINS, find_mountain
 from src.season.foliage.text import sources
@@ -29,10 +27,6 @@ from src.season.sources import OUTLOOK_SOURCE
 
 def show_foliage(name: str, as_json: bool) -> int:
     today = dt.datetime.now(tz=KST).date()
-    if not in_season(today):
-        start, end = next_season(today)
-        print(f"단풍은 {SEASON_TEXT}에만 다룹니다. 다음 기간: {start} ~ {end}", file=sys.stderr)
-        return 3
     picked = MOUNTAINS
     if name:
         m = find_mountain(name)
@@ -46,6 +40,9 @@ def show_foliage(name: str, as_json: bool) -> int:
     except FoliageError as exc:
         print(f"조회 실패: {exc}", file=sys.stderr)
         return 1
+    if not snap.showing(today):
+        print(OFF_SEASON_TEXT, file=sys.stderr)
+        return 3
 
     if as_json:
         def when(kind, m):

@@ -3,7 +3,7 @@
 모델에 맡기지 않음 — 지어낸 개화일·단풍일·태풍 이름은 그럴듯해서 알아채기 어려움. 수집이 실패하면 예외를 그대로
 올려 pipeline 이 그 영역만 빼고 게시함. 기간은 우리가 정하지 않음 — 다룰 때인지는 자료가 정함:
 
-  벚꽃  기상청 관측 중이거나, 관측 전 올해 첫 개화 예상일까지   관측 기상청 · 예상 웨더아이
+  벚꽃  기상청 관측 중이거나, 관측 전 올해 첫 개화 예상일까지   관측 기상청 · 예상 웨더아이 + 지도
   장마  예보관 서술에 장마·정체전선이 있을 때                     그 주 예보 (따로 받지 않음)
   폭염  기준(낮 최고 33℃·아침 최저 25℃)에 닿는 날이나 예보관 언급이 있을 때  그 주 예보 (따로 받지 않음)
   태풍  기상청 태풍정보에 진행 중인 태풍이 있을 때              현재·예상 기상청 태풍정보 · 예보관 서술 (글만)
@@ -22,6 +22,7 @@ from src.kma.page import Narrative
 from src.season import narrative
 from src.season.basemap import MapInfo
 from src.season.blossom import data as blossom
+from src.season.blossom import map as blossom_map
 from src.season.blossom import text as blossom_text
 from src.season.foliage import data as foliage
 from src.season.foliage import map as foliage_map
@@ -82,7 +83,9 @@ def blossom_block(ctx: Context) -> Block | None:
     if outlook is not None:
         paragraph.add("이번 주", blossom_text.week_line(outlook, ctx.week_start, ctx.week_end))
         paragraph.add("올해" if outlook.expected else "평년", blossom_text.year_line(outlook))
-    return Block(paragraph, f"벚꽃 · {blossom_text.sources(status, outlook)}")
+    return _with_map(ctx, paragraph, blossom_map.INFO,
+                     lambda: blossom_map.render_png(status, outlook, ctx.week_start, scale=ctx.scale),
+                     blossom_text.sources(status, outlook))
 
 
 def typhoon_block(ctx: Context) -> Block | None:

@@ -7,10 +7,12 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 import requests
 
+from src.common.cache import get_or_set
 from src.season import sources as shared
 
 log = logging.getLogger(__name__)
@@ -23,9 +25,16 @@ STAGES = ("개화 전", "개화", "만발")
 # 형식 변경 감지 문턱 — 해마다 19곳
 _MIN_ROWS = 15
 
+DETAIL_TTL_SEC = 60 * 24 * 3600       # 키에 단계가 들어 있어 한 철 내내 들고 있어도 됨
+DETAIL_WORKERS = 4                    # 하나씩 받으면 기상청이 느릴 때 13곳 × 20초
+
 
 class BlossomError(RuntimeError):
     pass
+
+
+class _Incomplete(Exception):
+    """단계는 올랐는데 촬영일이 아직 없음 — 목록이 상세보다 먼저 바뀜. 캐시하면 다음 단계까지 날짜가 빔."""
 
 
 def _get(url: str, **kw) -> requests.Response:
@@ -46,9 +55,11 @@ def _jsonp(text: str) -> dict:
     return shared.jsonp(text, "applyFlowerData", "봄꽃", BlossomError)
 
 
-def parse_status(text: str) -> tuple[dict[str, int], bool]:
-    """(군락지별 단계, 서비스 중인지)."""
-    return shared.stages_in(_jsonp(text), STAGES, "봄꽃", BlossomError)
+def parse_status(text: str) -> tuple[dict[str, int], bool, dict]:
+    """(군락지별 단계, 서비스 중인지, obsPlace 한 곳의 상세)."""
+    data = _jsonp(text)
+    stages, in_service = shared.stages_in(data, STAGES, "봄꽃", BlossomError)
+    return stages, in_service, data.get("flower") or {}
 
 
 def _kma(place: str = "") -> str:
@@ -57,28 +68,57 @@ def _kma(place: str = "") -> str:
     return resp.text
 
 
-def fetch_status(today: dt.date) -> Status:
-    """단계는 목록 한 번에, 촬영일은 obsPlace 로 한 곳씩 불러야 나옴. 날짜를 못 받아도 단계는 둠."""
+def _dates(flower: dict, year: int) -> tuple[dt.date | None, dt.date | None]:
+    return shared.shot_date(flower.get("cfShotDate"), year), shared.shot_date(flower.get("ffShotDate"), year)
+
+
+def _detail(name: str, stage: int, year: int) -> tuple[dt.date | None, dt.date | None]:
+    def load():
+        flower = _jsonp(_kma(name)).get("flower") or {}
+        if flower.get("obsPlace") != name:
+            raise BlossomError(f"{name} 상세를 요청했는데 {flower.get('obsPlace')} 가 왔습니다")
+        dates = _dates(flower, year)
+        if dates[stage - 1] is None:
+            raise _Incomplete(*dates)
+        return dates
     try:
-        stages, in_service = parse_status(_kma())
+        return get_or_set(("blossom-detail", name, stage, year), DETAIL_TTL_SEC, load)
+    except _Incomplete as exc:
+        return exc.args
+
+
+def _safe_detail(name: str, stage: int, year: int) -> tuple[dt.date | None, dt.date | None]:
+    try:
+        return _detail(name, stage, year)
+    except (BlossomError, KeyError, TypeError, AttributeError) as exc:
+        # 날짜만 비움 — 단계는 목록 것이라 맞음
+        log.warning("벚꽃 상세 실패 %s: %s", name, exc)
+        return None, None
+
+
+def fetch_status(today: dt.date) -> Status:
+    """단계는 목록 한 번에, 촬영일은 obsPlace 로 군락지마다 따로 — 동시에 받고 단계별로 캐시함."""
+    try:
+        stages, in_service, flower = parse_status(_kma())
     except (KeyError, TypeError, AttributeError) as exc:
         raise BlossomError(f"기상청 봄꽃 응답 형식이 바뀌었습니다: {exc}") from exc
     status = Status(stages=stages, in_service=in_service)
-    for name, stage in stages.items():
-        if not stage:
-            continue
-        try:
-            flower = _jsonp(_kma(name)).get("flower") or {}
-        except BlossomError as exc:
-            log.warning("벚꽃 상세 실패 %s: %s", name, exc)
-            continue
-        if flower.get("obsPlace") != name:
-            log.warning("벚꽃 상세 %s 를 요청했는데 %s 가 왔습니다", name, flower.get("obsPlace"))
-            continue
-        if bloom := shared.shot_date(flower.get("cfShotDate"), today.year):
-            status.bloom[name] = bloom
-        if full := shared.shot_date(flower.get("ffShotDate"), today.year):
-            status.full[name] = full
+    bloomed = [(name, stage) for name, stage in stages.items() if stage]
+    # 목록 응답에 딸려 온 한 곳(인천자유공원)은 다시 부르지 않음
+    known = {flower.get("obsPlace"): _dates(flower, today.year)}
+
+    def dates_of(item: tuple[str, int]) -> tuple[dt.date | None, dt.date | None]:
+        name, stage = item
+        if name in known and known[name][stage - 1] is not None:
+            return known[name]
+        return _safe_detail(name, stage, today.year)
+
+    with ThreadPoolExecutor(max_workers=DETAIL_WORKERS) as pool:
+        for (name, _), (bloom, full) in zip(bloomed, pool.map(dates_of, bloomed)):
+            if bloom:
+                status.bloom[name] = bloom
+            if full:
+                status.full[name] = full
     return status
 
 

@@ -1,4 +1,4 @@
-"""철 소식 지도의 바탕 — 남한 윤곽(Natural Earth, 퍼블릭 도메인)·투영·카드 공통 CSS. 단풍·첫눈 지도가 함께 씀."""
+"""철 소식 지도의 바탕 — 남한 윤곽(Natural Earth, 퍼블릭 도메인)·투영·카드 공통 CSS. 단풍·첫눈·벚꽃 지도가 함께 씀."""
 from __future__ import annotations
 
 import functools
@@ -60,9 +60,12 @@ def label(x: float, y: float, name: str, side: str, strong: bool) -> str:
             f'{html.escape(name)}</text>')
 
 
-def frame(inner: str, aria_label: str) -> str:
-    """바탕 지도를 깐 SVG. 지도 끝에 붙은 점(백령도)이 잘리지 않게 카드 여백까지 그림."""
-    return (f'<svg width="{MAP_W:.0f}" height="{MAP_H:.0f}" viewBox="0 0 {MAP_W:.0f} {MAP_H:.0f}" '
+def frame(inner: str, aria_label: str, width: float = MAP_W) -> str:
+    """바탕 지도를 깐 SVG. 지도 끝에 붙은 점(백령도)이 잘리지 않게 카드 여백까지 그림.
+
+    width 를 줄이면 글자·표지까지 같은 비율로 줄어듦 — 지도 두 장을 나란히 둘 때(벚꽃).
+    """
+    return (f'<svg width="{width:.0f}" height="{width * MAP_H / MAP_W:.0f}" viewBox="0 0 {MAP_W:.0f} {MAP_H:.0f}" '
             f'overflow="visible" role="img" aria-label="{aria_label}">{basemap()}{inner}</svg>')
 
 

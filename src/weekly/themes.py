@@ -6,7 +6,7 @@
   벚꽃  기상청 관측 중이거나, 관측 전 올해 첫 개화 예상일까지   관측 기상청 · 예상 웨더아이 + 지도
   장마  예보관 서술에 장마·정체전선이 있을 때                     그 주 예보 (따로 받지 않음)
   폭염  기준(낮 최고 33℃·아침 최저 25℃)에 닿는 날이나 예보관 언급이 있을 때  그 주 예보 (따로 받지 않음)
-  태풍  기상청 태풍정보에 진행 중인 태풍이 있을 때              현재·예상 기상청 태풍정보 · 예보관 서술 (글만)
+  태풍  예보관이 태풍을 말하고 기상청 목록에 진행 중일 때     현재·예상 기상청 태풍정보 · 예보관 서술 (글만)
   단풍  기상청 관측 중이거나, 관측 전 올해 첫 예상일까지        관측 기상청 · 예상 웨더아이 + 지도
   첫눈  지난 7일 안에 관측됐거나, 아직인 곳에 그 주 눈 예보가 있을 때  관측 기상청 계절관측 · 평년 + 지도
 """
@@ -89,25 +89,25 @@ def blossom_block(ctx: Context) -> Block | None:
 
 
 def typhoon_block(ctx: Context) -> Block | None:
-    """진행 중인 태풍이 있을 때만, 글만 — 태풍 위치는 2번 일기도가 보여 줌.
+    """예보관이 태풍을 말하고 기상청 목록에 진행 중인 태풍이 있을 때만, 글만 — 태풍 위치는 2번 일기도가 보여 줌.
 
-    태풍정보를 받지 못했어도 예보관 서술에 태풍이 있으면 그 줄만 실음 — 위험 신호를 영역 실패로 묻지 않게.
+    멀리 있는 태풍(괌 근처 등)은 예보관이 말하지 않으면 싣지 않음(사용자 결정). 태풍정보를 받지 못했어도
+    예보관 서술에 태풍이 있으면 그 줄만 실음 — 위험 신호를 영역 실패로 묻지 않게.
     """
-    failure: typhoon.TyphoonError | None = None
+    week = ctx.forecast()
+    mentioned = _typhoon_lines(week.narratives if week else [])
+    if not mentioned:
+        return None                       # 예보관이 태풍을 말하지 않음 — 태풍정보도 받지 않음
     try:
         storms = typhoon.fetch_active()
     except typhoon.TyphoonError as exc:
-        failure, storms = exc, []
-    if not storms and failure is None:
-        return None                       # 기상청 목록이 비었음 — 진행 중인 태풍 없음
-    week = ctx.forecast()
+        log.warning("기상청 태풍정보를 받지 못해 예보관 서술만 싣습니다 — %s", exc)
+        storms = None
+    if storms == []:
+        return None                       # 목록이 비었음 — 서술의 «태풍» 은 발생 가능성만 말하는 줄일 수 있음
     body = ctx.body()
-    quotes = [q for q in _typhoon_lines(week.narratives if week else [])
-              if not narrative.in_body(q[0], body)][:narrative.MAX_QUOTES]
-    if failure is not None:
-        if not quotes:
-            raise failure
-        log.warning("기상청 태풍정보를 받지 못해 예보관 서술만 싣습니다 — %s", failure)
+    quotes = [q for q in mentioned if not narrative.in_body(q[0], body)][:narrative.MAX_QUOTES]
+    storms = storms or []
 
     paragraph = Paragraph("이번 주 태풍", emoji=":cyclone:")
     for storm in storms:

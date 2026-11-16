@@ -2280,6 +2280,19 @@ def summer_notes(*lines: str) -> list[Narrative]:
     return [Narrative("기상청 예보 통보문", "", None, list(lines))]
 
 
+def test_narrative_quote() -> None:
+    """예보관 인용 — 짧으면 원문 그대로, 길면 낱말 경계에서 자르고 «…» (말을 보태지 않음)."""
+    from src.season import narrative
+
+    assert narrative.quote("(내일) 흐리고 비") == '"(내일) 흐리고 비"'
+    long = "(오늘, 16일) 전국 구름많겠으나, " + "강원동해안.산지와 경북동해안.북동산지 곳에 따라 비, " * 6
+    quoted = narrative.quote(long)
+    assert quoted.endswith('…"') and len(quoted) <= narrative.QUOTE_CHARS + 3, quoted
+    assert long.startswith(quoted[1:-2]), "앞부분이 원문과 다릅니다"
+    assert not quoted[1:-2].endswith((",", " ")), quoted
+    print("[ok] 예보관 인용 — 짧으면 그대로, 길면 낱말 경계에서 자르고 «…»")
+
+
 def test_heat_weekly() -> None:
     """폭염·열대야 — 기상청 기준(낮 최고 33℃↑ · 아침 최저 25℃↑)의 경계, 예보관 인용, 선선하면 해당 없음."""
     from src.weekly import themes
@@ -2486,26 +2499,27 @@ def test_typhoon_weekly() -> None:
                                 '"(해상) 제2호 태풍 우딥의 영향으로 24일 남해상 물결 매우 높겠음"'), rows[2].text
         assert block.credit == "태풍 · 기상청 태풍정보(2/20 16시 발표) · 기상청 예보 통보문 · 기상청 중기예보", \
             block.credit
-        # 서술에 태풍이 없으면 «이번 주» 없이, 출처도 실린 것만
-        block = themes.typhoon_block(weekly_ctx(week, days=days))
+        # 예보관이 태풍을 말하지 않으면 멀리 있는 태풍은 싣지 않음(사용자 결정) — 태풍정보도 받지 않음
+        asked: list = []
+        typhoon.fetch_active = lambda: asked.append(1) or [storm]
+        assert themes.typhoon_block(weekly_ctx(week, days=days)) is None and not asked
+        # 본문이 이미 인용한 줄은 «이번 주» 에서 빼되, 태풍 사실(현재·예상)은 실음
+        quoted_body = '기상청은 "*제2호 태풍 우딥 북상, 주 후반 남해안 너울 유의*"이라고 전하고 있습니다.'
+        block = themes.typhoon_block(weekly_ctx(week, days=days, narratives=[notice], body=quoted_body))
         assert labels(block) == ["현재", "예상"] and block.credit == "태풍 · 기상청 태풍정보(2/20 16시 발표)"
         # 둘이면 «예상» 에 이름을 붙임
         typhoon.fetch_active = lambda: [storm, replace(storm, no=3, name="세파트", en_name="SEPAT")]
-        block = themes.typhoon_block(weekly_ctx(week, days=days))
-        assert labels(block) == ["현재", "예상"] * 2 and block.paragraph.rows[3].text.startswith("세파트 2/24(일)")
+        block = themes.typhoon_block(weekly_ctx(week, days=days, narratives=[notice]))
+        assert labels(block) == ["현재", "예상"] * 2 + ["이번 주"], labels(block)
+        assert block.paragraph.rows[3].text.startswith("세파트 2/24(일)")
         # 태풍정보를 못 받으면 예보관 서술만 — 위험 신호를 영역 실패로 묻지 않음
         typhoon.fetch_active = lambda: (_ for _ in ()).throw(TyphoonError("점검"))
         block = themes.typhoon_block(weekly_ctx(week, days=days, narratives=[notice]))
         assert labels(block) == ["이번 주"] and block.credit == "태풍 · 기상청 예보 통보문", block.credit
-        # 서술에도 없으면 «해당 없음» 이 아니라 실패 — 영역 경계가 경고로 남기고 뺌
-        try:
-            themes.typhoon_block(weekly_ctx(week, days=days))
-            raise AssertionError("태풍정보 실패가 묻혔습니다")
-        except TyphoonError:
-            pass
+        assert themes.typhoon_block(weekly_ctx(week, days=days)) is None    # 서술에도 없으면 해당 없음
     finally:
         typhoon.fetch_active = orig
-    print("[ok] 태풍 주간 게시 — 진행 중일 때만 글로, 이번 주 안의 예상, 서술 원문 인용, 태풍정보 실패엔 서술만")
+    print("[ok] 태풍 주간 게시 — 예보관이 말하고 진행 중일 때만, 이번 주 안의 예상, 본문과 안 겹치는 인용, 실패엔 서술만")
 
 
 if __name__ == "__main__":
@@ -2559,6 +2573,7 @@ if __name__ == "__main__":
     test_snow_weekly()
     test_snow_mention()
     test_snow_render()
+    test_narrative_quote()
     test_heat_weekly()
     test_monsoon_weekly()
     test_typhoon_parse()

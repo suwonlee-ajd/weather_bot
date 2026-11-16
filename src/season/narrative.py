@@ -8,6 +8,7 @@ _BULLET_RE = re.compile(r"^[□○]\s*")
 _HEAD_RE = re.compile(r"^\([^)]*\)\s*")
 
 MAX_QUOTES = 2      # 많으면 철 소식 한 문단이 본문보다 길어짐
+QUOTE_CHARS = 120   # 실제 서술은 한 줄이 300자를 넘기도 함 — 길면 낱말 경계에서 자르고 «…»
 
 
 def mentioning(lines: Iterable[str], words: tuple[str, ...]) -> list[str]:
@@ -31,4 +32,8 @@ def unquoted(texts: list[str], body: str) -> list[str]:
 
 
 def quote(text: str) -> str:
+    """원문 그대로 따옴. 길면 앞부분만 — 자른 자리에 «…» 를 붙여 원문이 더 있음을 알림(말을 보태지 않음)."""
+    if len(text) > QUOTE_CHARS:
+        cut = text[:QUOTE_CHARS]
+        text = (cut[:cut.rfind(" ")] if " " in cut else cut).rstrip(" ,·") + "…"
     return f'"{text}"'

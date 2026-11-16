@@ -1,4 +1,4 @@
-"""중기예보 — 도시별 기온 표를 전국 범위로 모으고 하늘상태·강수확률 (D+4~D+10)."""
+"""중기예보 — 도시별 기온 표를 전국 범위로 모으고(도시별 값도 남김) 하늘상태·강수확률 (D+4~D+10)."""
 from __future__ import annotations
 
 import datetime as dt
@@ -54,12 +54,22 @@ def _row_group(cells, current: str | None) -> str | None:
     return current
 
 
+PAIR_RE = re.compile(r"-?\d+(\.\d+)?\s*/\s*-?\d+(\.\d+)?")
+
+
+def _city_name(raw_cells) -> str:
+    """도시 칸 — 그룹 첫 행은 앞에 rowspan 지역 칸이 붙어 그것을 건너뜀."""
+    texts = [c.get_text(" ", strip=True) for c in raw_cells if not c.get("rowspan")]
+    return texts[0] if texts and not PAIR_RE.fullmatch(texts[0]) else ""
+
+
 def _temperatures(tbl, ref: dt.date, region: Region) -> dict[dt.date, ScrapedDay]:
-    """도시별 "18 / 27" 을 날짜별로 모아 분포 범위로 만듦."""
+    """도시별 "18 / 27" 을 날짜별로 모아 분포 범위로 만들고, 도시별 값도 cities 에 그대로 남김."""
     dates = _header_dates(tbl, ref)
     n_dates = len(dates)
     mins: dict[dt.date, list[float]] = {d: [] for _, d in dates}
     maxs: dict[dt.date, list[float]] = {d: [] for _, d in dates}
+    cities: dict[dt.date, dict[str, tuple[float, float]]] = {d: {} for _, d in dates}
     group: str | None = None
     for tr in tbl.select("tbody tr"):
         raw_cells = tr.find_all(["th", "td"])
@@ -67,15 +77,19 @@ def _temperatures(tbl, ref: dt.date, region: Region) -> dict[dt.date, ScrapedDay
         if region.mid_group and (group is None or region.mid_group not in group):
             continue
         cells = [c.get_text(" ", strip=True) for c in raw_cells]
-        pairs = [c for c in cells if re.fullmatch(r"-?\d+(\.\d+)?\s*/\s*-?\d+(\.\d+)?", c)]
+        pairs = [c for c in cells if PAIR_RE.fullmatch(c)]
         if len(pairs) < n_dates:
             continue
+        name = _city_name(raw_cells)
         for (_, date), cell in zip(dates, pairs[:n_dates]):
             lo, hi = (float(x) for x in cell.split("/"))
             mins[date].append(lo)
             maxs[date].append(hi)
+            if name:
+                cities[date][name] = (lo, hi)
 
-    return {d: ScrapedDay(d, min(mins[d]), max(mins[d]), min(maxs[d]), max(maxs[d]), source="중기예보")
+    return {d: ScrapedDay(d, min(mins[d]), max(mins[d]), min(maxs[d]), max(maxs[d]), source="중기예보",
+                          cities=cities[d])
             for _, d in dates if mins[d]}
 
 

@@ -47,6 +47,7 @@ class DayForecast:
     sky: str | None = None
     pop: int | None = None
     source: str = ""
+    cities: dict[str, tuple[float, float]] = field(default_factory=dict)  # 도시 → (아침 최저, 낮 최고), 중기예보 날만
 
     @property
     def weekday_ko(self) -> str:
@@ -158,8 +159,11 @@ def _day(date: dt.date, raw: ScrapedDay, warnings: list[str]) -> DayForecast:
         warnings.append(f"{date:%m/%d} 낮 기온 범위가 뒤집혀 바로잡았습니다")
 
     pop = raw.pop if raw.pop is None or 0 <= raw.pop <= 100 else None
+    # 범위 밖 값이 든 도시는 그 도시만 뺌 — 다른 도시 값까지 버리지 않음
+    cities = {name: (lo, hi) for name, (lo, hi) in raw.cities.items()
+              if _valid(lo) is not None and _valid(hi) is not None}
     return DayForecast(date=date, tmin_lo=tmin_lo, tmin_hi=tmin_hi, tmax_lo=tmax_lo, tmax_hi=tmax_hi,
-                       sky=raw.sky, pop=pop, source=raw.source)
+                       sky=raw.sky, pop=pop, source=raw.source, cities=cities)
 
 
 def _check_complete(days: list[DayForecast], today: dt.date) -> None:

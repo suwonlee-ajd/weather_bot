@@ -41,6 +41,7 @@ _단풍 지도 · 현황 기상청 날씨누리 · 예상 웨더아이(9/4 발�
 | 첫눈 지도 | 첫눈 소식이 있을 때만 — 계절관측 24곳의 올해 첫눈과 평년·지난겨울 |
 | 벚꽃 지도 | 벚꽃 소식이 있을 때만 — 웨더아이 19개 도시의 개화 예상 (한 장, 기상청 군락지 관측은 글로) |
 | 태풍 예상 경로 지도 | 태풍 문단이 실릴 때만 — 지난 경로 · 현재·예상 위치(시각·중심기압) · 70% 확률반경 · 강풍·폭풍반경 (태풍이 여럿이면 한 장, 기압선은 지상일기도로) |
+| 더위 지도 | 더위 소식이 있고 중기예보 도시별 값이 있을 때만 — 41곳의 그 기간 낮 최고(🥵 33℃↑)와 기준에 닿는 도시 표 |
 
 멘션 봇은 이렇게 답함.
 
@@ -142,7 +143,7 @@ systemd timer (월 07:50 KST 기동) — 또는 크론을 넣은 GitHub Actions 
   ├─ (단풍철) 기상청 단풍 현황 + 웨더아이 예상 PDF ── 단풍 문단 + 지도
   ├─ (첫눈철) 기상자료개방포털 계절관측 + 그 주 예보의 눈 ─ 첫눈 문단 + 지도
   ├─ (벚꽃철) 기상청 군락지 관측 + 웨더아이 예상 PDF ─ 벚꽃 문단 + 지도
-  ├─ (여름) 위 예보의 기온·하늘상태와 예보관 서술 ─── 장마 · 더위 문단 (따로 받지 않음)
+  ├─ (여름) 위 예보의 기온·하늘상태와 예보관 서술 ─── 장마 · 더위 문단 + 더위 지도(중기예보 도시별, 따로 받지 않음)
   ├─ (선택) 모델 ────────── 위 원문으로 카드 문구 + 본문
   └─ POST_AT 까지 대기 → files.uploadV2 (본문 + 이미지를 한 메시지로)
 ```
@@ -195,7 +196,7 @@ src/kma/        기상청 수집 — 광역 구역(regions) · 통보문(notice)
                 · 동네예보(dong_zone · dong_forecast) · 1개월 전망(outlook) · 일기도(chart) · 태풍정보(typhoon)
 src/season/     철 소식 자료 — 주제마다 자료(data) · 문장(text) · 지도(map)
                 · 단풍(foliage/ + 명산 mountains) · 첫눈(snow/ + 관측 지점 stations)
-                · 벚꽃(blossom/ + 군락지·도시 spots) · 장마(monsoon/) · 더위(heat/) — 그 주 예보에서 읽음
+                · 벚꽃(blossom/ + 군락지·도시 spots) · 장마(monsoon/) · 더위(heat/ + 도시 cities) — 그 주 예보에서 읽음
                 · 태풍 지도(typhoon/ 예상 경로 map · 북서태평양 바탕 pacific) — 자료는 kma/typhoon
                 · 공통 — 수집(sources) · 지도 바탕(basemap) · 관측 한 줄 꼴(summary) · 주의 시작(weeks)
                 · 예보관 서술 인용(narrative)
@@ -244,8 +245,8 @@ uv run ruff check src tests bin
 | [기상청 날씨누리](https://www.weather.go.kr) | 예보 통보문, 중기예보, 동네예보, 1개월 전망, 지상일기도, 태풍정보, 단풍·벚꽃 관측 |
 | [기상자료개방포털](https://data.kma.go.kr) | 첫눈 관측(계절관측 24곳)과 평년값 |
 | [웨더아이](https://www.weatheri.co.kr) | 단풍·벚꽃 예상 시기 (해마다 올리는 PDF) |
-| [Natural Earth](https://www.naturalearthdata.com) | 단풍·첫눈·벚꽃 지도의 시도 윤곽, 태풍 지도의 북서태평양 육지 (퍼블릭 도메인) |
-| [Noto Emoji](https://github.com/googlefonts/noto-emoji) | 단풍·첫눈·벚꽃 지도 표지 🍁 🍂 ❄️ 🌸 (Apache License 2.0, `src/season/assets/noto-emoji/`) |
+| [Natural Earth](https://www.naturalearthdata.com) | 단풍·첫눈·벚꽃·더위 지도의 시도 윤곽, 태풍 지도의 북서태평양 육지 (퍼블릭 도메인) |
+| [Noto Emoji](https://github.com/googlefonts/noto-emoji) | 단풍·첫눈·벚꽃·더위 지도 표지 🍁 🍂 ❄️ 🌸 🥵 (Apache License 2.0, `src/season/assets/noto-emoji/`) |
 
 - 이 프로젝트는 기상청·웨더아이와 관계가 없는 비공식 도구.
 - 게시물마다 출처를 밝힘. 자료를 다시 퍼뜨리거나 상업적으로 쓰려면 각 출처의 이용 조건을 먼저 확인함.

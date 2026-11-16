@@ -43,6 +43,8 @@ class ScrapedDay:
     sky: str | None = None
     pop: int | None = None
     source: str = ""
+    # 도시 → (아침 최저, 낮 최고). 중기예보 표만 도시별로 줌 — 통보문은 전국 범위뿐이라 비어 있음
+    cities: dict[str, tuple[float, float]] = field(default_factory=dict)
 
 
 @dataclass

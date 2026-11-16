@@ -1425,7 +1425,8 @@ def test_map_emoji() -> None:
     assert "i:" not in svg and "<?xml" not in svg and "DOCTYPE" not in svg
     ids = re.findall(r'id="([^"]+)"', svg)
     assert all(i.split("-", 1)[0] in EMOJI for i in ids), ids
-    assert len(set(ids)) == len(ids) // 2, "같은 그림 두 번 말고는 id 가 겹치면 안 됨"
+    once = re.findall(r'id="([^"]+)"', "".join(emoji(name, 10, 10, 20) for name in EMOJI))
+    assert len(set(once)) == len(once), "같은 그림 두 번 말고는 id 가 겹치면 안 됨"
     assert all(ref in ids for ref in re.findall(r"url\(#([^)]+)\)", svg)), "가리키는 그러데이션이 없음"
     assert 'opacity="0.45"' in svg and svg.count('viewBox="0 0 128 128"') == len(EMOJI) + 1
     print("[ok] 지도 표지 그림 — Noto 🍁 🍂 ❄️, 편집기 자료 제거, id 겹침 없음, 옅게 그리기")
@@ -2325,9 +2326,17 @@ def test_heat_weekly() -> None:
     rows = {r.label: r.text for r in block.paragraph.rows}
     assert block.paragraph.title == "이번 주 더위" and block.paragraph.emoji == ":hot_face:"
     assert list(rows) == ["폭염 기준(33℃↑)", "열대야 기준(25℃↑)"], list(rows)
-    assert rows["폭염 기준(33℃↑)"] == "*7/20(화)* 33℃ · *7/21(수)* 36℃ (일부 지역 낮 최고)", rows
-    assert rows["열대야 기준(25℃↑)"] == "*7/20(화)* 25℃ · *7/21(수)* 27℃ (일부 지역 아침 최저)", rows
+    assert rows["폭염 기준(33℃↑)"] == "*7/20(화)~7/21(수)* 2일 · 최고 36℃ 7/21(수) (일부 지역 낮 최고)", rows
+    assert rows["열대야 기준(25℃↑)"] == "*7/20(화)~7/21(수)* 2일 · 최고 27℃ 7/21(수) (일부 지역 아침 최저)", rows
+    # 도시별 값(중기예보)이 없는 주는 지도 없이 글만
     assert block.credit.startswith("더위 · 기상청") and block.attachment is None
+
+    # 날짜는 이어진 구간으로 줄이고 날마다의 값은 늘어놓지 않음 — 최고값이 같으면 이른 날
+    from src.season.heat.text import span_text
+    d = dt.date
+    assert span_text([(d(2027, 7, 21), 36.0)]) == "*7/21(수)* 36℃"
+    assert span_text([(d(2027, 7, 19), 34.0), (d(2027, 7, 21), 36.0), (d(2027, 7, 22), 36.0),
+                      (d(2027, 7, 25), 33.0)]) == "*7/19(월)* · *7/21(수)~7/22(목)* · *7/25(일)* 4일 · 최고 36℃ 7/21(수)"
 
     # 예보관 서술은 글머리만 떼고 그대로, 본문이 이미 인용한 (종합) 줄은 되풀이하지 않음, 둘까지
     notes = summer_notes("□ (종합) 무더위 계속, 일부 지역 폭염특보 발효 중",
@@ -2384,6 +2393,107 @@ def test_monsoon_weekly() -> None:
     # 비가 잦아도 예보관이 장마·정체전선을 말하지 않으면 해당 없음 — 기간을 정하지 않음
     assert themes.monsoon_block(weekly_ctx(SUMMER_WEEK, days=days, narratives=summer_notes("○ (내일) 비"))) is None
     print("[ok] 장마 — 예보관 서술 인용 + 비 오는 날, 정체전선만이면 «정체전선», 언급 없으면 해당 없음")
+
+
+MID_TEMP_HTML = """<table><caption>최대 10일 후 까지의 육상예보 최저/최고기온(℃)</caption>
+<thead><tr><th colspan="2">지역</th><th>23일 (금)</th><th>24일 (토)</th><th>기온범위</th></tr></thead><tbody>
+<tr><td rowspan="2">서울 인천 경기도</td><td>서울</td><td>25 / 34</td><td>26 / 35</td><td>그래프</td></tr>
+<tr><td>인천</td><td>24 / 31</td><td>25 / 32</td><td>그래프</td></tr>
+<tr><td rowspan="1">강원도 영동</td><td>강릉</td><td>27 / 36</td><td>28 / 37</td><td>그래프</td></tr>
+</tbody></table>"""
+
+
+def test_heat_city_parse() -> None:
+    """중기예보 도시 표 — 전국 범위는 그대로, 도시별 값도 남김(구역 행만). 범위 밖 값이 든 도시는 그 도시만 뺌."""
+    from bs4 import BeautifulSoup
+
+    from src.kma import mid_term
+    from src.kma.regions import NATIONWIDE, find_region
+    from src.weekly.forecast import _day
+
+    tbl = BeautifulSoup(MID_TEMP_HTML, "lxml").select_one("table")
+    fri, sat = dt.date(2027, 7, 23), dt.date(2027, 7, 24)
+    days = mid_term._temperatures(tbl, SUMMER_WEEK, NATIONWIDE)
+    assert (days[fri].tmin_lo, days[fri].tmin_hi, days[fri].tmax_lo, days[fri].tmax_hi) == (24, 27, 31, 36)
+    assert days[fri].cities == {"서울": (25, 34), "인천": (24, 31), "강릉": (27, 36)}, days[fri].cities
+    assert days[sat].cities["강릉"] == (28, 37) and days[sat].source == "중기예보"
+    yeongdong = mid_term._temperatures(tbl, SUMMER_WEEK, find_region("영동"))
+    assert yeongdong[fri].cities == {"강릉": (27, 36)} and yeongdong[fri].tmax_lo == 36
+    raw = ScrapedDay(fri, 24, 27, 31, 36, source="중기예보", cities={"서울": (25, 34), "깨짐": (25, 99)})
+    assert _day(fri, raw, []).cities == {"서울": (25, 34)}
+    assert ScrapedDay(fri).cities == {} and DayForecast(fri).cities == {}     # 통보문 날은 비어 있음
+    print("[ok] 더위 도시값 — 중기예보 도시 표를 범위와 함께 도시별로, 구역 행만, 이상한 도시만 뺌")
+
+
+def heat_week(cities: dict[str, tuple[float, float]]) -> list[DayForecast]:
+    """월~목 통보문(범위만), 금~일 중기예보(도시별) — 토요일이 1도 더 높음."""
+    days = [summer_day(i, (22, 26), (29, 35)) for i in range(4)]
+    for i, bump in ((4, 0), (5, 1), (6, 0)):
+        got = {k: (lo + bump, hi + bump) for k, (lo, hi) in cities.items()}
+        lows, highs = [v[0] for v in got.values()], [v[1] for v in got.values()]
+        days.append(DayForecast(SUMMER_WEEK + dt.timedelta(days=i), min(lows), max(lows), min(highs), max(highs),
+                                "구름많음", 30, "중기예보", got))
+    return days
+
+
+def test_heat_map() -> None:
+    """더위 지도 — 🥵 는 낮 최고 33℃↑, 나머지는 회색 빈 원, 라벨은 겹치지 않는 것만, 표는 기준에 닿는 도시 20곳까지."""
+    import re
+
+    from src.season.heat import data as heat
+    from src.season.heat import map as heat_map
+    from src.season.heat.cities import SPOTS
+    from src.weekly import themes
+
+    cities = {"대구": (25.0, 36.0), "서울": (24.0, 32.0), "강릉": (23.0, 31.0), "새도시": (20.0, 34.0)}
+    found = heat.read(heat_week(cities), [])
+    by = {c.name: c for c in found.cities}
+    assert by["대구"].high == (dt.date(2027, 7, 24), 37.0) and by["대구"].low == (dt.date(2027, 7, 24), 26.0)
+    assert by["서울"].hot and by["서울"].tropical and not (by["강릉"].hot or by["강릉"].tropical)   # 33·25 경계
+    assert found.city_days == [dt.date(2027, 7, 23), dt.date(2027, 7, 24), dt.date(2027, 7, 25)]
+    html_text = heat_map.build_html(found, SUMMER_WEEK)
+    assert "도시별 예보 7/23(금)~7/25(일)" in html_text      # 지도는 도시별 값이 있는 날만
+    assert html_text.count('viewBox="0 0 128 128"') == 1 + 2        # 범례 + 대구·서울 (새도시는 좌표가 없어 표에만)
+    assert html_text.count('fill="#fcfcfb" stroke="#898781"') == 1 + 1     # 범례 + 강릉
+    assert html_text.count('<tr><th scope="row">') == 3 and "새도시" in html_text     # 기준 미만 강릉은 표에 없음
+    assert '<td class="met">37 <small>토</small></td>' in html_text and "일 최고기온이 33℃ 이상인 날" in html_text
+
+    # 41곳이 모두 더워도 라벨끼리·남의 표지와 겹치지 않음 — 못 붙인 곳은 라벨 없이
+    hot_all = heat.read(heat_week({name: (26.0, 36.0) for name in SPOTS}), [])
+    marks = heat_map._marks(hot_all)
+    labels = re.findall(r'<text class="lbl[^"]*" x="([\d.-]+)" y="([\d.-]+)" text-anchor="(\w+)">([^<]+)</text>', marks)
+    shift = {"start": 0.0, "middle": 0.5, "end": 1.0}
+    boxes = [(float(x) - heat_map._width(t) * shift[a], float(y) - 9, float(x) - heat_map._width(t) * shift[a]
+              + heat_map._width(t), float(y) + 2, t.split()[0]) for x, y, a, t in labels]
+    assert len(boxes) >= 25, len(boxes)
+    for i, a in enumerate(boxes):
+        assert not any(heat_map._hits(a[:4], b[:4]) for b in boxes[i + 1:]), a
+        for name, spot in SPOTS.items():
+            px, py = heat_map.place(spot.lon, spot.lat)
+            half = heat_map.HOT_SIZE / 2
+            assert name == a[4] or not heat_map._hits(a[:4], (px - half, py - half, px + half, py + half)), (a, name)
+    rows = heat_map._table(hot_all)
+    assert rows.count('<tr><th scope="row">') == heat_map.MAX_ROWS and f"외 {len(SPOTS) - heat_map.MAX_ROWS}곳" in rows
+
+    # 주간 게시: 도시별 값이 있으면 지도, 못 그리면 글만(출처의 «지도» 도 뺌), Chromium 이 없으면 그리지 않음
+    orig, drawn = heat_map.render_png, []
+    heat_map.render_png = lambda h, start, scale=2: drawn.append(start) or b"PNG"
+    try:
+        block = themes.heat_block(weekly_ctx(SUMMER_WEEK, days=heat_week(cities)))
+        assert block.attachment.filename == "heat-20270719.png" and block.credit.startswith("더위 지도 · ")
+        assert block.attachment.pattern == "heat-*.png" and drawn == [SUMMER_WEEK]
+        heat_map.render_png = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("Chromium 없음"))
+        block = themes.heat_block(weekly_ctx(SUMMER_WEEK, days=heat_week(cities)))
+        assert block.attachment is None and block.credit.startswith("더위 · ") and block.paragraph.rows
+        drawn.clear()
+        heat_map.render_png = lambda h, start, scale=2: drawn.append(start) or b"PNG"
+        block = themes.heat_block(weekly_ctx(SUMMER_WEEK, can_render=False, days=heat_week(cities)))
+        assert block.attachment is None and not drawn
+    finally:
+        heat_map.render_png = orig
+    cleanup = (pathlib.Path(__file__).resolve().parents[1] / "bin" / "cleanup.py").read_text(encoding="utf-8")
+    assert f'"{heat_map.INFO.slug}-*.png"' in cleanup, "정리 패턴이 더위 지도 이름과 다릅니다"
+    print("[ok] 더위 지도 — 🥵·빈 원, 겹치지 않는 라벨, 표 20곳, 지도 실패·Chromium 없음엔 글만")
 
 
 # 날씨누리 typhoonContent.js 주석에 실린 2019년 제2호 우딥 경로표 그대로 — 뒤에 붙는 빈 줄까지
@@ -2661,6 +2771,8 @@ if __name__ == "__main__":
     test_narrative_quote()
     test_heat_weekly()
     test_monsoon_weekly()
+    test_heat_city_parse()
+    test_heat_map()
     test_typhoon_parse()
     test_typhoon_weekly()
     test_typhoon_map()

@@ -7,8 +7,10 @@ from __future__ import annotations
 import dataclasses
 import datetime as dt
 import logging
+import threading
 import time
-from concurrent.futures import Future, ThreadPoolExecutor, wait
+from collections.abc import Callable
+from concurrent.futures import Future, wait
 from dataclasses import dataclass
 
 from src.common.config import Config
@@ -50,22 +52,36 @@ def compose(cfg: Config, now: dt.datetime, week_offset: int = 0, *, can_render: 
     """None 이면 게시를 건너뜀 (날씨 실패)."""
     base = Context(cfg, now, week_offset, can_render)
     started = time.monotonic()
-    # with 를 쓰지 않음 — 기한을 넘긴 영역을 기다리지 않고 게시하려고 shutdown(wait=False)
-    pool = ThreadPoolExecutor(max_workers=len(SECTIONS) + 1, thread_name_prefix="weekly")
-    try:
-        weather_f = pool.submit(sections.weather, base)
-        ctx = dataclasses.replace(base, weather=weather_f)
-        futures = [pool.submit(_build, s, ctx) for s in SECTIONS]
+    weather_f = _spawn("날씨", sections.weather, base)
+    ctx = dataclasses.replace(base, weather=weather_f)
+    futures = [_spawn(s.name, _build, s, ctx) for s in SECTIONS]
 
-        weather = _weather(weather_f)
-        if weather is None:
-            return None
-        left = max(0.0, SECTIONS_TIMEOUT_SEC - (time.monotonic() - started))
-        wait(futures, timeout=left)
-        blocks = [b for s, f in zip(SECTIONS, futures, strict=True) if (b := _result(s, f))]
-    finally:
-        pool.shutdown(wait=False, cancel_futures=True)
+    weather = _weather(weather_f)
+    if weather is None:
+        return None
+    left = max(0.0, SECTIONS_TIMEOUT_SEC - (time.monotonic() - started))
+    wait(futures, timeout=left)
+    blocks = [b for s, f in zip(SECTIONS, futures, strict=True) if (b := _result(s, f))]
     return merge(weather, blocks)
+
+
+def _spawn(name: str, fn: Callable[..., object], *args: object) -> Future:
+    """데몬 스레드로 돌려 결과를 Future 로 받음.
+
+    ThreadPoolExecutor 일꾼은 shutdown(wait=False) 여도 인터프리터가 끝날 때 join 됨 — 기한을 넘긴 영역(날씨가
+    실패한 뒤 남은 영역 포함)이 게시 뒤 프로세스 종료를 붙들지 않게 데몬으로 둠.
+    """
+    future: Future = Future()
+
+    def run() -> None:
+        future.set_running_or_notify_cancel()
+        try:
+            future.set_result(fn(*args))
+        except BaseException as exc:        # 삼키지 않고 Future 로 넘김 — 처리는 받는 쪽(_weather · _build 경계)
+            future.set_exception(exc)
+
+    threading.Thread(target=run, name=f"weekly-{name}", daemon=True).start()
+    return future
 
 
 def _weather(future: Future) -> Weather | None:

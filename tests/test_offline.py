@@ -1874,7 +1874,10 @@ def test_weekly_pipeline() -> None:
         met.set()
         return None
 
+    stragglers: list[threading.Thread] = []
+
     def too_slow(ctx):
+        stragglers.append(threading.current_thread())
         time.sleep(1.5)
         return Block(Paragraph("느림").add("줄", "기한 초과"))
 
@@ -1897,14 +1900,18 @@ def test_weekly_pipeline() -> None:
             "본문\n\n*동시*\n• 짝 — 만남\n\n*눈*\n• 이번 주 — 예보 7일\n\n_지상일기도 · 기상청_\n_눈 · 기상청_"
         ), post.text
         assert post.attachments == [card, chart] and post.week is week
+        # 기한을 넘긴 영역은 아직 도는 채로 두고 돌아옴 — 데몬이라 게시 뒤 프로세스 종료도 붙들지 않음
+        assert stragglers[-1].is_alive() and stragglers[-1].daemon, stragglers
 
         # 카드를 못 그렸으면(헬스체크 Chromium 실패 포함) 첨부는 나머지만
         card_drawn[0] = False
         assert pipeline.compose(weekly_cfg(), now).attachments == [chart]
 
-        # 날씨가 실패하면 게시하지 않음 — 지어낸 날씨를 올리지 않기
+        # 날씨가 실패하면 게시하지 않음 — 지어낸 날씨를 올리지 않기. 남은 영역은 기다리지 않음
         sections.weather = lambda ctx: (_ for _ in ()).throw(ForecastError("7일 중 4일의 기온을 얻지 못해"))
+        started = time.monotonic()
         assert pipeline.compose(weekly_cfg(), now) is None
+        assert time.monotonic() - started < 1.0, "날씨가 실패했는데 남은 영역을 기다렸습니다"
         sections.weather = lambda ctx: (_ for _ in ()).throw(KeyError("버그"))
         assert pipeline.compose(weekly_cfg(), now) is None
     finally:

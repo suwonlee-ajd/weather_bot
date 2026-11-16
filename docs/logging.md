@@ -48,7 +48,7 @@ zcat -f "$D"/*.error.*.log* | grep -c ERROR             # 이번 달 빈도 (압
 `weather-mention` 로거로 찍힘.
 
 ```
-2026-09-12 10:15:02 ERROR   weather-mention:on_mention:862 - 응답 생성 실패 user=U0B2… ch=C0BD… ts=1788.001 query='<@U1> 역삼동 날씨'
+2026-09-12 10:15:02 ERROR   weather-mention:_answer_slowly:137 - 응답 생성 실패 user=U0B2… ch=C0BD… ts=1788.001 query='<@U1> 역삼동 날씨'
 Traceback (most recent call last):
   ...
 ```
@@ -57,7 +57,7 @@ Traceback (most recent call last):
 .venv/bin/python -c "from src.mention.answer import answer; print(answer('역삼동 날씨').text)"
 ```
 
-`answer()` 가 멘션의 진입점임. `build_reply()` 는 단풍·꽃 갈래를 건너뛰어 그쪽 질문은
+`answer()` 가 멘션의 진입점임. `build_reply()` 는 첫눈·단풍·꽃 갈래를 건너뛰어 그쪽 질문은
 재현되지 않음.
 
 ## 로그 읽는 법 — 자주 나오는 것들
@@ -113,7 +113,8 @@ LOG_LEVEL=DEBUG .venv/bin/python -m src.query 부산
 `그림을 그리지 못해 빼고 게시합니다 — X 지도` 는 영역은 살고 그림만 빠진 것(글·출처는 실림). 대개 Chromium 문제.
 
 ### `기상청 태풍정보 — 진행 중 N개 …`
-태풍 목록을 읽은 결과(INFO). 0개면 뒤이어 `태풍 영역 해당 없음` — 진행 중인 태풍이 없다는 뜻이라 정상.
+태풍 목록을 읽은 결과(INFO) — 예보관 서술에 «태풍» 이 있는 주에만 받음(그 밖의 주는 이 줄 없이
+`태풍 영역 해당 없음`). 0개면 뒤이어 `태풍 영역 해당 없음` — 진행 중인 태풍이 없다는 뜻이라 정상.
 
 - `기상청 태풍정보를 받지 못해 예보관 서술만 싣습니다 — …` (WARNING) → 태풍정보는 실패했지만 서술에 태풍 줄이
   있어 그 줄만 실은 것. 서술에도 없으면 `태풍 영역 실패`
@@ -141,7 +142,7 @@ LOG_LEVEL=DEBUG .venv/bin/python -m src.query 부산
 
 ```
 data/img/weekly-weather-20260914.png   ← 우리가 만든 주간 카드
-data/img/foliage-20260914.png          ← 우리가 만든 단풍 지도 (기상청 단풍 관측 중에만)
+data/img/foliage-20260914.png          ← 우리가 만든 단풍 지도 (단풍 소식이 있을 때만)
 data/img/snow-20261102.png             ← 우리가 만든 첫눈 지도 (첫눈 소식이 있을 때만)
 data/img/blossom-20260330.png          ← 우리가 만든 벚꽃 지도 (벚꽃 소식이 있을 때만)
 data/img/typhoon-20260831.png          ← 우리가 만든 태풍 예상 경로 지도 (태풍 문단이 실릴 때만)
@@ -159,7 +160,7 @@ data/cache/weatheri-blossom-2026.json  ← 웨더아이 벚꽃 예상표를 읽�
 위치는 `DATA_DIR` 을 따름(상대 경로면 저장소 기준) — dry-run 의 `--data-dir` 은 산출물 PNG 만 옮김.
 
 **한 자리에 모으고 보존 기간만 파일명으로 가름.** 디렉터리를 나눠 봐야
-파일명이 이미 `weekly-weather-*` · `foliage-*` · `snow-*` · `blossom-*` · `typhoon-*` · `surf_*` 로 갈리므로 얻는 것이 없음.
+파일명이 이미 `weekly-weather-*` · `foliage-*` · `snow-*` · `blossom-*` · `typhoon-*` · `heat-*` · `surf_*` 로 갈리므로 얻는 것이 없음.
 같은 디렉터리를 패턴만 달리해 여러 번 훑음.
 
 | 설정 | 기본 | 대상 |

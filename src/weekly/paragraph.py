@@ -1,8 +1,8 @@
 """슬랙 게시물의 문단 부품. 줄 모양·순서는 to_slack() 에서만 정함 — 자료 쪽은 내용만 넘김.
 
-    p = Paragraph("이번 주 벚꽃", emoji=":cherry_blossom:")
-    p.add("관측", observed).add("올해", "")                     # 빈 내용은 건너뜀
-    msg = Message(body).add(Block(None, "지상일기도 · 기상청", chart)).add(Block(p, credit="벚꽃 · 기상청"))
+    p = Paragraph("이번 주 단풍", emoji=":maple_leaf:")
+    p.add("관측", observed).add("이번 주", "")                  # 빈 내용은 건너뜀
+    msg = Message(body).add(Block(None, "지상일기도 · 기상청", chart)).add(Block(p, credit="단풍 · 기상청"))
     msg.to_slack()                                             # 본문 → 문단들 → 출처 줄
 """
 from __future__ import annotations

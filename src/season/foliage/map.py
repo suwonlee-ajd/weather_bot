@@ -41,7 +41,7 @@ FIRST_OPACITY = 0.45
 
 @dataclass(frozen=True)
 class Mark:
-    """산 표지 — 단계, 이번 주 예상(점선 고리), 절정 2주 넘음(옅게)."""
+    """산 표지 — 단계, 이번 주 예상(점선 고리), 절정 2주 넘음(🍂)."""
     stage: int
     ring: bool = False
     faded: bool = False

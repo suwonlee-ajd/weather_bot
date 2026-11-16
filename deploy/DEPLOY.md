@@ -49,7 +49,7 @@ cd /opt/weather_bot
 sudo -u weather uv sync --frozen               # uv.lock 그대로 — 로컬과 같은 버전 (모델 extra 는 아래 참고)
 sudo -u weather .venv/bin/python -m playwright install chromium
 sudo .venv/bin/python -m playwright install-deps chromium   # 시스템 라이브러리 — weather 계정엔 sudo 가 없어 root 로
-sudo apt-get install -y fonts-noto-cjk          # 없으면 카드가 □□□ 로 렌더링됨
+sudo apt-get install -y fonts-noto-cjk          # 없으면 카드·지도 글자가 □□□ 로 렌더링됨
 
 sudo -u weather cp .env.example .env
 sudo -u weather chmod 600 .env
@@ -59,14 +59,18 @@ sudo -u weather vi .env                          # SLACK_BOT_TOKEN, SLACK_APP_TO
 > `WRITER=gemini`·`claude` 면 `uv sync` 마다 `--extra gemini`(또는 `claude`)를 함께 줌.
 > `uv sync` 는 요청하지 않은 패키지를 지우므로, 빼면 그 패키지가 사라져 규칙 기반 문구로 떨어짐.
 
+> 카드·지도는 Chromium 으로 그리므로 Chromium 과 `fonts-noto-cjk` 가 필요함. 지도 표지 이모지(🍁 🍂 ❄️ 🌸 🥵)는
+> 저장소의 SVG(`src/season/assets/noto-emoji/`)를 그대로 그려 `fonts-noto-color-emoji` 는 없어도 됨.
+
 점검:
 
 ```bash
 sudo -u weather bash -c 'set -a; . .env; set +a; .venv/bin/python -m tests.check_credentials'
 ```
 
-> 월요일 게시도 시작할 때 같은 점검(슬랙 · 기상청 · Chromium)을 스스로 돌림. 슬랙이 실패하면 게시하지 않고
-> 끝냄. 결과는 `weekly-weather` 로그의 `점검 통과 —` · `점검 실패 —` 줄.
+> 헬스체크는 주간 게시 안에서 돎 — 따로 켤 유닛·타이머가 없음. 게시마다 맨 앞에서 슬랙 · 기상청 접속 · Chromium 을
+> 점검함(슬랙·Chromium 은 위 점검과 같은 함수, `src/weekly/health.py`). 슬랙이 실패하면 게시하지 않고 끝내고,
+> Chromium 이 실패하면 카드·지도 없이 글과 일기도만 올림. 결과는 `weekly-weather` 로그의 `점검 통과 —` · `점검 실패 —` 줄.
 
 ## 2-A. 권한 없는 서버
 
@@ -149,7 +153,8 @@ journalctl -u weather-mention -f
 정리 타이머는 꼭 켬 — 주간 게시·정리 같은 일회성 실행의 로그를 지우는 주체가 이 타이머뿐임.
 loguru 의 회전(gz 압축 + 90일 폐기)은 자정을 넘겨 도는 멘션 봇에만 일어나고,
 `weekly-weather.*` · `cleanup.*` 로그는 평범한 `.log` 로 남아 `bin/cleanup.py` 가
-`LOG_KEEP_DAYS`(기본 90일)대로 지움. dry-run 산출물(`data/img/`)도 이 타이머가 치움.
+`LOG_KEEP_DAYS`(기본 90일)대로 지움. dry-run 산출물(`data/img/`)도 이 타이머가 치움. 웨더아이 예상표 디스크
+캐시(`data/cache/`)는 지우지 않음 — 해마다 1KB 남짓이고, 지우면 다음 실행이 다시 받음.
 
 주간 게시를 수동으로 한 번 돌려보려면:
 

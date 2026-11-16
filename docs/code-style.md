@@ -2,7 +2,7 @@
 
 | 항목 | 값 |
 | --- | --- |
-| 문서 버전 | 0.3.0 |
+| 문서 버전 | 0.6.0 |
 | 최종 수정 | 2026-11-16 |
 
 `.claude/` 가 gitignore 라 저장소에 커밋되는 유일한 코드 스타일 문서임. 봇이 내보내는 문장의 문체는
@@ -27,7 +27,7 @@
 | HTTP | `requests` |
 | 로깅 | 표준 `logging` 으로 찍고 `common/logsetup.setup()` 이 loguru 로 모음. `print` 는 CLI 출력(조회 · dry-run · 정리)에만 |
 | 경로 | `pathlib.Path` — `os.path` 금지 |
-| 예외 | bare `except:` 금지. `except Exception` 은 경계(멘션 처리 · 문구 모델 · 주간 영역(`weekly/pipeline._build`) · 헬스체크 · 카드·지도 그리기(`weekly/sections.Context.image`) · 로그 열기 · PDF 읽기)에서만, 로그를 남기고 대체 경로로 |
+| 예외 | bare `except:` 금지. `except Exception` 은 경계(멘션 처리 · 날씨 답의 철 소식 한 줄(`mention/*/note`) · 문구 모델 · 주간 영역(`weekly/pipeline._weather` · `_build`) · 헬스체크 · 카드·지도 그리기(`weekly/sections.Context.image` · `mention/reply.with_map`) · 로그 열기 · PDF 읽기)에서만, 로그를 남기고 대체 경로로. 삼키지 않고 다시 올리거나 Future 로 넘기는 곳(`common/cache` · `weekly/pipeline._spawn`)은 이 규칙 밖 |
 | 타입 힌트 | 인자 · 반환값 필수. `Any` 최소화 |
 | 네이밍 | snake_case (함수 · 변수) · PascalCase (클래스) · UPPER_SNAKE_CASE (상수) · 모듈 밖에서 안 쓰면 `_` 접두 |
 
@@ -44,7 +44,8 @@
 | `mention/weather` | `region` 광역 답 · `dong` 동네예보 답 |
 | `mention/foliage` · `mention/snow` | `reply` 단독 답 · `note` 날씨 답 끝의 한 줄 |
 
-- 주제 사이에 함께 쓰는 것(`season/sources` · `basemap` · `mapcard` · `places` · `summary` · `weeks` · `narrative`, `mention/reply` · `forecast`)은 상위에 둠
+- 주제 사이에 함께 쓰는 것(`season/sources` · `basemap` · `mapcard` · `places` · `summary` · `weeks` · `narrative`, `mention/reply` · `forecast`)은 상위에 둠.
+  지도 바탕·표지 파일(Natural Earth 윤곽 JSON · Noto 이모지 SVG)은 `season/assets/`
 - `__init__.py` 는 비워 둠. 모듈은 `from src.season.foliage import data as foliage` 처럼 주제 이름으로 가져옴 —
   바꿔치기도 이 이름으로 함
 
@@ -54,8 +55,9 @@
 | `kma/` | 기상청 수집 (광역 · 동네 · 전망 · 일기도) | `common` |
 | `season/` | 단풍 · 첫눈 · 벚꽃 · 장마 · 더위 · 태풍 자료와 문장 · 지도 | `common` |
 | `advice/` | 수치에서 생활 조언 | (없음) |
-| `weekly/` | 주간 게시 | `common` · `kma` · `season` · `advice` |
+| `weekly/` | 주간 게시 — 헬스체크 · 영역 동시 실행·종합 · 날씨·카드·일기도 영역 · 철 소식·태풍 영역 | `common` · `kma` · `season` · `advice` |
 | `mention/` | 멘션 봇 | `common` · `kma` · `season` · `advice` |
+| `query/` | 조회 CLI (게시 없이 결과만) | `common` · `kma` · `season` |
 
 - `weekly` 와 `mention` 은 서로 가져다 쓰지 않음. 둘 다 쓰는 것은 `common` 이나 자료 패키지로 내림
 - 진입점: `python -m src.weekly` (주간 게시) · `python -m src.mention` (멘션 봇) · `python -m src.query` (조회) · `bin/cleanup.py` (정리)

@@ -27,7 +27,7 @@
 | HTTP | `requests` |
 | 로깅 | 표준 `logging` 으로 찍고 `common/logsetup.setup()` 이 loguru 로 모음. `print` 는 CLI 출력(조회 · dry-run · 정리)에만 |
 | 경로 | `pathlib.Path` — `os.path` 금지 |
-| 예외 | bare `except:` 금지. `except Exception` 은 경계(멘션 처리 · 문구 모델 · 주간 영역(`weekly/pipeline._build`) · 헬스체크 · 지도 그리기 · 로그 열기 · PDF 읽기)에서만, 로그를 남기고 대체 경로로 |
+| 예외 | bare `except:` 금지. `except Exception` 은 경계(멘션 처리 · 문구 모델 · 주간 영역(`weekly/pipeline._build`) · 헬스체크 · 카드·지도 그리기(`weekly/sections.Context.image`) · 로그 열기 · PDF 읽기)에서만, 로그를 남기고 대체 경로로 |
 | 타입 힌트 | 인자 · 반환값 필수. `Any` 최소화 |
 | 네이밍 | snake_case (함수 · 변수) · PascalCase (클래스) · UPPER_SNAKE_CASE (상수) · 모듈 밖에서 안 쓰면 `_` 접두 |
 

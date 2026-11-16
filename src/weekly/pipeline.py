@@ -1,6 +1,6 @@
 """영역들을 동시에 돌려 게시물 하나로 합침(종합). 1번 날씨만 필수 — 나머지는 실패·해당 없음이면 빠짐.
 
-  1 날씨(+카드)  2 일기도  3 벚꽃  5 단풍  6 첫눈     ← 게시물에 실리는 순서 (4 태풍은 아직 없음)
+  1 날씨(본문)  카드  2 일기도  3 벚꽃  5 단풍  6 첫눈     ← 게시물에 실리는 순서 (4 태풍은 아직 없음)
 """
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import datetime as dt
 import logging
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, wait
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from src.common.config import Config
 from src.season.blossom import data as blossom
@@ -23,6 +23,7 @@ from src.weekly.sections import SECTIONS_TIMEOUT_SEC, Context, Section, Weather,
 log = logging.getLogger(__name__)
 
 SECTIONS: tuple[Section, ...] = (
+    Section("카드", always, sections.card_block),
     Section("일기도", always, sections.chart_block),
     Section("벚꽃", blossom.in_season, themes.blossom_block),
     Section("단풍", foliage.in_season, themes.foliage_block),
@@ -32,10 +33,10 @@ SECTIONS: tuple[Section, ...] = (
 
 @dataclass
 class Post:
-    """슬랙에 올릴 한 건 — 첨부는 카드 → 일기도 → 지도 순."""
+    """슬랙에 올릴 한 건 — 첨부는 영역 순서(카드 → 일기도 → 지도)."""
     week: WeekForecast
     text: str
-    attachments: list[Attachment] = field(default_factory=list)
+    attachments: list[Attachment]
 
 
 def compose(cfg: Config, now: dt.datetime, week_offset: int = 0, *, can_render: bool = True) -> Post | None:
@@ -48,7 +49,7 @@ def compose(cfg: Config, now: dt.datetime, week_offset: int = 0, *, can_render: 
         weather_f = pool.submit(sections.weather, base)
         ctx = dataclasses.replace(base, weather=weather_f)
         active = [s for s in SECTIONS if s.in_season(ctx.week_start)]
-        log.info("영역: 날씨 · %s", " · ".join(s.name for s in active) or "(철 소식 없음)")
+        log.info("영역: %s", " · ".join(["날씨", *(s.name for s in active)]))
         futures = [pool.submit(_build, s, ctx) for s in active]
 
         weather = _weather(weather_f)
@@ -56,23 +57,23 @@ def compose(cfg: Config, now: dt.datetime, week_offset: int = 0, *, can_render: 
             return None
         left = max(0.0, SECTIONS_TIMEOUT_SEC - (time.monotonic() - started))
         wait(futures, timeout=left)
-        blocks = [_result(s, f) for s, f in zip(active, futures, strict=True)]
+        blocks = [b for s, f in zip(active, futures, strict=True) if (b := _result(s, f))]
     finally:
         pool.shutdown(wait=False, cancel_futures=True)
     return merge(weather, blocks)
 
 
 def _weather(future: Future) -> Weather | None:
-    try:
-        return future.result(timeout=SECTIONS_TIMEOUT_SEC)
-    except ForecastError as exc:
-        log.error("%s", exc)
-    except Exception:
-        # 기한 초과도 TimeoutError 지만 영역 안에서 난 TimeoutError 와 가르려고 done() 으로 봄
-        if future.done():
+    wait([future], timeout=SECTIONS_TIMEOUT_SEC)
+    if not future.done():
+        log.error("날씨 영역이 %d초 안에 끝나지 않았습니다", SECTIONS_TIMEOUT_SEC)
+    else:
+        try:
+            return future.result()
+        except ForecastError as exc:
+            log.error("%s", exc)
+        except Exception:
             log.exception("날씨 영역 실패")
-        else:
-            log.error("날씨 영역이 %d초 안에 끝나지 않았습니다", SECTIONS_TIMEOUT_SEC)
     log.error("지어낸 날씨를 올리지 않기 위해 게시를 건너뜁니다.")
     return None
 
@@ -83,7 +84,7 @@ def _build(section: Section, ctx: Context) -> Block | None:
     try:
         block = section.build(ctx)
     except Exception:
-        log.warning("%s 영역을 만들지 못해 빼고 게시합니다 (%.1f초)", section.name, time.monotonic() - started,
+        log.warning("%s 영역 실패 — 이 영역은 빠짐 (%.1f초)", section.name, time.monotonic() - started,
                     exc_info=True)
         return None
     log.info("%s 영역 %s (%.1f초)", section.name, "완료" if block else "해당 없음", time.monotonic() - started)
@@ -97,11 +98,9 @@ def _result(section: Section, future: Future) -> Block | None:
     return future.result()
 
 
-def merge(weather: Weather, blocks: list[Block | None]) -> Post:
-    """본문 → 문단 → 출처 줄. 빈 결과(None·빈 문단)는 출처까지 빠짐."""
+def merge(weather: Weather, blocks: list[Block]) -> Post:
+    """본문 → 문단 → 출처 줄, 첨부는 영역 순서. 글도 그림도 없는 덩어리는 출처까지 빠짐."""
     message = Message(weather.body)
     for block in blocks:
-        if block is not None:
-            message.add(block)
-    card = [weather.card] if weather.card else []
-    return Post(weather.week, message.to_slack(), card + message.attachments)
+        message.add(block)
+    return Post(weather.week, message.to_slack(), message.attachments)

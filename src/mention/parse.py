@@ -5,6 +5,7 @@ import datetime as dt
 import re
 
 from src.kma.page import _resolve_date
+from src.season.weeks import week_start_of
 
 MENTION_RE = re.compile(r"<@[A-Z0-9]+>")
 
@@ -130,7 +131,7 @@ def _period(query: str, now: dt.datetime) -> tuple[dt.date, int, str]:
     """질문에서 기간을 읽음 → (시작일, 일수, 머리글)."""
     today = now.date()
     days = FORWARD_DAYS
-    monday = today - dt.timedelta(days=today.weekday())
+    monday = week_start_of(today)
     explicit = _explicit_date(query, today)
     if explicit is not None:
         start, title, days = explicit, f"{explicit:%-m월 %-d일}", 1

@@ -1392,17 +1392,14 @@ def test_foliage_render() -> None:
 
 def test_paragraph() -> None:
     """문단 부품. 줄을 조립하고, 빈 줄·빈 문단은 빠지고, 게시물은 본문 → 문단 → 출처 순."""
-    from src.weekly.paragraph import Attachment, Block, Message, Paragraph
+    from src.weekly.paragraph import Block, Message, Paragraph
 
     p = Paragraph("이번 주 벚꽃", emoji=":cherry_blossom:").add("관측", "*진해* 개화 3/24").add("올해", "")
     assert [r.label for r in p.rows] == ["관측"], "빈 내용 줄이 들어갔습니다"
     assert p.to_slack() == ":cherry_blossom: *이번 주 벚꽃*\n• 관측 — *진해* 개화 3/24"
     assert Paragraph("제목").add("줄", "내용").to_slack() == "*제목*\n• 줄 — 내용"
 
-    def att(slug):
-        return Attachment(slug, b"PNG", slug, "그림", f"{slug}.png", 14, f"{slug}-*.png")
-
-    chart, leaves = att("surf"), att("foliage")
+    chart, leaves = fake_attachment("surf"), fake_attachment("foliage")
     msg = (Message("날씨 본문")
            .add(Block(None, "지상일기도 · 기상청", chart))           # 글 없이 그림·출처만
            .add(Block(Paragraph("이번 주 단풍", ":maple_leaf:").add("관측", "설악산"), "단풍 지도 · 기상청", leaves))
@@ -1515,21 +1512,32 @@ def test_blossom_text() -> None:
     print("[ok] 벚꽃 문구 — 평년 · 다음 개화 · 이번 주 묶음 · 출처")
 
 
+def fake_attachment(slug: str):
+    from src.weekly.paragraph import Attachment
+
+    return Attachment(b"PNG", slug, "그림", f"{slug}.png", 14, f"{slug}-*.png")
+
+
+def weekly_cfg():
+    from types import SimpleNamespace
+
+    return SimpleNamespace(card_scale=2, card_keep_days=14, chart_keep_days=30, chart_product="surf")
+
+
 def weekly_ctx(start: dt.date, today: dt.date | None = None, *, can_render: bool = True, days=None):
     """주간 영역의 Context. days 를 주면 1번 날씨가 그 예보로 끝난 것으로 둠."""
     from concurrent.futures import Future
-    from types import SimpleNamespace
 
+    from src.season.weeks import week_start_of
     from src.weekly.sections import Context, Weather
 
     today = today or start
-    offset = (start - (today - dt.timedelta(days=today.weekday()))).days // 7
-    cfg = SimpleNamespace(card_scale=2, card_keep_days=14, chart_keep_days=30, chart_product="surf")
+    offset = (start - week_start_of(today)).days // 7
     weather = None
     if days is not None:
         weather = Future()
         weather.set_result(Weather(WeekForecast("전국", start, days), "본문"))
-    ctx = Context(cfg, dt.datetime.combine(today, dt.time(7, 50), tzinfo=KST), offset, can_render, weather)
+    ctx = Context(weekly_cfg(), dt.datetime.combine(today, dt.time(7, 50), tzinfo=KST), offset, can_render, weather)
     assert ctx.week_start == start, (ctx.week_start, start)
     return ctx
 
@@ -1561,8 +1569,8 @@ def test_weekly_themes() -> None:
 
     autumn_ctx = weekly_ctx(d(2026, 10, 5), d(2026, 10, 2))
     spring_ctx = weekly_ctx(d(2026, 3, 23))
-    assert in_season(d(2026, 10, 5)) == ["일기도", "단풍"] and in_season(d(2026, 3, 23)) == ["일기도", "벚꽃"]
-    assert in_season(d(2026, 6, 1)) == ["일기도"]
+    assert in_season(d(2026, 10, 5)) == ["카드", "일기도", "단풍"]
+    assert in_season(d(2026, 3, 23)) == ["카드", "일기도", "벚꽃"] and in_season(d(2026, 6, 1)) == ["카드", "일기도"]
 
     orig = (foliage.fetch_snapshot, foliage_map.render_png, blossom.fetch_status, blossom.fetch_outlook)
     foliage.fetch_snapshot = lambda today: fake_snapshot({"설악산": 1}, first={"설악산": d(2026, 9, 28)})
@@ -1575,7 +1583,7 @@ def test_weekly_themes() -> None:
         assert autumn.paragraph.title == "이번 주 단풍" and labels(autumn) == ["관측", "이번 주"]
         text = autumn.paragraph.to_slack()
         assert "*설악산* 첫단풍 9/28" in text and "첫단풍 *오대산* 10/7 · *치악산* 10/10 (예상)" in text, text
-        assert autumn.attachment.slug == "foliage" and autumn.attachment.png == b"PNG"
+        assert autumn.attachment.png == b"PNG" and autumn.attachment.title == "단풍 지도"
         assert autumn.attachment.filename == "foliage-20261005.png" and autumn.attachment.pattern == "foliage-*.png"
         assert autumn.credit.startswith("단풍 지도 · "), autumn.credit
         # 지도를 못 그려도 글은 남고, 출처에서 '지도' 가 빠짐
@@ -1599,8 +1607,13 @@ def test_weekly_themes() -> None:
         blossom.fetch_status = lambda today: (_ for _ in ()).throw(BlossomError("점검"))
         spring = themes.blossom_block(spring_ctx)
         assert labels(spring) == ["이번 주", "평년"], labels(spring)
+        # 둘 다 실패하면 «해당 없음» 이 아니라 실패 — 영역 경계가 경고로 남기고 뺌
         blossom.fetch_outlook = lambda year: (_ for _ in ()).throw(BlossomError("점검"))
-        assert themes.blossom_block(spring_ctx) is None
+        try:
+            themes.blossom_block(spring_ctx)
+            raise AssertionError("벚꽃 자료가 모두 없는데 실패로 올라오지 않았습니다")
+        except BlossomError:
+            pass
         # 단풍 수집 실패는 예외로 올림 — 영역 경계(pipeline)가 빈 결과로 바꿈
         foliage.fetch_snapshot = lambda today: (_ for _ in ()).throw(FoliageError("점검"))
         try:
@@ -1617,24 +1630,25 @@ def test_weekly_pipeline() -> None:
     """영역을 동시에 돌려 합침 — 실패·해당 없음·기한 초과는 빠지고, 날씨가 실패하면 게시하지 않음."""
     import threading
     import time
-    from types import SimpleNamespace
 
     from src.weekly import pipeline, sections
     from src.weekly.forecast import ForecastError
-    from src.weekly.paragraph import Attachment, Block, Paragraph
+    from src.weekly.paragraph import Block, Paragraph
     from src.weekly.sections import Section, Weather, always
 
-    def att(slug):
-        return Attachment(slug, b"PNG", slug, "그림", f"{slug}.png", 14, f"{slug}-*.png")
-
-    week = WeekForecast("전국", dt.date(2026, 11, 16), [DayForecast(date=dt.date(2026, 11, 16 + i)) for i in range(7)])
-    card, chart = att("weekly-weather"), att("surf")
+    week = fake_week()
+    card, chart = fake_attachment("weekly-weather"), fake_attachment("surf")
+    card_drawn = [True]
     met = threading.Event()
     ran: list[str] = []
 
     def slow_weather(ctx):
-        time.sleep(0.2)                    # 6번이 기다려 받는지 보려고 늦게 끝냄
-        return Weather(week, "본문", card)
+        time.sleep(0.2)                    # 카드·눈이 기다려 받는지 보려고 늦게 끝냄
+        return Weather(week, "본문")
+
+    def card_section(ctx):
+        assert ctx.forecast() is week
+        return Block(None, attachment=card) if card_drawn[0] else None
 
     def snow(ctx):
         got = ctx.forecast()
@@ -1657,6 +1671,7 @@ def test_weekly_pipeline() -> None:
         return Block(Paragraph("느림").add("줄", "기한 초과"))
 
     fake = (
+        Section("카드", always, card_section),
         Section("일기도", always, lambda ctx: Block(None, "지상일기도 · 기상청", chart)),
         Section("고장", always, lambda ctx: (_ for _ in ()).throw(RuntimeError("점검"))),
         Section("없음", always, lambda ctx: None),
@@ -1666,29 +1681,28 @@ def test_weekly_pipeline() -> None:
         Section("느림", always, too_slow),
         Section("눈", always, snow),
     )
-    cfg = SimpleNamespace(card_scale=2, card_keep_days=14, chart_keep_days=30, chart_product="surf")
     now = dt.datetime(2026, 11, 16, 7, 50, tzinfo=KST)
     orig = (pipeline.SECTIONS, sections.weather, pipeline.SECTIONS_TIMEOUT_SEC)
     pipeline.SECTIONS, sections.weather, pipeline.SECTIONS_TIMEOUT_SEC = fake, slow_weather, 1.0
     try:
-        post = pipeline.compose(cfg, now)
+        post = pipeline.compose(weekly_cfg(), now)
         assert post.text == (
             "본문\n\n*동시*\n• 짝 — 만남\n\n*눈*\n• 이번 주 — 예보 7일\n\n_지상일기도 · 기상청_\n_눈 · 기상청_"
         ), post.text
         assert post.attachments == [card, chart] and post.week is week and not ran
 
         # 카드를 못 그렸으면(헬스체크 Chromium 실패 포함) 첨부는 나머지만
-        sections.weather = lambda ctx: Weather(week, "본문", None)
-        assert pipeline.compose(cfg, now).attachments == [chart]
+        card_drawn[0] = False
+        assert pipeline.compose(weekly_cfg(), now).attachments == [chart]
 
         # 날씨가 실패하면 게시하지 않음 — 지어낸 날씨를 올리지 않기
         sections.weather = lambda ctx: (_ for _ in ()).throw(ForecastError("7일 중 4일의 기온을 얻지 못해"))
-        assert pipeline.compose(cfg, now) is None
+        assert pipeline.compose(weekly_cfg(), now) is None
         sections.weather = lambda ctx: (_ for _ in ()).throw(KeyError("버그"))
-        assert pipeline.compose(cfg, now) is None
+        assert pipeline.compose(weekly_cfg(), now) is None
     finally:
         pipeline.SECTIONS, sections.weather, pipeline.SECTIONS_TIMEOUT_SEC = orig
-    print("[ok] 주간 영역 — 동시 실행, 실패·해당 없음·기한 초과는 빠짐, 눈은 날씨 예보를 받음, 날씨 실패면 게시 안 함")
+    print("[ok] 주간 영역 — 동시 실행, 실패·해당 없음·기한 초과는 빠짐, 카드·눈은 날씨 예보를 받음, 날씨 실패면 게시 안 함")
 
 
 def test_weekly_health() -> None:
@@ -1702,18 +1716,19 @@ def test_weekly_health() -> None:
     post.setup = lambda name: None
     pipeline.compose = lambda cfg, now, offset, can_render: calls.append(can_render)
     try:
-        health.check = lambda cfg: Health(slack=False, kma=True, chromium=True)
+        health.check = lambda cfg: Health(slack=False, chromium=True)
         assert post.main([]) == 1 and calls == [], calls
         assert post.main(["--dry-run"]) == 1 and calls == [True], calls   # compose 가 None — 날씨 실패로 끝남
-        health.check = lambda cfg: Health(slack=True, kma=False, chromium=False)
+        health.check = lambda cfg: Health(slack=True, chromium=False)
         calls.clear()
         assert post.main(["--no-wait"]) == 1 and calls == [False], calls
 
         health.check = orig[1]
         health.check_slack = lambda token, channel: (True, "슬랙")
-        health.check_kma = lambda: (False, "기상청 접속 실패")
+        health.check_kma = lambda: calls.append("기상청") or (False, "기상청 접속 실패")   # 기록만
         health.check_chromium = lambda: (True, "Chromium")
-        assert health.check(post.Config()) == Health(slack=True, kma=False, chromium=True)
+        calls.clear()
+        assert health.check(post.Config()) == Health(slack=True, chromium=True) and calls == ["기상청"]
     finally:
         (post.setup, health.check, pipeline.compose,
          health.check_slack, health.check_kma, health.check_chromium) = orig
@@ -1827,13 +1842,13 @@ def test_snow_weekly() -> None:
     drawn: list = []
     snow_map.render_png = lambda st, start, days=(), scale=2: drawn.append(list(days)) or b"PNG"
     try:
-        assert [s.name for s in pipeline.SECTIONS] == ["일기도", "벚꽃", "단풍", "첫눈"]
+        assert [s.name for s in pipeline.SECTIONS] == ["카드", "일기도", "벚꽃", "단풍", "첫눈"]
         block = themes.snow_block(weekly_ctx(week, days=days))
         assert block.paragraph.title == "이번 주 첫눈" and [r.label for r in block.paragraph.rows] == ["관측", "이번 주"]
         text = block.paragraph.to_slack()
         assert "*서울* 11/26 (평년보다 6일 늦음)" in text and "눈" in text.split("이번 주 —")[1], text
         assert drawn == [days], drawn
-        assert block.attachment.slug == "snow" and block.credit.startswith("첫눈 지도 · ")
+        assert block.attachment.filename == "snow-20261130.png" and block.credit.startswith("첫눈 지도 · ")
         # 날씨 결과가 없으면 «이번 주» 는 예보를 못 받았다고만 함
         assert "예보를 받지 못했습니다" in themes.snow_block(weekly_ctx(week)).paragraph.to_slack()
         assert themes.snow_block(weekly_ctx(d(2026, 12, 7), week, days=days)) is None   # 서울 관측 다다음 주

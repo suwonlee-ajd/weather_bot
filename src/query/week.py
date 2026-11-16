@@ -17,6 +17,7 @@ from src.kma.page import ScrapeError
 from src.kma.regions import REGION_HELP, find_region
 from src.kma.scrape import scrape_week
 from src.query import season
+from src.season.weeks import week_start_of
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -43,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     now = dt.datetime.now(tz=KST)
-    week_start = now.date() - dt.timedelta(days=now.weekday()) + dt.timedelta(weeks=args.week_offset)
+    week_start = week_start_of(now.date(), args.week_offset)
 
     try:
         scrape = scrape_week(now, week_start, region)

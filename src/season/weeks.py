@@ -1,7 +1,12 @@
-"""철 기간의 경계 — 어느 철이든 월요일에 시작하고 그 주 일요일에 끝남(주간 게시가 월요일)."""
+"""월요일 계산 — 주의 시작, 철 기간의 경계(어느 철이든 월요일에 시작하고 그 주 일요일에 끝남. 주간 게시가 월요일)."""
 from __future__ import annotations
 
 import datetime as dt
+
+
+def week_start_of(day: dt.date, week_offset: int = 0) -> dt.date:
+    """day 가 든 주의 월요일에서 week_offset 주 뒤."""
+    return day - dt.timedelta(days=day.weekday()) + dt.timedelta(weeks=week_offset)
 
 
 def first_monday(year: int, month: int) -> dt.date:

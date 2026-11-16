@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 import requests
 
+from src.common.browser import probe
 from src.common.config import UA, Config
 from src.kma.page import BASE
 
@@ -21,7 +22,6 @@ KMA_URL = f"{BASE}/w/index.do"
 @dataclass(frozen=True)
 class Health:
     slack: bool
-    kma: bool
     chromium: bool
 
 
@@ -58,26 +58,25 @@ def check_kma() -> tuple[bool, str]:
 
 def check_chromium() -> tuple[bool, str]:
     try:
-        from playwright.sync_api import sync_playwright
+        probe()
     except ImportError:
         return False, "playwright 미설치 — uv sync 후 .venv/bin/python -m playwright install chromium"
-    try:
-        with sync_playwright() as p:
-            p.chromium.launch().close()
     except Exception as exc:
         return False, f"Chromium 실행 실패 — python -m playwright install chromium 이 필요합니다 ({type(exc).__name__})"
     return True, "Chromium: 카드·지도 렌더링 가능"
 
 
+def _logged(result: tuple[bool, str]) -> bool:
+    ok, text = result
+    if ok:
+        log.info("점검 통과 — %s", text)
+    else:
+        log.warning("점검 실패 — %s", text)
+    return ok
+
+
 def check(cfg: Config) -> Health:
-    results = {
-        "slack": check_slack(cfg.slack_bot_token, cfg.slack_channel_id),
-        "kma": check_kma(),
-        "chromium": check_chromium(),
-    }
-    for ok, text in results.values():
-        if ok:
-            log.info("점검 통과 — %s", text)
-        else:
-            log.warning("점검 실패 — %s", text)
-    return Health(**{name: ok for name, (ok, _) in results.items()})
+    """기상청은 기록만 — 죽었으면 1번 날씨가 실패해 게시가 저절로 빠짐."""
+    slack = _logged(check_slack(cfg.slack_bot_token, cfg.slack_channel_id))
+    _logged(check_kma())
+    return Health(slack=slack, chromium=_logged(check_chromium()))

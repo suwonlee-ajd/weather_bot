@@ -44,7 +44,6 @@ class Paragraph:
 @dataclass(frozen=True)
 class Attachment:
     """게시물에 붙는 그림. pattern 은 dry-run 이 같은 종류의 옛 파일을 지우는 보존 정리 패턴."""
-    slug: str
     png: bytes
     title: str
     alt: str
@@ -86,7 +85,7 @@ class Message:
 
     def to_slack(self) -> str:
         credits = [b.credit for b in self.blocks if b.credit]
-        parts = [self.body, *(b.text for b in self.blocks if b.text)]
+        parts = [self.body, *filter(None, (b.text for b in self.blocks))]
         if credits:
             parts.append("\n".join(f"_{c}_" for c in credits))
         return "\n\n".join(parts)

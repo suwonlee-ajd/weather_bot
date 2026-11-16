@@ -147,8 +147,8 @@ systemd timer (월 07:50 KST 기동) — 또는 크론을 넣은 GitHub Actions 
 - **페이지 구조가 바뀌면 게시를 포기함.** 값의 범위를 검증하고 월~일 7칸에 맞춰 놓은 뒤,
   7일 중 4일 이상 기온이 비면 아무것도 올리지 않음(`src/weekly/forecast.py`).
 - **주간 게시는 헬스체크 → 영역 동시 실행 → 종합 → 전송.** 헬스체크(`src/weekly/health.py`)는 슬랙만
-  필수 — 실패하면 아무것도 돌리지 않음. Chromium 이 없으면 카드·지도 없이 글만 올림. 영역(날씨 · 일기도 ·
-  벚꽃 · 단풍 · 첫눈)은 동시에 돌고(`src/weekly/pipeline.py`), 날씨만 필수 — 일기도·철 소식은 실패하거나
+  필수 — 실패하면 아무것도 돌리지 않음. Chromium 이 없으면 카드·지도 없이 글만 올림. 영역(날씨 · 카드 ·
+  일기도 · 벚꽃 · 단풍 · 첫눈)은 동시에 돌고(`src/weekly/pipeline.py`), 날씨만 필수 — 나머지는 실패하거나
   5분 안에 끝나지 않으면 그 영역만 빠짐.
 - **일기도는 페이지를 렌더링하지 않고 PNG 를 직접 받음.** 없는 시각을 요청하면 404 가 아니라
   HTTP 200 + HTML 오류 페이지가 오므로 PNG 매직바이트로 검증하고, 12시간씩 거슬러 올라감.
@@ -189,7 +189,7 @@ src/season/     철 소식 자료 — 주제마다 자료(data) · 문장(text) 
                 · 공통 — 수집(sources) · 지도 바탕(basemap) · 관측 한 줄 꼴(summary) · 철 기간 월요일(weeks)
 src/advice/     수치에서 생활 조언 — 규칙(rules) · 문구 표(phrases)
 src/weekly/     주간 게시 — 진입점(post) · 헬스체크(health) · 영역 동시 실행·종합(pipeline)
-                · 날씨·일기도 영역(sections) · 철 소식 영역(themes) · 7일 조립(forecast)
+                · 날씨·카드·일기도 영역(sections) · 철 소식 영역(themes) · 7일 조립(forecast)
                 · 본문(body · writer) · 카드(card) · 문단(paragraph)
 src/mention/    멘션 봇 — 슬랙 연결(bot) · 답 고르기(answer) · 질문 해석(parse) · 문구(texts)
                 · 답의 꼴(reply) · 광역 예보 캐시(forecast)

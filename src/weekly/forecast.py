@@ -13,6 +13,7 @@ from src.common.text import WEEKDAY_KO, day_label, range_text
 from src.kma.page import Narrative, ScrapeError
 from src.kma.regions import Region, find_region
 from src.kma.scrape import scrape_week
+from src.season.weeks import week_start_of
 
 log = logging.getLogger(__name__)
 
@@ -134,11 +135,6 @@ def _valid(value: float | None) -> float | None:
     if value is None:
         return None
     return value if TEMP_RANGE[0] <= value <= TEMP_RANGE[1] else None
-
-
-def week_start_of(day: dt.date, week_offset: int = 0) -> dt.date:
-    """day 가 든 주의 월요일에서 week_offset 주 뒤."""
-    return day - dt.timedelta(days=day.weekday()) + dt.timedelta(weeks=week_offset)
 
 
 def build_week(

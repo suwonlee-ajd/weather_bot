@@ -30,15 +30,8 @@ log = logging.getLogger(__name__)
 
 def _with_map(ctx: Context, paragraph: Paragraph, info: MapInfo, render: Callable[[], bytes], sources: str) -> Block:
     """지도를 못 그려도 글은 남김 — 출처의 «X 지도» 도 실린 것에 맞춰 «X» 로."""
-    if not ctx.can_render:
-        return Block(paragraph, f"{info.name} · {sources}")
-    try:
-        png = render()
-    except Exception:
-        log.warning("%s를 만들지 못해 글로만 붙입니다", info.title, exc_info=True)
-        return Block(paragraph, f"{info.name} · {sources}")
-    log.info("%s %s bytes", info.title, f"{len(png):,}")
-    return Block(paragraph, f"{info.title} · {sources}", ctx.attachment(info.slug, png, info.title, info.alt))
+    att = ctx.image(info.slug, info.title, info.alt, render)
+    return Block(paragraph, f"{info.title if att else info.name} · {sources}", att)
 
 
 def foliage_block(ctx: Context) -> Block:
@@ -52,7 +45,7 @@ def foliage_block(ctx: Context) -> Block:
                      lambda: foliage_map.render_png(snap, ctx.week_start, scale=ctx.scale), foliage_text.sources(snap))
 
 
-def blossom_block(ctx: Context) -> Block | None:
+def blossom_block(ctx: Context) -> Block:
     status = outlook = None
     try:
         status = blossom.fetch_status(ctx.today)
@@ -63,8 +56,7 @@ def blossom_block(ctx: Context) -> Block | None:
     except Exception:
         log.warning("웨더아이 벚꽃 예상을 받지 못했습니다", exc_info=True)
     if status is None and outlook is None:
-        log.warning("벚꽃 자료가 없어 벚꽃 소식을 빼고 게시합니다")
-        return None
+        raise blossom.BlossomError("기상청 관측과 웨더아이 예상을 모두 받지 못했습니다")
 
     paragraph = Paragraph("이번 주 벚꽃", emoji=":cherry_blossom:")
     if status is not None:

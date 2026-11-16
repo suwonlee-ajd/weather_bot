@@ -1,7 +1,7 @@
 """기상청 예보 통보문(D+0~D+3)과 중기예보(D+4~D+10)를 긁어 날짜별로 합침.
 
 둘 다 서버 렌더링이고 robots.txt 가 허용함. 특보 페이지는 JS 지도라 긁지 않고 통보문 종합 서술로 대신함.
-태풍은 지도가 읽는 정적 파일을 따로 받음(typhoon).
+태풍은 지도가 읽는 정적 파일을 season/typhoon/data 가 따로 받음.
 """
 from __future__ import annotations
 

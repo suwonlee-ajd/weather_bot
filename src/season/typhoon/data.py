@@ -10,15 +10,14 @@ import re
 import urllib.parse
 from dataclasses import dataclass
 
-import requests
-
 from src.common.cache import get_or_set
-from src.common.config import KST, UA
+from src.common.config import KST
 from src.common.text import short_day_label
-from src.kma.page import BASE
+from src.season import sources as shared
 
 log = logging.getLogger(__name__)
 
+BASE = "https://www.weather.go.kr"
 # 열대저압부 목록(RTKO64)은 읽지 않음 — 이름이 붙은 태풍만 다룸
 LIST_URL = f"{BASE}/w/repositary/xml/typ/raw/DAOU/RTKO63/RTKO63.tbl"
 TIMEOUT_SEC = 10.0
@@ -191,12 +190,7 @@ def _decode(raw: bytes) -> str:
 
 
 def _get(url: str, timeout: float) -> str:
-    try:
-        resp = requests.get(url, headers={"User-Agent": UA}, timeout=timeout)
-        resp.raise_for_status()
-    except requests.RequestException as exc:
-        raise TyphoonError(f"요청 실패 {url}: {exc}") from exc
-    return _decode(resp.content)
+    return _decode(shared.get(url, error=TyphoonError, timeout=timeout).content)
 
 
 def _load(timeout: float) -> list[Typhoon]:

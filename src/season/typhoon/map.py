@@ -8,13 +8,14 @@ from __future__ import annotations
 import datetime as dt
 import html
 from collections.abc import Sequence
-from typing import Protocol
 
 from src.common.browser import CARD_WIDTH, capture
-from src.common.text import short_date
+from src.common.text import html_bold
 from src.season.basemap import BASE_CSS, Box, MapInfo, hits, text_box
 from src.season.mapcard import Card, icon, legend
 from src.season.typhoon import pacific
+from src.season.typhoon.data import Point, Reach, Typhoon
+from src.season.typhoon.text import issued_text, now_line
 from src.season.weeks import week_end_of
 
 INFO = MapInfo("태풍", "typhoon", "기상청 태풍정보의 현재 위치와 예상 경로 지도", heading="태풍 예상 경로 지도")
@@ -24,72 +25,43 @@ NAME_ROOM = 2.8                             # 현재 위치 아래 두 줄(이�
 NOW = "#d6372b"
 WHEN_PX, NAME_PX = 11.5, 12.5               # CSS 의 .when · .name 글자 크기
 # 반경은 경로표에 값이 있을 때만 그리고 범례에도 그때만 적음. 색은 날씨누리 지도의 결(확률 파랑·강풍 노랑·폭풍 빨강)
-EXTENTS = (("radius", "#1f87fd", "70% 확률반경 — 태풍 중심이 들어올 확률이 70%인 범위"),
-           ("gale", "#f0a020", "강풍반경 — 초속 15m 이상 바람이 부는 범위"),
-           ("storm", "#e0483e", "폭풍반경 — 초속 25m 이상 바람이 부는 범위"))
+RADIUS_COLOR, GALE_COLOR, STORM_COLOR = "#1f87fd", "#f0a020", "#e0483e"
+EXTENTS = (("radius", "70% 확률반경 — 태풍 중심이 들어올 확률이 70%인 범위"),
+           ("gale", "강풍반경 — 초속 15m 이상 바람이 부는 범위"),
+           ("storm", "폭풍반경 — 초속 25m 이상 바람이 부는 범위"))
 
 
-class Reach(Protocol):
-    km: int
-    text: str
+def _km(reach: Reach | None) -> int:
+    return reach.km if reach else 0
 
 
-class Spot(Protocol):
-    """kma.typhoon.Point 의 모양 — season 은 kma 를 가져다 쓰지 않음."""
-    at: dt.datetime
-    lat: float
-    lon: float
-    pressure: int | None
-    radius: int | None
-    gale: Reach | None
-    storm: Reach | None
-    summary: str
-    when: str
-
-
-class Storm(Protocol):
-    """kma.typhoon.Typhoon 의 모양."""
-    no: int
-    name: str
-    title: str
-    issued: dt.datetime | None
-    now: Spot
-    forecast: Sequence[Spot]
-    past: Sequence[Spot]
-
-
-def _km(p: Spot, kind: str) -> int:
-    value = getattr(p, kind)
-    return (value if kind == "radius" else value.km) if value else 0
-
-
-def _spots(storms: Sequence[Storm]) -> list[tuple[float, float]]:
+def _spots(storms: Sequence[Typhoon]) -> list[tuple[float, float]]:
     """범위에 넣을 점 — 반경 끝까지, 현재 위치 아래 글자 자리까지."""
     out = []
     for s in storms:
         out.append((s.now.lon, s.now.lat - NAME_ROOM))
-        reach = [(p, 0) for p in s.past] + [(s.now, max(_km(s.now, "gale"), _km(s.now, "storm")))]
-        reach += [(p, _km(p, "radius")) for p in s.forecast]
+        reach = [(p, 0) for p in s.past] + [(s.now, max(_km(s.now.gale), _km(s.now.storm)))]
+        reach += [(p, p.radius or 0) for p in s.forecast]
         for p, km in reach:
             deg = km / pacific.KM_PER_DEG
             out += [(p.lon - deg, p.lat - deg), (p.lon + deg, p.lat + deg)]
     return out
 
 
-def _stamp(p: Spot) -> str:
+def _stamp(p: Point) -> str:
     """«20일 15시 990hPa» — 중심기압이 없으면 시각만."""
     return f"{p.at.day}일 {p.at.hour}시" + (f" {p.pressure}hPa" if p.pressure else "")
 
 
-def _line(view: pacific.View, spots: Sequence[Spot], cls: str) -> str:
+def _line(view: pacific.View, spots: Sequence[Point], cls: str) -> str:
     if len(spots) < 2:
         return ""
     pts = " ".join(f"{x:.1f},{y:.1f}" for x, y in (view.xy(p.lon, p.lat) for p in spots))
     return f'<polyline class="{cls}" points="{pts}"/>'
 
 
-def _extent(view: pacific.View, p: Spot, kind: str) -> str:
-    if not (km := _km(p, kind)):
+def _extent(view: pacific.View, p: Point, km: int | None) -> str:
+    if not km:
         return ""
     x, y = view.xy(p.lon, p.lat)
     rx, ry = view.radii(p.lat, km)
@@ -112,10 +84,11 @@ class _Labels:
         self.parts.append(f'<text class="{cls}" x="{x:.1f}" y="{y:.1f}">{html.escape(text)}</text>')
 
 
-def _track(view: pacific.View, storm: Storm, week_end: dt.date, labels: _Labels) -> tuple[dict[str, str], str]:
+def _track(view: pacific.View, storm: Typhoon, week_end: dt.date, labels: _Labels) -> tuple[dict[str, str], str]:
     """(반경 종류별 원, 경로·표지·글자). 바람 반경은 현재 위치에, 확률반경은 예상 위치에. 이번 주 뒤는 옅게."""
-    extents = {"radius": "".join(_extent(view, p, "radius") for p in storm.forecast),
-               "gale": _extent(view, storm.now, "gale"), "storm": _extent(view, storm.now, "storm")}
+    extents = {"radius": "".join(_extent(view, p, p.radius) for p in storm.forecast),
+               "gale": _extent(view, storm.now, _km(storm.now.gale)),
+               "storm": _extent(view, storm.now, _km(storm.now.storm))}
     x, y = view.xy(storm.now.lon, storm.now.lat)
     name, stamp = f"제{storm.no}호 {storm.name}", _stamp(storm.now)
     labels.taken += [text_box(x, y + 25, name, 0.5, NAME_PX), text_box(x, y + 39, stamp, 0.5, WHEN_PX)]
@@ -138,14 +111,14 @@ def _now_mark(x: float, y: float, ring: float = 9, dot: float = 5) -> str:
             f'stroke-width="2"/><circle cx="{x:.1f}" cy="{y:.1f}" r="{dot}" fill="{NOW}"/>')
 
 
-def build_svg(storms: Sequence[Storm], week_end: dt.date) -> tuple[str, list[str]]:
+def build_svg(storms: Sequence[Typhoon], week_end: dt.date) -> tuple[str, list[str]]:
     """(지도 SVG, 그린 반경 종류) — 범례는 실제로 그린 반경만 적음."""
     view = pacific.fit(_spots(storms), MAP_W, MAX_H, MIN_H)
     labels = _Labels()
     tracks = [_track(view, s, week_end, labels) for s in storms]
     # 경로 글자와 겹치는 지명은 뺌 — 괌처럼 경로 곁에 있는 곳
     places = "".join(svg for box, svg in pacific.places(view) if labels.free(box))
-    drawn = [kind for kind, _, _ in EXTENTS if any(t[kind] for t, _ in tracks)]
+    drawn = [kind for kind, _ in EXTENTS if any(t[kind] for t, _ in tracks)]
     groups = "".join(f'<g class="{kind}">{"".join(t[kind] for t, _ in tracks)}</g>' for kind in drawn)
     svg = (f'<svg width="{view.width:.0f}" height="{view.height:.0f}" viewBox="0 0 {view.width:.0f} '
            f'{view.height:.0f}" role="img" aria-label="태풍 예상 경로 지도">{pacific.background(view)}{groups}{places}'
@@ -167,37 +140,27 @@ MARKS = tuple((_key(inner), text) for inner, text in (
 
 def _legend(drawn: list[str]) -> str:
     swatches = [(_key(f'<g class="{kind}"><ellipse rx="7" ry="7"/></g>'), text)
-                for kind, _, text in EXTENTS if kind in drawn]
+                for kind, text in EXTENTS if kind in drawn]
     return legend(MARKS) + (legend(swatches) if swatches else "")
 
 
-def _lead(storms: Sequence[Storm]) -> list[tuple[str, str]]:
-    rows = []
-    for s in storms:
-        reach = "".join(f" · {name} {r.text}" for name, r in (("강풍반경", s.now.gale), ("폭풍반경", s.now.storm)) if r)
-        rows.append(("현재", f"<b>{html.escape(s.title)}</b> · {html.escape(s.now.summary)}{reach} ({s.now.when} 기준)"))
-    return rows
-
-
-def build_html(storms: Sequence[Storm], week_start: dt.date) -> str:
-    issued = max((s.issued for s in storms if s.issued), default=None)
-    stamp = f" ({short_date(issued)} {issued.hour}시 발표)" if issued else ""
+def build_html(storms: Sequence[Typhoon], week_start: dt.date) -> str:
     svg, drawn = build_svg(storms, week_end_of(week_start))
-    foot = f"기상청 태풍정보{stamp} · 바탕 지도 Natural Earth<br>기압선은 함께 올린 지상일기도에서 볼 수 있습니다."
-    main = f'<div class="map">{svg}{_legend(drawn)}</div>'
-    return Card("태풍 예상 경로", week_start, _lead(storms), main, foot).html(CSS)
+    rows = [("현재", now_line(s, html_bold, reach=True, plain=html.escape)) for s in storms]
+    foot = f"{issued_text(storms)} · 바탕 지도 Natural Earth<br>기압선은 함께 올린 지상일기도에서 볼 수 있습니다."
+    return Card("태풍 예상 경로", week_start, rows, f'<div class="map">{svg}{_legend(drawn)}</div>', foot).html(CSS)
 
 
-def render_png(storms: Sequence[Storm], week_start: dt.date, *, scale: int = 2) -> bytes:
+def render_png(storms: Sequence[Typhoon], week_start: dt.date, *, scale: int = 2) -> bytes:
     return capture(build_html(storms, week_start), scale=scale)
 
 
 # 확률반경은 예상 위치마다 겹쳐 그려 묶음째 옅게 — 겹친 곳이 진해지지 않고 한 덩어리로 보임
 CSS = BASE_CSS + pacific.CSS + f"""
 g.radius {{ opacity: 0.18; }}
-g.radius ellipse {{ fill: {EXTENTS[0][1]}; }}
-g.gale ellipse {{ fill: {EXTENTS[1][1]}; fill-opacity: 0.16; stroke: {EXTENTS[1][1]}; stroke-width: 1.4; }}
-g.storm ellipse {{ fill: {EXTENTS[2][1]}; fill-opacity: 0.18; stroke: {EXTENTS[2][1]}; stroke-width: 1.4; }}
+g.radius ellipse {{ fill: {RADIUS_COLOR}; }}
+g.gale ellipse {{ fill: {GALE_COLOR}; fill-opacity: 0.16; stroke: {GALE_COLOR}; stroke-width: 1.4; }}
+g.storm ellipse {{ fill: {STORM_COLOR}; fill-opacity: 0.18; stroke: {STORM_COLOR}; stroke-width: 1.4; }}
 .legend g.radius {{ opacity: 0.35; }}
 .legend + .legend {{ margin-top: 2px; }}
 .lead {{ background: #eef4fb; }}

@@ -56,8 +56,15 @@ class View:
         return deg / math.cos(math.radians(lat)) * self._k * self.scale, deg * self.scale
 
 
-def _bounds() -> tuple[float, float, float, float]:
-    return tuple(json.loads(ASSET.read_text(encoding="utf-8"))["bounds"])
+Rings = list[list[list[float]]]
+
+
+@functools.cache
+def _assets() -> tuple[tuple[float, float, float, float], Rings, Rings]:
+    """(자료 범위 경도0·위도0·경도1·위도1, 육지 고리, 한국 시도 고리) — 파일마다 한 번만 읽음."""
+    land = json.loads(ASSET.read_text(encoding="utf-8"))
+    korea = [r for prov in json.loads(KOREA_ASSET.read_text(encoding="utf-8"))["provinces"] for r in prov["rings"]]
+    return tuple(land["bounds"]), land["rings"], korea
 
 
 def _span(lo: float, hi: float, need: float, floor: float, ceil: float) -> tuple[float, float]:
@@ -71,7 +78,7 @@ def _span(lo: float, hi: float, need: float, floor: float, ceil: float) -> tuple
 def fit(spots: Iterable[tuple[float, float]], width: float, max_height: float, min_height: float) -> View:
     """점(경도, 위도)과 한국을 다 담는 범위. 너무 길쭉하면 짧은 쪽을 넓혀 카드에 맞춤."""
     lons, lats = zip(*[*spots, *KOREA], strict=True)
-    b_lon0, b_lat0, b_lon1, b_lat1 = _bounds()
+    b_lon0, b_lat0, b_lon1, b_lat1 = _assets()[0]
     lon0, lon1 = max(b_lon0, min(lons) - PAD), min(b_lon1, max(lons) + PAD)
     lat0, lat1 = max(b_lat0, min(lats) - PAD), min(b_lat1, max(lats) + PAD)
     k = math.cos(math.radians((lat0 + lat1) / 2))
@@ -82,13 +89,6 @@ def fit(spots: Iterable[tuple[float, float]], width: float, max_height: float, m
 
 def _path(view: View, ring: list[list[float]]) -> str:
     return "M" + "L".join(f"{x:.1f},{y:.1f}" for x, y in (view.xy(lon, lat) for lon, lat in ring)) + "Z"
-
-
-@functools.cache
-def _rings() -> tuple[list[list[list[float]]], list[list[list[float]]]]:
-    land = json.loads(ASSET.read_text(encoding="utf-8"))["rings"]
-    korea = [r for prov in json.loads(KOREA_ASSET.read_text(encoding="utf-8"))["provinces"] for r in prov["rings"]]
-    return land, korea
 
 
 def _grid(view: View) -> tuple[str, str]:
@@ -120,7 +120,7 @@ def places(view: View) -> list[tuple[Box, str]]:
 
 def background(view: View) -> str:
     """바다·격자·육지·한국."""
-    land, korea = _rings()
+    _, land, korea = _assets()
     lines, marks = _grid(view)
     return (f'<rect class="sea" width="{view.width:.1f}" height="{view.height:.1f}"/>{lines}'
             f'<path class="land" d="{"".join(_path(view, r) for r in land)}"/>'

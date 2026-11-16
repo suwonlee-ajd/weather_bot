@@ -2486,8 +2486,8 @@ WUTIP_URL = "/repositary/xml/typ/raw/DAOU/RTKO63/2019/RTKO63_201902201600_2_3.os
 def test_typhoon_parse() -> None:
     """태풍정보 — 빈 목록은 «없음», 경로표의 현재·예상 구분, 약화, 형식이 바뀌면 TyphoonError."""
     from src.common.cache import clear
-    from src.kma import typhoon
-    from src.kma.typhoon import TyphoonError, parse_list, parse_track
+    from src.season.typhoon import data as typhoon
+    from src.season.typhoon.data import TyphoonError, parse_list, parse_track
 
     def rejects(parse, text: str) -> None:
         try:
@@ -2562,9 +2562,9 @@ def test_typhoon_weekly() -> None:
     """주간 게시의 태풍 덩어리 — 진행 중일 때만 글로, 태풍정보를 못 받으면 예보관 서술만, 둘 다 없으면 실패."""
     from dataclasses import replace
 
-    from src.kma import typhoon
-    from src.kma.typhoon import TyphoonError, parse_track
+    from src.season.typhoon import data as typhoon
     from src.season.typhoon import map as typhoon_map
+    from src.season.typhoon.data import TyphoonError, parse_track
     from src.weekly import pipeline, themes
 
     week = dt.date(2019, 2, 18)
@@ -2649,14 +2649,14 @@ def test_typhoon_map() -> None:
     """태풍 예상 경로 지도 — 시각·중심기압 글자, 경로표에 있는 반경만 그리고 범례도 그만큼, 기압선은 일기도로."""
     from dataclasses import replace
 
-    from src.kma import typhoon
+    from src.season.typhoon import data as typhoon
     from src.season.typhoon import pacific
     from src.season.typhoon.map import build_html, render_png
 
     storm = typhoon.parse_track(WUTIP_OSP, typhoon.issued_of(WUTIP_URL))
     week = dt.date(2019, 2, 18)
     html_text = build_html([storm], week)
-    assert "<h1>태풍 예상 경로</h1>" in html_text and "기상청 태풍정보 (2/20 16시 발표)" in html_text
+    assert "<h1>태풍 예상 경로</h1>" in html_text and "기상청 태풍정보(2/20 16시 발표) · 바탕 지도" in html_text
     assert "기압선은 함께 올린 지상일기도에서 볼 수 있습니다" in html_text
     assert ">20일 15시 990hPa<" in html_text and ">제2호 우딥<" in html_text     # 현재 위치
     assert '<text class="when" x="' in html_text and ">24일 15시 950hPa<" in html_text
@@ -2665,6 +2665,9 @@ def test_typhoon_map() -> None:
     assert "70% 확률반경 —" in html_text and "강풍반경 — 초속 15m" in html_text
     assert "폭풍반경" not in html_text and 'class="storm"' not in html_text        # 경로표가 비워 둔 반경은 없음
     assert "emoji" not in html_text and ">한국<" in html_text
+    # 머리 줄은 슬랙 «현재» 줄과 같은 말 — 약화 문구까지
+    weak = build_html([replace(storm, weakened="열대저압부로 약화")], week)
+    assert "<b>제2호 태풍 우딥(WUTIP)</b> 열대저압부로 약화 · 괌 남동쪽" in weak
     # 반경이 하나도 없으면 범례 둘째 줄도 없음
     bare = replace(storm, now=replace(storm.now, gale=None), forecast=tuple(replace(p, radius=None) for p in storm.forecast))
     bare_html = build_html([bare], week)

@@ -16,8 +16,7 @@ import logging
 from collections.abc import Callable
 
 from src.advice.rules import RAIN_LIKELY
-from src.common.text import bold, short_date
-from src.kma import typhoon
+from src.common.text import bold
 from src.kma.page import Narrative
 from src.season import narrative
 from src.season.basemap import MapInfo
@@ -35,7 +34,9 @@ from src.season.monsoon import text as monsoon_text
 from src.season.snow import data as snow
 from src.season.snow import map as snow_map
 from src.season.snow import text as snow_text
+from src.season.typhoon import data as typhoon
 from src.season.typhoon import map as typhoon_map
+from src.season.typhoon import text as typhoon_text
 from src.weekly.forecast import WeekForecast
 from src.weekly.paragraph import Block, Paragraph
 from src.weekly.sections import Context
@@ -104,13 +105,10 @@ def typhoon_block(ctx: Context) -> Block | None:
 
     paragraph = Paragraph("이번 주 태풍", emoji=":cyclone:")
     for storm in storms:
-        weakened = f" {storm.weakened}" if storm.weakened else ""
-        paragraph.add("현재", f"{bold(storm.title)}{weakened} · {storm.now.summary} ({storm.now.when} 기준)")
-        ahead = [p for p in storm.forecast if p.at.date() <= ctx.week_end]
-        name = f"{storm.name} " if len(storms) > 1 else ""
-        paragraph.add("예상", f"{name}{ahead[-1].when} {ahead[-1].place}" if ahead else "")
+        paragraph.add("현재", typhoon_text.now_line(storm))
+        paragraph.add("예상", typhoon_text.ahead_line(storm, ctx.week_end, named=len(storms) > 1))
     paragraph.add("이번 주", " / ".join(narrative.quote(text) for text, _ in quotes))
-    sources = _typhoon_sources(storms, quotes)
+    sources = typhoon_text.sources(storms, (n.title for _, n in quotes))      # 실린 줄의 출처만
     if not storms:
         return Block(paragraph, f"태풍 · {sources}")
     return _with_map(ctx, paragraph, typhoon_map.INFO,
@@ -129,16 +127,6 @@ def _typhoon_lines(narratives: list[Narrative]) -> list[tuple[str, Narrative]]:
         out += [(text, source) for text in narrative.mentioning(source.lines, ("태풍",))
                 if all(text != seen for seen, _ in out)]
     return out
-
-
-def _typhoon_sources(storms: list[typhoon.Typhoon], quotes: list[tuple[str, Narrative]]) -> str:
-    """실린 줄의 출처만 — «기상청 태풍정보(11/16 16시 발표) · 기상청 예보 통보문»."""
-    parts = []
-    if storms:
-        issued = max((s.issued for s in storms if s.issued), default=None)
-        parts.append("기상청 태풍정보" + (f"({short_date(issued)} {issued.hour}시 발표)" if issued else ""))
-    parts.extend(dict.fromkeys(n.title for _, n in quotes))
-    return " · ".join(parts)
 
 
 def snow_block(ctx: Context) -> Block | None:

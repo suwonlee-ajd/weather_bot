@@ -200,7 +200,7 @@ XML 구조에 주의할 점이 셋 있음.
 
 ## 태풍은 날씨누리 지도가 읽는 파일에서
 
-`src/kma/typhoon.py`. 태풍 페이지(`/w/hazard/typhoon/report.do` 통보문 · `/w/typhoon/ko/weather/typhoon_02.jsp`
+`src/season/typhoon/data.py`. 태풍 페이지(`/w/hazard/typhoon/report.do` 통보문 · `/w/typhoon/ko/weather/typhoon_02.jsp`
 지도)는 진행 중인 태풍이 없으면 «현재 발표된 태풍(열대저압부)정보가 없습니다» 만 보여 주고, 지도는 JS 가
 정적 파일을 읽어 그림. 그 파일을 그대로 받음 — 칸 뜻과 현재·예상 구분은 지도 스크립트
 (`share/js/typhoon/typhoonContent.js` 의 `loadTlb` · `loadTyphoon`) 와 같게 읽음.

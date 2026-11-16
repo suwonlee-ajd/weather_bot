@@ -193,11 +193,11 @@ systemd timer (월 07:50 KST 기동) — 또는 크론을 넣은 GitHub Actions 
 ```
 src/common/     설정 · 로그 · 캐시 · 산출물 보존 · 날짜·기온 표기 · HTML → PNG
 src/kma/        기상청 수집 — 광역 구역(regions) · 통보문(notice) · 중기예보(mid_term) · 합치기(scrape)
-                · 동네예보(dong_zone · dong_forecast) · 1개월 전망(outlook) · 일기도(chart) · 태풍정보(typhoon)
+                · 동네예보(dong_zone · dong_forecast) · 1개월 전망(outlook) · 일기도(chart)
 src/season/     철 소식 자료 — 주제마다 자료(data) · 문장(text) · 지도(map)
                 · 단풍(foliage/ + 명산 mountains) · 첫눈(snow/ + 관측 지점 stations)
                 · 벚꽃(blossom/ + 도시 spots) · 장마(monsoon/) · 더위(heat/ + 도시 cities) — 그 주 예보에서 읽음
-                · 태풍 지도(typhoon/ 예상 경로 map · 북서태평양 바탕 pacific) — 자료는 kma/typhoon
+                · 태풍(typhoon/ 기상청 태풍정보 data · 문장 text · 예상 경로 map · 북서태평양 바탕 pacific)
                 · 공통 — 수집(sources) · 지도 바탕(basemap) · 지도 카드 틀(mapcard) · 관측 한 줄 꼴(summary)
                 · 도시·지점 좌표(places) · 주의 시작·끝(weeks) · 예보관 서술 인용(narrative)
 src/advice/     수치에서 생활 조언 — 규칙(rules) · 문구 표(phrases)

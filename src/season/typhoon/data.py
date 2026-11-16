@@ -104,7 +104,11 @@ def parse_list(text: str) -> list[str]:
         if ".osp" not in osp:
             raise TyphoonError(f"기상청 태풍 목록 줄을 읽지 못했습니다 (형식 변경 의심): {line[:80]}")
         # 목록은 /repositary/… 로 주지만 실제 자리는 /w/repositary/… — 날씨누리 지도도 같게 바꿈
-        urls.append(urllib.parse.urljoin(BASE, re.sub(r"^/repositary/", "/w/repositary/", osp)))
+        url = urllib.parse.urljoin(BASE, re.sub(r"^/repositary/", "/w/repositary/", osp))
+        # 줄에 다른 호스트의 절대 주소가 와도 따라가지 않음 — 받는 곳은 날씨누리뿐
+        if urllib.parse.urlsplit(url).netloc != urllib.parse.urlsplit(BASE).netloc:
+            raise TyphoonError(f"기상청 태풍 목록에 다른 곳의 주소가 있습니다: {osp[:80]}")
+        urls.append(url)
     return urls
 
 

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import html
 
 from src.common.browser import capture
 from src.common.text import WEEKDAY_KO, html_bold, short_day_label
@@ -89,7 +90,8 @@ def _table(heat: Heat) -> str:
     rest = f" — 낮 최고 순 {len(shown)}곳 (외 {len(hit) - len(shown)}곳)" if len(hit) > len(shown) else ""
     caption = (f"기준에 닿는 도시 <b>{len(hit)}곳</b> / {len(heat.cities)}곳{rest}" if hit
                else f"기준에 닿는 도시가 없습니다 ({len(heat.cities)}곳 중)")
-    rows = "".join(f'<tr><th scope="row">{c.name}</th>{_cell(c.high, c.hot)}{_cell(c.low, c.tropical)}</tr>'
+    # 도시 이름은 긁어 온 표의 글자 — 지도 라벨(label)처럼 escape 해서 Chromium 에 넘김
+    rows = "".join(f'<tr><th scope="row">{html.escape(c.name)}</th>{_cell(c.high, c.hot)}{_cell(c.low, c.tropical)}</tr>'
                    for c in shown)
     return (f"<table><caption>{caption}</caption><thead><tr><th>도시</th><th>낮 최고</th><th>아침 최저</th></tr>"
             f"</thead><tbody>{rows}</tbody></table>")

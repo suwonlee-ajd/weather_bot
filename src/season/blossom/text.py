@@ -52,7 +52,11 @@ def year_line(outlook: Outlook, bold=bold) -> str:
     return trend
 
 
-def sources(outlook: Outlook) -> str:
-    if outlook.expected:
-        return f"예상 {OUTLOOK_SOURCE}" + (f"({short_date(outlook.published)} 발표)" if outlook.published else "")
-    return f"평년 {OUTLOOK_SOURCE}"
+def sources(outlook: Outlook, *, detail: bool = False) -> str:
+    """출처 한 줄. detail 은 지도 꼬리말용(도시 수 · 지난해 표인지까지)."""
+    if not outlook.expected:
+        return f"평년 {OUTLOOK_SOURCE}" + (" 지난해 표" if detail else "")
+    bits = [f"{short_date(outlook.published)} 발표"] if outlook.published else []
+    if detail:
+        return f"예상 {OUTLOOK_SOURCE} ({', '.join([*bits, f'{len(outlook.expected)}개 도시'])})"
+    return f"예상 {OUTLOOK_SOURCE}" + (f"({bits[0]})" if bits else "")

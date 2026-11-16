@@ -67,13 +67,13 @@ def foliage_block(ctx: Context) -> Block | None:
 def blossom_block(ctx: Context) -> Block | None:
     """싣는 것은 웨더아이 도시 예상뿐 — 기상청 목록은 다룰 때인지만 가름. 예상 수집 실패는 예외로 올림."""
     try:
-        status = blossom.fetch_status()
+        in_service = blossom.fetch_status()
     except blossom.BlossomError as exc:
         log.warning("기상청 벚꽃 관측 기간을 받지 못해 웨더아이 예상만으로 가릅니다 — %s", exc)
-        status = None
+        in_service = False
     # 지난해 표의 평년은 기상청이 관측 중일 때만 실음 — 그 밖엔 받지 않음(철 밖에도 매주 돌기 때문)
-    outlook = blossom.fetch_outlook(ctx.week_start.year, borrow_normal=bool(status and status.in_service))
-    if not (outlook.expected or outlook.normal) or not blossom.showing(status, outlook, ctx.week_start):
+    outlook = blossom.fetch_outlook(ctx.week_start.year, borrow_normal=in_service)
+    if not (outlook.expected or outlook.normal) or not blossom.showing(in_service, outlook, ctx.week_start):
         return None
     paragraph = (Paragraph("이번 주 벚꽃", emoji=":cherry_blossom:")
                  .add("이번 주", blossom_text.week_line(outlook, ctx.week_start, ctx.week_end))

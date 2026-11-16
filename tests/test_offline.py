@@ -1508,16 +1508,16 @@ def test_paragraph() -> None:
 
 def test_blossom_season() -> None:
     """기간은 자료가 정함 — 기상청 관측 중이거나, 관측 전이라도 올해 개화 예상일이 남았을 때만."""
-    from src.season.blossom.data import Outlook, Status, showing
+    from src.season.blossom.data import Outlook, showing
 
     d = dt.date
-    on, off = Status(stages={"여의도 윤중로": 1}), Status(stages={"여의도 윤중로": 0}, in_service=False)
     expected = Outlook(expected={"서귀포": d(2026, 3, 20), "서울": d(2026, 4, 3)}, normal={})
     borrowed = Outlook(expected={}, normal={"서울": d(2026, 4, 8)})             # 올해 예상 전 — 지난해 표의 평년만
-    assert showing(on, borrowed, d(2026, 4, 6)) and showing(on, None, d(2026, 4, 13))   # 4월 서울 개화까지 관측을 따라감
-    assert showing(off, expected, d(2026, 2, 23)) and showing(None, expected, d(2026, 3, 20))   # 첫 예상일까지
-    assert not showing(off, expected, d(2026, 3, 30))          # 첫 예상일이 지났는데 서비스가 꺼져 있으면 접은 것
-    assert not showing(off, borrowed, d(2026, 2, 23)) and not showing(off, None, d(2026, 11, 16))
+    nothing = Outlook(expected={}, normal={})
+    assert showing(True, borrowed, d(2026, 4, 6)) and showing(True, nothing, d(2026, 4, 13))   # 4월 서울 개화까지 관측을 따라감
+    assert showing(False, expected, d(2026, 2, 23)) and showing(False, expected, d(2026, 3, 20))   # 첫 예상일까지
+    assert not showing(False, expected, d(2026, 3, 30))        # 첫 예상일이 지났는데 서비스가 꺼져 있으면 접은 것
+    assert not showing(False, borrowed, d(2026, 2, 23)) and not showing(False, nothing, d(2026, 11, 16))
     print("[ok] 벚꽃 기간 — 기상청 관측 중이거나 남은 개화 예상일이 있을 때만 (고정 기간 없음)")
 
 
@@ -1534,11 +1534,7 @@ def test_blossom_parse() -> None:
         return "\r\n\r\napplyFlowerData(" + json.dumps(
             {"places": places, "isService": service, "flower": {}}, ensure_ascii=False) + ")"
 
-    stages, live = parse_status(jsonp(True))
-    assert live and stages == {"진해 여좌천": 2, "여의도 윤중로": 1, "춘천 소양강댐": 0}, stages
-    # 서비스 기간 밖이면 지난 봄 값이라 버림
-    stages, live = parse_status(jsonp(False))
-    assert not live and set(stages.values()) == {0}, stages
+    assert parse_status(jsonp(True)) is True and parse_status(jsonp(False)) is False   # 다룰 때인지만 봄
 
     cities = ["서귀포", "부산", "창원", "울산", "여수", "광주", "목포", "전주", "대구", "포항",
               "안동", "대전", "청주", "서산", "수원", "서울", "인천", "강릉", "춘천"]
@@ -1618,15 +1614,14 @@ def test_blossom_fetch() -> None:
     orig = blossom._kma
     blossom._kma = fake_kma
     try:
-        status = blossom.fetch_status()
-        assert status.in_service and status.stages == {"진해 여좌천": 2, "여의도 윤중로": 1}, status
-        assert calls == ["목록"], calls
-        blossom._kma = lambda: 'applyFlowerData({"isService": true, "places": [1]})'
-        try:
-            blossom.fetch_status()
-            raise AssertionError("깨진 목록이 통과했습니다")
-        except blossom.BlossomError:
-            pass
+        assert blossom.fetch_status() is True and calls == ["목록"], calls
+        for broken in ("[1]", "[]"):
+            blossom._kma = lambda: 'applyFlowerData({"isService": true, "places": %s})' % broken
+            try:
+                blossom.fetch_status()
+                raise AssertionError(f"깨진 목록이 통과했습니다: {broken}")
+            except blossom.BlossomError:
+                pass
     finally:
         blossom._kma = orig
     print("[ok] 벚꽃 수집 — 기상청 목록 한 번 · 형식 변경은 BlossomError")
@@ -1741,7 +1736,7 @@ def test_weekly_themes() -> None:
     import src.season.blossom.map as blossom_map
     import src.season.foliage.data as foliage
     import src.season.foliage.map as foliage_map
-    from src.season.blossom.data import BlossomError, Outlook, Status
+    from src.season.blossom.data import BlossomError, Outlook
     from src.season.foliage.data import FoliageError
     from src.weekly import pipeline, themes
 
@@ -1768,7 +1763,7 @@ def test_weekly_themes() -> None:
     foliage_map.render_png = fake_render
     # 실제와 같은 인자 꼴로 받음 — 부르는 쪽 인자가 어긋나면 그림이 빠져 아래 단언에 걸림
     blossom_map.render_png = lambda outlook, start, *, scale=2: fake_render(outlook, start, scale)
-    blossom.fetch_status = lambda: Status(stages={"진해 여좌천": 0}, in_service=False)
+    blossom.fetch_status = lambda: False
     blossom.fetch_outlook = lambda year, **k: Outlook(expected={"서귀포": d(2026, 3, 25)},
                                                 normal={"서귀포": d(2026, 3, 24)}, published=d(2026, 2, 26))
     try:
@@ -1809,13 +1804,13 @@ def test_weekly_themes() -> None:
         assert labels(spring) == ["이번 주", "올해"], labels(spring)
         # 올해 예상 전 — 기상청이 관측 중이면 평년으로, 관측 전이면 다룰 때가 아님(자료가 기간을 정함)
         blossom.fetch_outlook = lambda year, **k: Outlook(expected={}, normal={"서귀포": d(2026, 3, 24)})
-        blossom.fetch_status = lambda: Status(stages={"진해 여좌천": 1})
+        blossom.fetch_status = lambda: True
         spring = themes.blossom_block(weekly_ctx(d(2026, 2, 23)))
         assert labels(spring) == ["이번 주", "평년"] and spring.credit == "벚꽃 지도 · 평년 웨더아이", spring.credit
-        blossom.fetch_status = lambda: Status(stages={"진해 여좌천": 0}, in_service=False)
+        blossom.fetch_status = lambda: False
         assert themes.blossom_block(weekly_ctx(d(2026, 2, 23))) is None
         # 관측 중이어도 웨더아이 표가 올해·지난해 모두 없으면 실을 것이 없음
-        blossom.fetch_status = lambda: Status(stages={"진해 여좌천": 1})
+        blossom.fetch_status = lambda: True
         blossom.fetch_outlook = lambda year, **k: Outlook(expected={}, normal={})
         assert themes.blossom_block(spring_ctx) is None
         # 웨더아이 수집 실패는 «해당 없음» 이 아니라 실패 — 실을 것이 예상뿐이라 관측 중이든(앞) 기상청까지

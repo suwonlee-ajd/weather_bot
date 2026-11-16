@@ -11,7 +11,7 @@ from src.common.text import html_bold, short_date
 from src.season.basemap import BASE_CSS, MapInfo, frame, label, nudge, place
 from src.season.blossom.data import Outlook
 from src.season.blossom.spots import CITY_BY_NAME
-from src.season.blossom.text import week_line, year_line
+from src.season.blossom.text import sources, week_line, year_line
 from src.season.mapcard import (
     NONE,
     Card,
@@ -101,15 +101,6 @@ def _lead(outlook: Outlook, start: dt.date, end: dt.date) -> tuple[tuple[str, st
             ("올해" if outlook.expected else "평년", year_line(outlook, html_bold)))
 
 
-def _foot(outlook: Outlook) -> str:
-    if outlook.expected:
-        when = f"{short_date(outlook.published)} 발표, " if outlook.published else ""
-        source = f"예상 {OUTLOOK_SOURCE} ({when}{len(outlook.expected)}개 도시)"
-    else:
-        source = f"평년 {OUTLOOK_SOURCE} 지난해 표"
-    return f"{source}<br>{NOTE}"
-
-
 def build_html(outlook: Outlook, week_start: dt.date) -> str:
     """올해 표가 없으면 지난해 표의 평년으로 — 제목·범례·표 머리도 «평년»."""
     week_end = week_end_of(week_start)
@@ -123,7 +114,8 @@ def build_html(outlook: Outlook, week_start: dt.date) -> str:
              f'<tbody>{rows}</tbody></table>')
     main = (f'<h2><span class="k">{kind}</span>{OUTLOOK_SOURCE} {len(days)}개 도시</h2>'
             + body(frame(marks, f"{len(days)}개 도시 벚꽃 개화 {kind} 지도") + key, table))
-    return Card("벚꽃 지도", week_start, _lead(outlook, week_start, week_end), main, _foot(outlook)).html(CSS)
+    return Card("벚꽃 지도", week_start, _lead(outlook, week_start, week_end), main,
+                f"{sources(outlook, detail=True)}<br>{NOTE}").html(CSS)
 
 
 def render_png(outlook: Outlook, week_start: dt.date, *, scale: int = 2) -> bytes:

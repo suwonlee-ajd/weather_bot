@@ -18,8 +18,6 @@ log = logging.getLogger(__name__)
 KMA_URL = "https://www.kma.go.kr/kma/theme/flower_photojs.jsp"
 KMA_PAGE = "https://www.weather.go.kr/w/forecast/life/seasonal-observation/spring-flower.do"
 
-STAGES = ("개화 전", "개화", "만발")
-
 # 형식 변경 감지 문턱 — 해마다 19곳
 _MIN_ROWS = 15
 
@@ -34,16 +32,13 @@ def _get(url: str, **kw) -> requests.Response:
 
 # --- 기상청 관측 -------------------------------------------------------------
 
-@dataclass
-class Status:
-    stages: dict[str, int]          # 군락지 → 0 개화 전 / 1 개화 / 2 만발 (싣지 않음)
-    in_service: bool = True
-
-
-def parse_status(text: str) -> tuple[dict[str, int], bool]:
-    """(군락지별 단계, 서비스 중인지)."""
+def parse_status(text: str) -> bool:
+    """서비스 중인지(isService). 군락지 목록이 비었거나 꼴이 다르면 형식 변경."""
     data = shared.jsonp(text, "applyFlowerData", "봄꽃", BlossomError)
-    return shared.stages_in(data, STAGES, "봄꽃", BlossomError)
+    places = data.get("places")
+    if not places or not all(isinstance(p, dict) for p in places):
+        raise BlossomError("기상청 봄꽃 응답에 관측 지점이 없습니다 (형식 변경 의심)")
+    return bool(data.get("isService"))
 
 
 def _kma() -> str:
@@ -52,13 +47,9 @@ def _kma() -> str:
     return resp.text
 
 
-def fetch_status() -> Status:
-    """목록 한 번 — 다룰 때인지(isService)만 봄. 군락지별 촬영일은 싣지 않아 받지 않음."""
-    try:
-        stages, in_service = parse_status(_kma())
-    except (KeyError, TypeError, AttributeError) as exc:
-        raise BlossomError(f"기상청 봄꽃 응답 형식이 바뀌었습니다: {exc}") from exc
-    return Status(stages=stages, in_service=in_service)
+def fetch_status() -> bool:
+    """기상청이 봄꽃을 관측 중인지 — 목록 한 번. 군락지별 촬영일은 싣지 않아 받지 않음."""
+    return parse_status(_kma())
 
 
 # --- 웨더아이 예상 -----------------------------------------------------------
@@ -140,12 +131,10 @@ def fetch_outlook(year: int, *, borrow_normal: bool = True) -> Outlook:
                    url=last.url)
 
 
-def showing(status: Status | None, outlook: Outlook | None, day: dt.date) -> bool:
+def showing(in_service: bool, outlook: Outlook, day: dt.date) -> bool:
     """다룰 때인지 — 기상청이 관측 중(isService)이거나, 관측 전이라도 올해 첫 개화 예상일이 아직 오지 않았을 때.
 
     기간은 우리가 정하지 않고 자료가 정함 — 서울·인천처럼 4월에 피는 곳까지 기상청 관측을 따라감. 관측 전은 첫
     예상일까지만: 그 뒤에 서비스가 꺼져 있으면 접은 것이라 «아직 시작 안 함» 이라고 말하지 않게.
     """
-    if status is not None and status.in_service:
-        return True
-    return outlook is not None and bool(outlook.expected) and min(outlook.expected.values()) >= day
+    return in_service or (bool(outlook.expected) and min(outlook.expected.values()) >= day)

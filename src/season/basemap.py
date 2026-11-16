@@ -5,12 +5,17 @@ import functools
 import html
 import json
 import math
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from src.common.browser import CARD_WIDTH
 
 ASSET = Path(__file__).parent / "assets" / "korea_provinces.json"
+# 지도 표지 그림 — Google Noto Emoji(Apache License 2.0, 같은 폴더의 LICENSE). 글꼴에 기대지 않아 서버에 이모지
+# 글꼴이 없어도 같은 그림이 나옴. 원본 파일은 고치지 않고 읽을 때만 다듬음
+EMOJI_DIR = Path(__file__).parent / "assets" / "noto-emoji"
+EMOJI = {"maple": "emoji_u1f341.svg", "fallen": "emoji_u1f342.svg", "snow": "emoji_u2744.svg"}   # 🍁 🍂 ❄️
 
 
 @dataclass(frozen=True)
@@ -67,6 +72,24 @@ def frame(inner: str, aria_label: str, width: float = MAP_W) -> str:
     """
     return (f'<svg width="{width:.0f}" height="{width * MAP_H / MAP_W:.0f}" viewBox="0 0 {MAP_W:.0f} {MAP_H:.0f}" '
             f'overflow="visible" role="img" aria-label="{aria_label}">{basemap()}{inner}</svg>')
+
+
+@functools.cache
+def _emoji_body(name: str) -> str:
+    """그림의 안쪽만. 한 SVG 에 여럿 넣어도 그러데이션이 섞이지 않게 id 에 이름을 붙이고, Illustrator 자료는 뺌."""
+    text = (EMOJI_DIR / EMOJI[name]).read_text(encoding="latin-1")      # 🍁 원본이 iso-8859-1 로 선언됨
+    body = re.search(r"<svg[^>]*>(.*)</svg>", text, re.S).group(1)
+    body = re.sub(r"<i:(\w+)[^>]*>.*?</i:\1>", "", body, flags=re.S)      # 50KB 남짓한 편집기 자료
+    body = re.sub(r'\si:\w+="[^"]*"', "", body)
+    body = re.sub(r'id="([^"]+)"', rf'id="{name}-\1"', body)
+    return re.sub(r"url\(#([^)]+)\)", rf"url(#{name}-\1)", body)
+
+
+def emoji(name: str, x: float, y: float, size: float, opacity: float = 1.0) -> str:
+    """(x, y) 가운데에 size 크기로 그린 Noto 이모지 — 원본 보기 상자는 128×128."""
+    faded = f' opacity="{opacity}"' if opacity < 1 else ""
+    return (f'<svg x="{x - size / 2:.1f}" y="{y - size / 2:.1f}" width="{size:.1f}" height="{size:.1f}" '
+            f'viewBox="0 0 128 128"{faded}>{_emoji_body(name)}</svg>')
 
 
 @functools.cache

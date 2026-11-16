@@ -1415,6 +1415,22 @@ def test_foliage_render() -> None:
     print(f"[ok] 단풍 지도 {len(png):,}B -> {IMG / 'foliage-test.png'}")
 
 
+def test_map_emoji() -> None:
+    """지도 표지 그림(Noto Emoji) — 편집기 자료는 빼고, 한 장에 여럿 넣어도 그러데이션 id 가 겹치지 않음."""
+    import re
+
+    from src.season.basemap import EMOJI, emoji
+
+    svg = "".join(emoji(name, 10, 10, 20) for name in EMOJI) + emoji("maple", 40, 10, 20, opacity=0.45)
+    assert "i:" not in svg and "<?xml" not in svg and "DOCTYPE" not in svg
+    ids = re.findall(r'id="([^"]+)"', svg)
+    assert all(i.split("-", 1)[0] in EMOJI for i in ids), ids
+    assert len(set(ids)) == len(ids) // 2, "같은 그림 두 번 말고는 id 가 겹치면 안 됨"
+    assert all(ref in ids for ref in re.findall(r"url\(#([^)]+)\)", svg)), "가리키는 그러데이션이 없음"
+    assert 'opacity="0.45"' in svg and svg.count('viewBox="0 0 128 128"') == len(EMOJI) + 1
+    print("[ok] 지도 표지 그림 — Noto 🍁 🍂 ❄️, 편집기 자료 제거, id 겹침 없음, 옅게 그리기")
+
+
 def test_foliage_after_peak() -> None:
     """절정 뒤 — 기상청은 낙엽을 관측하지 않아 «졌다» 대신 절정 사진 뒤 지난 날수만 사실로 적음."""
     from src.common.text import bold
@@ -2557,6 +2573,7 @@ if __name__ == "__main__":
     test_foliage_fetch()
     test_cache_failures()
     test_foliage_render()
+    test_map_emoji()
     test_foliage_after_peak()
     test_paragraph()
     test_blossom_season()

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 from src.common.browser import capture
 from src.common.text import day_label, short_date
-from src.season.basemap import BASE_CSS, MapInfo, frame, label, place
+from src.season.basemap import BASE_CSS, MapInfo, emoji, frame, label, place
 from src.season.foliage.data import CRITERIA_TEXT, KINDS, STAGES, Snapshot
 from src.season.foliage.mountains import MOUNTAINS, Mountain
 from src.season.foliage.text import (
@@ -23,13 +23,9 @@ from src.season.foliage.text import (
 
 INFO = MapInfo("단풍", "foliage", "전국 21개 명산의 단풍 현황(기상청)과 예상 시기(웨더아이) 지도")
 
-# 주황→진홍 순서형이라 색맹 검증 통과. 상태는 모양(빈 원·테두리 잎·채운 잎)으로도 가름.
-# 절정 2주 넘은 산은 같은 채운 잎을 옅게 — 색이 아니라 밝기로 가름
-ORANGE, RED, GRAY, FADED = "#eb6834", "#a8321f", "#898781", "#e3b4a8"
-
-# 단풍잎 윤곽 — 반지름 1 기준 오른쪽 반(위 끝 → 잎자루), 왼쪽은 좌우를 뒤집어 붙임
-_LEAF_HALF = ((0, -1.0), (0.18, -0.58), (0.42, -0.72), (0.36, -0.36), (0.9, -0.48), (0.7, -0.18), (0.82, 0.02),
-              (0.4, 0.12), (0.54, 0.44), (0.12, 0.3), (0.05, 0.32), (0.05, 0.98))
+# 단풍전은 회색 빈 원, 물든 산은 🍁, 절정 2주 넘은 산은 🍂 — 모양으로 가르고 첫단풍은 🍁 을 옅게(밝기로 가름)
+GRAY = "#898781"
+FIRST_OPACITY = 0.45
 
 
 @dataclass(frozen=True)
@@ -40,25 +36,17 @@ class Mark:
     faded: bool = False
 
 
-def _leaf(x: float, y: float, r: float, fill: str, stroke: str, width: float) -> str:
-    half = [(x + dx * r, y + dy * r) for dx, dy in _LEAF_HALF]
-    points = half + [(2 * x - px, py) for px, py in reversed(half)]
-    d = "M" + "L".join(f"{px:.1f},{py:.1f}" for px, py in points) + "Z"
-    return f'<path d="{d}" fill="{fill}" stroke="{stroke}" stroke-width="{width}" stroke-linejoin="round"/>'
-
-
 def _marker(x: float, y: float, mark: Mark, r: float = 6.5) -> str:
-    stage, out, leaf = mark.stage, [], r + 2.5     # 잎은 결이 있어 같은 반지름이면 빈 원보다 작아 보임
+    stage, out, size = mark.stage, [], 2 * r + 7     # 그림은 여백이 있어 같은 크기면 빈 원보다 작아 보임
     if mark.ring:
-        out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{leaf + 3.5}" fill="none" '
+        out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{size / 2 + 3}" fill="none" '
                    f'stroke="#0b0b0b" stroke-width="1.4" stroke-dasharray="2.6 2.2"/>')
     if stage == 0:
         out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r}" fill="#fcfcfb" stroke="{GRAY}" stroke-width="2"/>')
-    elif stage == 1:
-        out.append(_leaf(x, y, leaf, "#fcfcfb", ORANGE, 1.6))
+    elif mark.faded:
+        out.append(emoji("fallen", x, y, size))
     else:
-        # 채운 잎은 흰 테두리가 안쪽을 먹어 테두리 잎보다 작아 보임 — 조금 키움
-        out.append(_leaf(x, y, leaf + 1.5, FADED if mark.faded else RED, "#fcfcfb", 0.9))
+        out.append(emoji("maple", x, y, size, opacity=FIRST_OPACITY if stage == 1 else 1.0))
     return "".join(out)
 
 

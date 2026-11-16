@@ -77,30 +77,22 @@ def daily_sky(lines: list[str], ref: dt.date) -> dict[dt.date, str]:
     return out
 
 
-def fetch_notice(
-    now: dt.datetime, region: Region = NATIONWIDE
-) -> tuple[dict[dt.date, ScrapedDay], Narrative]:
-    url = f"{NOTICE_URL}?stnId={region.notice_stn}"
-    soup = _get_soup(url)
-    issued = _issued_at(soup)
-    ref = (issued or now).date()
-
+def _temp_table(soup) -> tuple[list[str], dict[str, list[str]]]:
+    """(머리 행, {'최저기온'·'최고기온': 행}). 표가 없으면 빈 머리 행."""
     rows: dict[str, list[str]] = {}
-    header: list[str] = []
     for tbl in soup.select("table"):
-        cells0 = [c.get_text(" ", strip=True) for c in tbl.select("tr")[0].find_all(["th", "td"])]
-        if not cells0 or "예보요소" not in cells0[0]:
+        header = [c.get_text(" ", strip=True) for c in tbl.select("tr")[0].find_all(["th", "td"])]
+        if not header or "예보요소" not in header[0]:
             continue
-        header = cells0
         for tr in tbl.select("tr")[1:]:
             cells = [c.get_text(" ", strip=True) for c in tr.find_all(["th", "td"])]
             if cells and ("최저기온" in cells[0] or "최고기온" in cells[0]):
                 rows[cells[0][:4]] = cells
-        break
+        return header, rows
+    return [], rows
 
-    if not header or "최저기온" not in rows or "최고기온" not in rows:
-        raise ScrapeError(f"{url} 에서 기온 표를 찾지 못했습니다 (페이지 구조 변경 의심)")
 
+def _column_dates(header: list[str], ref: dt.date) -> dict[int, dt.date]:
     col_dates: dict[int, dt.date] = {}
     for idx, label in enumerate(header):
         if idx == 0 or "평년" in label or "어제" in label:
@@ -111,7 +103,10 @@ def fetch_notice(
         date = _resolve_date(int(m.group(1)), ref)
         if date:
             col_dates[idx] = date
+    return col_dates
 
+
+def _temperatures(col_dates: dict[int, dt.date], rows: dict[str, list[str]]) -> dict[dt.date, ScrapedDay]:
     days: dict[dt.date, ScrapedDay] = {}
     for idx, date in col_dates.items():
         lo_hi = {}
@@ -129,7 +124,22 @@ def fetch_notice(
         if "max" in lo_hi:
             day.tmax_lo, day.tmax_hi = lo_hi["max"]
         days[date] = day
+    return days
 
+
+def fetch_notice(
+    now: dt.datetime, region: Region = NATIONWIDE
+) -> tuple[dict[dt.date, ScrapedDay], Narrative]:
+    url = f"{NOTICE_URL}?stnId={region.notice_stn}"
+    soup = _get_soup(url)
+    issued = _issued_at(soup)
+    ref = (issued or now).date()
+
+    header, rows = _temp_table(soup)
+    if not header or "최저기온" not in rows or "최고기온" not in rows:
+        raise ScrapeError(f"{url} 에서 기온 표를 찾지 못했습니다 (페이지 구조 변경 의심)")
+
+    days = _temperatures(_column_dates(header, ref), rows)
     if not days:
         raise ScrapeError(f"{url} 기온 표에서 날짜를 하나도 읽지 못했습니다")
 

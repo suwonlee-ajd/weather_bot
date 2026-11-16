@@ -1897,7 +1897,37 @@ def test_snow_data() -> None:
     assert [s.name for s in stations.stations_in_zone("1168064000")] == ["서울"]
     assert stations.stations_in_zone("3611000000") == ()                  # 세종 — 관측 지점 없음
     assert stations.find_station("강릉 첫눈 왔어").name == "북강릉" and stations.find_station("첫눈 언제") is None
-    print("[ok] 첫눈 자료 — 시즌 연도 · 이상 행 버림 · 형식 변경 거절 · 게시 기간 · 지점")
+    # 포털이 가끔 한 번만 늦음 — retries 만큼 더 받고, 그래도 안 되면 실패
+    from types import SimpleNamespace
+
+    from src.common.cache import clear
+    from src.season import sources
+
+    calls: list = []
+
+    def flaky(url, **kw):
+        calls.append(kw.get("timeout"))
+        if len(calls) == 1:
+            raise snow.SnowError("Read timed out")
+        return SimpleNamespace(text=snow_html({"서울": [("2026", "2026-11-08")]}))
+
+    orig = sources.get
+    sources.get = flaky
+    try:
+        clear()
+        assert snow.fetch_status(d(2026, 11, 16), timeout=20.0, retries=1).first == {"서울": d(2026, 11, 8)}
+        assert calls == [20.0, 20.0], calls
+        clear()
+        calls.clear()
+        try:
+            snow.fetch_status(d(2026, 11, 16), timeout=5.0)          # 멘션 덧말은 다시 받지 않음
+            raise AssertionError("재시도 없이 첫 실패를 넘겼습니다")
+        except snow.SnowError:
+            assert calls == [5.0], calls
+    finally:
+        sources.get = orig
+        clear()
+    print("[ok] 첫눈 자료 — 시즌 연도 · 이상 행 버림 · 형식 변경 거절 · 게시 기간 · 지점 · 포털 재시도")
 
 
 def test_snow_text() -> None:
@@ -1940,7 +1970,7 @@ def test_snow_weekly() -> None:
     days = [SimpleNamespace(date=week + dt.timedelta(days=1), sky="흐리고 눈")]
     status = snow.Status(2026, {"서울": d(2026, 11, 26)})
     orig = (snow.fetch_status, snow_map.render_png)
-    snow.fetch_status = lambda today, timeout=None: status
+    snow.fetch_status = lambda today, **_: status
     drawn: list = []
     snow_map.render_png = lambda st, start, days=(), scale=2: drawn.append(days) or b"PNG"
     try:
@@ -1956,10 +1986,10 @@ def test_snow_weekly() -> None:
         assert drawn[-1] is None, drawn                  # 지도도 «눈 소식 없음» 이 아니라 못 받았다고
         # 주 중간에 돌려도 월요일 뒤의 관측을 «최근» 으로 셈
         midweek = snow.Status(2026, {"서울": d(2026, 12, 1)})
-        snow.fetch_status = lambda today, timeout=None: midweek
+        snow.fetch_status = lambda today, **_: midweek
         clear_week = [SimpleNamespace(date=d(2026, 12, 3), sky="맑음")]
         assert themes.snow_block(weekly_ctx(week, d(2026, 12, 2), days=clear_week)) is not None
-        snow.fetch_status = lambda today, timeout=None: status
+        snow.fetch_status = lambda today, **_: status
         # 서울 관측 다다음 주 — 새 관측은 없지만 아직인 곳에 눈 예보가 있으면 계속, 눈 예보도 없으면 해당 없음
         later = weekly_ctx(d(2026, 12, 7), week, days=days)
         assert "첫눈이 될 수 있음" in themes.snow_block(later).paragraph.to_slack()
@@ -1968,7 +1998,7 @@ def test_snow_weekly() -> None:
         snow_map.render_png = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("Chromium 없음"))
         block = themes.snow_block(weekly_ctx(week, days=days))
         assert block.attachment is None and block.credit.startswith("첫눈 · ")
-        snow.fetch_status = lambda today, timeout=None: (_ for _ in ()).throw(snow.SnowError("점검"))
+        snow.fetch_status = lambda today, **_: (_ for _ in ()).throw(snow.SnowError("점검"))
         try:
             themes.snow_block(weekly_ctx(week, days=days))
             raise AssertionError("첫눈 수집 실패가 묻혔습니다")

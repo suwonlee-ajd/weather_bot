@@ -75,7 +75,7 @@ def blossom_block(ctx: Context) -> Block | None:
 
 def snow_block(ctx: Context) -> Block | None:
     """«이번 주» 줄과 다룰지는 1번 날씨 예보의 하늘상태에서 눈을 셈."""
-    status = snow.fetch_status(ctx.today, timeout=snow.WEEKLY_TIMEOUT_SEC)
+    status = snow.fetch_status(ctx.today, timeout=snow.WEEKLY_TIMEOUT_SEC, retries=1)
     week = ctx.forecast()
     days = week.days if week else None
     # «최근» 은 오늘까지 — 주 중간에 돌리면 월요일 뒤의 관측도 셈. 다음 주 미리 보기는 그 월요일 기준

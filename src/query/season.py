@@ -86,7 +86,7 @@ def show_snow(name: str, as_json: bool) -> int:
         picked = (st,)
     try:
         # 5초는 날씨 답에 덧붙일 때의 한도 — 조회 CLI 는 주간 게시처럼 기다려도 됨
-        status = snow.fetch_status(today, timeout=snow.WEEKLY_TIMEOUT_SEC)
+        status = snow.fetch_status(today, timeout=snow.WEEKLY_TIMEOUT_SEC, retries=1)
     except snow.SnowError as exc:
         print(f"조회 실패: {exc}", file=sys.stderr)
         return 1

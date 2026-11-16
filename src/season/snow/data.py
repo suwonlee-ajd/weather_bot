@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import logging
 from dataclasses import dataclass, field
 
 from bs4 import BeautifulSoup
@@ -12,6 +13,8 @@ from bs4 import BeautifulSoup
 from src.common.cache import get_or_set
 from src.season import sources as shared
 from src.season.snow.stations import BY_NAME, STATIONS, Station
+
+log = logging.getLogger(__name__)
 
 URL = "https://data.kma.go.kr/data/seasonObs/seasonObsDataList.do"
 PGM_NO = "648"               # 계절관측 자료조회 화면
@@ -104,14 +107,21 @@ def parse_status(text: str, year: int) -> Status:
     return status
 
 
-def fetch_status(today: dt.date, *, timeout: float = TIMEOUT_SEC) -> Status:
+def fetch_status(today: dt.date, *, timeout: float = TIMEOUT_SEC, retries: int = 0) -> Status:
+    """retries 는 시간 초과·접속 실패 때 더 받는 횟수 — 포털이 가끔 한 번만 늦음. 기다려도 되는 주간 게시·조회만 씀."""
     year = season_year(today)
+    params = {"pgmNo": PGM_NO, "stnIds": ",".join(f"_{s.stn}" for s in STATIONS),
+              "elementCds": SNOW_ELEMENT, "startDt": str(year - 1), "endDt": str(year)}
 
     def load() -> Status:
-        resp = shared.get(URL, error=SnowError, timeout=timeout, params={
-            "pgmNo": PGM_NO, "stnIds": ",".join(f"_{s.stn}" for s in STATIONS),
-            "elementCds": SNOW_ELEMENT, "startDt": str(year - 1), "endDt": str(year),
-        })
+        for attempt in range(retries + 1):
+            try:
+                resp = shared.get(URL, error=SnowError, timeout=timeout, params=params)
+                break
+            except SnowError as exc:
+                if attempt == retries:
+                    raise
+                log.info("기상자료개방포털이 응답하지 않아 한 번 더 받습니다: %s", exc)
         return parse_status(resp.text, year)
 
     return get_or_set(("snow-status", today), STATUS_TTL_SEC, load,

@@ -1,11 +1,12 @@
 """철마다 주간 게시에 붙이는 소식(테마) — 영역 3~6 의 덩어리(Block) 조립. 순서는 pipeline.SECTIONS.
 
-모델에 맡기지 않음 — 지어낸 개화일·단풍일은 그럴듯해서 알아채기 어려움. 수집이 실패하면 예외를 그대로 올려
-pipeline 이 그 영역만 빼고 게시함. 기간은 우리가 정하지 않음 — 다룰 때인지는 자료가 정함:
+모델에 맡기지 않음 — 지어낸 개화일·단풍일·태풍 이름은 그럴듯해서 알아채기 어려움. 수집이 실패하면 예외를 그대로
+올려 pipeline 이 그 영역만 빼고 게시함. 기간은 우리가 정하지 않음 — 다룰 때인지는 자료가 정함:
 
   벚꽃  기상청 관측 중이거나, 관측 전 올해 첫 개화 예상일까지   관측 기상청 · 예상 웨더아이
   장마  예보관 서술에 장마·정체전선이 있을 때                     그 주 예보 (따로 받지 않음)
   폭염  기준(낮 최고 33℃·아침 최저 25℃)에 닿는 날이나 예보관 언급이 있을 때  그 주 예보 (따로 받지 않음)
+  태풍  기상청 태풍정보에 진행 중인 태풍이 있을 때              현재·예상 기상청 태풍정보 · 예보관 서술 (글만)
   단풍  기상청 관측 중이거나, 관측 전 올해 첫 예상일까지        관측 기상청 · 예상 웨더아이 + 지도
   첫눈  지난 7일 안에 관측됐거나, 아직인 곳에 그 주 눈 예보가 있을 때  관측 기상청 계절관측 · 평년 + 지도
 """
@@ -15,7 +16,9 @@ import logging
 from collections.abc import Callable
 
 from src.advice.rules import RAIN_LIKELY
-from src.common.text import bold
+from src.common.text import bold, short_date
+from src.kma import typhoon
+from src.kma.page import Narrative
 from src.season import narrative
 from src.season.basemap import MapInfo
 from src.season.blossom import data as blossom
@@ -82,6 +85,62 @@ def blossom_block(ctx: Context) -> Block | None:
     return Block(paragraph, f"벚꽃 · {blossom_text.sources(status, outlook)}")
 
 
+def typhoon_block(ctx: Context) -> Block | None:
+    """진행 중인 태풍이 있을 때만, 글만 — 태풍 위치는 2번 일기도가 보여 줌.
+
+    태풍정보를 받지 못했어도 예보관 서술에 태풍이 있으면 그 줄만 실음 — 위험 신호를 영역 실패로 묻지 않게.
+    """
+    failure: typhoon.TyphoonError | None = None
+    try:
+        storms = typhoon.fetch_active()
+    except typhoon.TyphoonError as exc:
+        failure, storms = exc, []
+    if not storms and failure is None:
+        return None                       # 기상청 목록이 비었음 — 진행 중인 태풍 없음
+    week = ctx.forecast()
+    body = ctx.body()
+    quotes = [q for q in _typhoon_lines(week.narratives if week else [])
+              if not narrative.in_body(q[0], body)][:narrative.MAX_QUOTES]
+    if failure is not None:
+        if not quotes:
+            raise failure
+        log.warning("기상청 태풍정보를 받지 못해 예보관 서술만 싣습니다 — %s", failure)
+
+    paragraph = Paragraph("이번 주 태풍", emoji=":cyclone:")
+    for storm in storms:
+        weakened = f" {storm.weakened}" if storm.weakened else ""
+        paragraph.add("현재", f"{bold(storm.title)}{weakened} · {storm.now.summary} ({storm.now.when} 기준)")
+        ahead = [p for p in storm.forecast if p.at.date() <= ctx.week_end]
+        name = f"{storm.name} " if len(storms) > 1 else ""
+        paragraph.add("예상", f"{name}{ahead[-1].when} {ahead[-1].place}" if ahead else "")
+    paragraph.add("이번 주", " / ".join(narrative.quote(text) for text, _ in quotes))
+    return Block(paragraph, f"태풍 · {_typhoon_sources(storms, quotes)}")
+
+
+def _notice_first(n: Narrative) -> int:
+    """통보문(가까운 날)을 중기예보보다 먼저 — 수집 순서는 중기예보가 앞이고, 인용 개수를 넘으면 뒤쪽이 잘림."""
+    return 0 if "통보문" in n.title else 1
+
+
+def _typhoon_lines(narratives: list[Narrative]) -> list[tuple[str, Narrative]]:
+    """예보관 서술에서 태풍을 말한 줄과 그 서술 — 출처 줄에 실린 서술만 적으려고 짝지음."""
+    out: list[tuple[str, Narrative]] = []
+    for source in sorted(narratives, key=_notice_first):
+        out += [(text, source) for text in narrative.mentioning(source.lines, ("태풍",))
+                if all(text != seen for seen, _ in out)]
+    return out
+
+
+def _typhoon_sources(storms: list[typhoon.Typhoon], quotes: list[tuple[str, Narrative]]) -> str:
+    """실린 줄의 출처만 — «기상청 태풍정보(11/16 16시 발표) · 기상청 예보 통보문»."""
+    parts = []
+    if storms:
+        issued = max((s.issued for s in storms if s.issued), default=None)
+        parts.append("기상청 태풍정보" + (f"({short_date(issued)} {issued.hour}시 발표)" if issued else ""))
+    parts.extend(dict.fromkeys(n.title for _, n in quotes))
+    return " · ".join(parts)
+
+
 def snow_block(ctx: Context) -> Block | None:
     """«이번 주» 줄과 다룰지는 1번 날씨 예보의 하늘상태에서 눈을 셈."""
     status = snow.fetch_status(ctx.today, timeout=snow.WEEKLY_TIMEOUT_SEC, retries=1)
@@ -101,9 +160,7 @@ def snow_block(ctx: Context) -> Block | None:
 
 
 def _lines(week: WeekForecast) -> list[str]:
-    """통보문(가까운 날) 줄을 중기예보보다 먼저 — 수집 순서는 중기예보가 앞이고, 인용 개수를 넘으면 뒤쪽이 잘림."""
-    ordered = sorted(week.narratives, key=lambda n: 0 if "통보문" in n.title else 1)
-    return [line for n in ordered for line in n.lines]
+    return [line for n in sorted(week.narratives, key=_notice_first) for line in n.lines]
 
 
 def _quote_rows(paragraph: Paragraph, mentioned: list[str], ctx: Context) -> Paragraph:

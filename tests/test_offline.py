@@ -1638,7 +1638,7 @@ def test_weekly_themes() -> None:
 
     autumn_ctx = weekly_ctx(d(2026, 10, 5), d(2026, 10, 2))
     spring_ctx = weekly_ctx(d(2026, 3, 23))
-    assert [s.name for s in pipeline.SECTIONS] == ["카드", "일기도", "벚꽃", "장마", "폭염", "단풍", "첫눈"]   # 기간 없이 늘 돎
+    assert [s.name for s in pipeline.SECTIONS] == ["카드", "일기도", "벚꽃", "장마", "폭염", "태풍", "단풍", "첫눈"]   # 기간 없이 늘 돎
 
     orig = (foliage.fetch_snapshot, foliage_map.render_png, blossom.fetch_status, blossom.fetch_outlook)
     foliage.fetch_snapshot = lambda today, **k: fake_snapshot({"설악산": 1}, first={"설악산": d(2026, 9, 28)})
@@ -1975,7 +1975,7 @@ def test_snow_weekly() -> None:
     drawn: list = []
     snow_map.render_png = lambda st, start, days=(), scale=2: drawn.append(days) or b"PNG"
     try:
-        assert [s.name for s in pipeline.SECTIONS] == ["카드", "일기도", "벚꽃", "장마", "폭염", "단풍", "첫눈"]
+        assert [s.name for s in pipeline.SECTIONS] == ["카드", "일기도", "벚꽃", "장마", "폭염", "태풍", "단풍", "첫눈"]
         block = themes.snow_block(weekly_ctx(week, days=days))
         assert block.paragraph.title == "이번 주 첫눈" and [r.label for r in block.paragraph.rows] == ["관측", "이번 주"]
         text = block.paragraph.to_slack()
@@ -2193,6 +2193,160 @@ def test_monsoon_weekly() -> None:
     print("[ok] 장마 — 예보관 서술 인용 + 비 오는 날, 정체전선만이면 «정체전선», 언급 없으면 해당 없음")
 
 
+# 날씨누리 typhoonContent.js 주석에 실린 2019년 제2호 우딥 경로표 그대로 — 뒤에 붙는 빈 줄까지
+WUTIP_OSP = """2019,2,우딥,WUTIP
+201902190900,4.8,160.6,괌 동남동쪽 약 1980 km 부근 해상,W,41,1004,15,TD,0,,0,0,,0,0,2019,1,TD
+201902191500,5.0,158.6,괌 동남동쪽 약 1780 km 부근 해상,W,37,1004,15,TD,0,,0,0,,0,0,2019,1,TD
+201902192100,5.1,156.2,괌 남동쪽 약 1560 km 부근 해상,W,44,1002,15,TD,0,,0,0,,0,0,2019,1,TD
+201902200300,5.1,155.2,괌 남동쪽 약 1470 km 부근 해상,W,18,1000,18,TS,,,,250,SW,200,0,,,
+201902200900,4.8,154.7,괌 남동쪽 약 1450 km 부근 해상,WSW,11,996,20,TS,,,,250,SW,200,0,,,
+201902201500,4.9,153.8,괌 남동쪽 약 1370 km 부근 해상,W,17,990,24,TS,,,,280,SW,230,0,,,
+201902211500,6.5,150.0,괌 남동쪽 약 960 km 부근 해상,WNW,19,975,32,0,0,0,0,300,SW,250,110,,,
+201902221500,8.9,146.0,괌 남남동쪽 약 520 km 부근 해상,WNW,22,960,39,0,0,0,0,330,SW,280,170,,,
+201902231500,11.2,142.9,괌 남서쪽 약 330 km 부근 해상,NW,18,955,40,0,0,0,0,350,SW,300,260,,,
+201902241500,12.9,141.2,괌 서쪽 약 390 km 부근 해상,NW,11,950,43,0,0,0,0,370,SW,320,370,,,
+201902251500,14.6,140.0,괌 서북서쪽 약 530 km 부근 해상,NW,9,955,40,0,0,0,0,350,WSW,300,480,,,
+,,,,,,,0,,0,0,0,0,,,,,,
+,,,,,,,0,,0,0,0,0,,,,,,
+,,,,,,,0,,0,0,0,0,,,,,,
+,,,,,,,0,,0,0,0,0,,,,,,
+,,,,,,,0,,0,0,0,0,,,,,,
+"""
+WUTIP_URL = "/repositary/xml/typ/raw/DAOU/RTKO63/2019/RTKO63_201902201600_2_3.osp?ver=20190220173301"
+
+
+def test_typhoon_parse() -> None:
+    """태풍정보 — 빈 목록은 «없음», 경로표의 현재·예상 구분, 약화, 형식이 바뀌면 TyphoonError."""
+    from src.common.cache import clear
+    from src.kma import typhoon
+    from src.kma.typhoon import TyphoonError, parse_list, parse_track
+
+    def rejects(parse, text: str) -> None:
+        try:
+            parse(text)
+        except TyphoonError:
+            return
+        raise AssertionError(f"형식 변경을 못 알아챘습니다: {text[:40]!r}")
+
+    at = dt.datetime
+    assert parse_list("") == [] and parse_list("\n \n") == []          # 진행 중인 태풍 없음 — 200, 0바이트
+    listing = f"{WUTIP_URL},{WUTIP_URL.replace('.osp', '.ini')}\n"
+    (url,) = parse_list(listing)
+    assert url == "https://www.weather.go.kr/w" + WUTIP_URL, url
+    rejects(parse_list, "<!DOCTYPE html><html>오류</html>")            # 없는 경로도 200 + HTML
+    rejects(parse_list, "RTKO63_2019.txt,RTKO63_2019.ini")
+
+    storm = parse_track(WUTIP_OSP, typhoon.issued_of(url))
+    assert storm.title == "제2호 태풍 우딥(WUTIP)" and storm.weakened == ""
+    assert storm.issued == at(2019, 2, 20, 16, 0, tzinfo=KST)
+    assert storm.now.at == at(2019, 2, 20, 15, 0, tzinfo=KST) and storm.now.when == "2/20(수) 15시"
+    assert storm.now.summary == "괌 남동쪽 약 1370 km 부근 해상 · 중심기압 990hPa · 최대풍속 24m/s"
+    assert [p.at.day for p in storm.forecast] == [21, 22, 23, 24, 25]
+    assert storm.forecast[-1].place == "괌 서북서쪽 약 530 km 부근 해상"
+    # 같은 시각이 두 줄이면 뒤의 것
+    current = "201902201500,4.9,153.8,괌 남동쪽 약 1370 km 부근 해상,W,17,990,24,TS,,,,280,SW,230,0,,,"
+    fixed = current.replace(",990,24,", ",992,23,")
+    assert parse_track(WUTIP_OSP.replace(current, f"{current}\n{fixed}")).now.pressure == 992
+    # 약화 — 날씨누리 지도의 문구 그대로, 예상이 없으면 빈 진로
+    weakened = WUTIP_OSP.split("\n201902211500")[0] + \
+        "\n201902260900,16.0,139.0,괌 서북서쪽 약 700 km 부근 해상,NW,15,1004,15,TD,,,,0,,0,0,,,TD-END\n"
+    storm = parse_track(weakened)
+    assert storm.weakened == "열대저압부로 약화" and storm.forecast == () and storm.now.wind == 15
+    assert storm.issued is None and typhoon.issued_of("RTKO63_201913991600_2_3.osp") is None
+
+    head, rows = WUTIP_OSP.split("\n", 1)
+    rejects(parse_track, "")
+    rejects(parse_track, "<html><body>오류</body></html>")
+    rejects(parse_track, "우딥,WUTIP\n" + rows)                          # 머리가 바뀜
+    rejects(parse_track, head + "\n" + rows.replace("201902201500", "2019-02-20 15:00"))
+    forecast_only = "\n".join(line for line in rows.splitlines() if line.startswith("2019022") and
+                              line > "201902210000")
+    rejects(parse_track, f"{head}\n{forecast_only}")                     # 현재 위치가 없음
+    assert typhoon._decode("2019,2,우딥".encode("cp949")) == "2019,2,우딥"
+    assert typhoon._decode("﻿2019,2,우딥".encode()) == "2019,2,우딥"
+
+    calls: list[str] = []
+    orig = typhoon._get
+    typhoon._get = lambda u, timeout: calls.append(u) or (listing if u == typhoon.LIST_URL else WUTIP_OSP)
+    clear()
+    try:
+        assert [s.no for s in typhoon.fetch_active()] == [2] and calls == [typhoon.LIST_URL, url], calls
+        typhoon.fetch_active()
+        assert len(calls) == 2, calls                                     # 캐시
+        clear()
+        typhoon._get = lambda u, timeout: ""
+        assert typhoon.fetch_active() == []
+        clear()
+        typhoon._get = lambda u, timeout: (_ for _ in ()).throw(TyphoonError("요청 실패"))
+        rejects(lambda _: typhoon.fetch_active(), "")
+    finally:
+        typhoon._get = orig
+        clear()
+    print("[ok] 태풍정보 — 빈 목록은 없음, 현재·예상 구분, 같은 시각은 뒤의 것, 약화 문구, 형식 변경은 TyphoonError")
+
+
+def test_typhoon_weekly() -> None:
+    """주간 게시의 태풍 덩어리 — 진행 중일 때만 글로, 태풍정보를 못 받으면 예보관 서술만, 둘 다 없으면 실패."""
+    from dataclasses import replace
+
+    from src.kma import typhoon
+    from src.kma.typhoon import TyphoonError, parse_track
+    from src.weekly import pipeline, themes
+
+    week = dt.date(2019, 2, 18)
+    days = [DayForecast(date=week)]
+    storm = parse_track(WUTIP_OSP, typhoon.issued_of(WUTIP_URL))
+    headline = "□ (종합) 제2호 태풍 우딥 북상, 주 후반 남해안 너울 유의"
+    notice = Narrative("기상청 예보 통보문", "https://www.weather.go.kr/w/forecast/notice.do", None,
+                       [headline, "○ (내일, 19일) 대체로 맑음"])
+    mid = Narrative("기상청 중기예보", "https://www.weather.go.kr/w/forecast/overall/mid-term.do", None,
+                    ["○ (해상) 제2호 태풍 우딥의 영향으로 24일 남해상 물결 매우 높겠음", headline])
+
+    def labels(block) -> list[str]:
+        return [r.label for r in block.paragraph.rows]
+
+    orig = typhoon.fetch_active
+    try:
+        assert [s.name for s in pipeline.SECTIONS] == ["카드", "일기도", "벚꽃", "장마", "폭염", "태풍", "단풍", "첫눈"]
+        # 기상청 목록이 비면 해당 없음 — 서술의 «태풍» 은 발생 가능성만 말하는 줄일 수 있음
+        typhoon.fetch_active = lambda: []
+        assert themes.typhoon_block(weekly_ctx(week, days=days, narratives=[notice])) is None
+
+        typhoon.fetch_active = lambda: [storm]
+        block = themes.typhoon_block(weekly_ctx(week, days=days, narratives=[mid, notice]))
+        rows = block.paragraph.rows
+        assert block.paragraph.title == "이번 주 태풍" and block.paragraph.emoji == ":cyclone:"
+        assert block.attachment is None and labels(block) == ["현재", "예상", "이번 주"]
+        assert rows[0].text == ("*제2호 태풍 우딥(WUTIP)* · 괌 남동쪽 약 1370 km 부근 해상 · 중심기압 990hPa · "
+                                "최대풍속 24m/s (2/20(수) 15시 기준)"), rows[0].text
+        assert rows[1].text == "2/24(일) 15시 괌 서쪽 약 390 km 부근 해상", rows[1].text   # 2/25(월) 은 다음 주
+        # 통보문(가까운 날)이 먼저, 같은 줄은 한 번, 원문 그대로
+        assert rows[2].text == ('"(종합) 제2호 태풍 우딥 북상, 주 후반 남해안 너울 유의" / '
+                                '"(해상) 제2호 태풍 우딥의 영향으로 24일 남해상 물결 매우 높겠음"'), rows[2].text
+        assert block.credit == "태풍 · 기상청 태풍정보(2/20 16시 발표) · 기상청 예보 통보문 · 기상청 중기예보", \
+            block.credit
+        # 서술에 태풍이 없으면 «이번 주» 없이, 출처도 실린 것만
+        block = themes.typhoon_block(weekly_ctx(week, days=days))
+        assert labels(block) == ["현재", "예상"] and block.credit == "태풍 · 기상청 태풍정보(2/20 16시 발표)"
+        # 둘이면 «예상» 에 이름을 붙임
+        typhoon.fetch_active = lambda: [storm, replace(storm, no=3, name="세파트", en_name="SEPAT")]
+        block = themes.typhoon_block(weekly_ctx(week, days=days))
+        assert labels(block) == ["현재", "예상"] * 2 and block.paragraph.rows[3].text.startswith("세파트 2/24(일)")
+        # 태풍정보를 못 받으면 예보관 서술만 — 위험 신호를 영역 실패로 묻지 않음
+        typhoon.fetch_active = lambda: (_ for _ in ()).throw(TyphoonError("점검"))
+        block = themes.typhoon_block(weekly_ctx(week, days=days, narratives=[notice]))
+        assert labels(block) == ["이번 주"] and block.credit == "태풍 · 기상청 예보 통보문", block.credit
+        # 서술에도 없으면 «해당 없음» 이 아니라 실패 — 영역 경계가 경고로 남기고 뺌
+        try:
+            themes.typhoon_block(weekly_ctx(week, days=days))
+            raise AssertionError("태풍정보 실패가 묻혔습니다")
+        except TyphoonError:
+            pass
+    finally:
+        typhoon.fetch_active = orig
+    print("[ok] 태풍 주간 게시 — 진행 중일 때만 글로, 이번 주 안의 예상, 서술 원문 인용, 태풍정보 실패엔 서술만")
+
+
 if __name__ == "__main__":
     test_extract_json()
     test_log_dir()
@@ -2243,4 +2397,6 @@ if __name__ == "__main__":
     test_snow_render()
     test_heat_weekly()
     test_monsoon_weekly()
+    test_typhoon_parse()
+    test_typhoon_weekly()
     print("\n전부 통과")

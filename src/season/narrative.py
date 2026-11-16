@@ -1,4 +1,4 @@
-"""예보관 서술(통보문·중기예보의 □·○ 줄)에서 낱말이 든 줄 — 장마·더위가 원문 그대로 인용함."""
+"""예보관 서술(통보문·중기예보의 □·○ 줄)에서 낱말이 든 줄 — 장마·더위·태풍이 원문 그대로 인용함."""
 from __future__ import annotations
 
 import re
@@ -20,9 +20,14 @@ def mentioning(lines: Iterable[str], words: tuple[str, ...]) -> list[str]:
     return found
 
 
+def in_body(text: str, body: str) -> bool:
+    """본문이 이미 인용한 줄인지 — 규칙 기반 본문 1문단이 (종합) 줄을 머리말 없이 인용함."""
+    return _HEAD_RE.sub("", text) in body
+
+
 def unquoted(texts: list[str], body: str) -> list[str]:
-    """본문이 이미 인용한 줄은 뺌 — 규칙 기반 본문 1문단이 (종합) 줄을 머리말 없이 인용함."""
-    return [t for t in texts if _HEAD_RE.sub("", t) not in body][:MAX_QUOTES]
+    """본문이 이미 인용한 줄은 빼고 MAX_QUOTES 까지."""
+    return [t for t in texts if not in_body(t, body)][:MAX_QUOTES]
 
 
 def quote(text: str) -> str:

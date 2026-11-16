@@ -16,7 +16,8 @@ ASSET = Path(__file__).parent / "assets" / "korea_provinces.json"
 # 글꼴이 없어도 같은 그림이 나옴. 원본 파일은 고치지 않고 읽을 때만 다듬음
 EMOJI_DIR = Path(__file__).parent / "assets" / "noto-emoji"
 EMOJI = {"maple": "emoji_u1f341.svg", "fallen": "emoji_u1f342.svg", "snow": "emoji_u2744.svg",   # 🍁 🍂 ❄️
-         "blossom": "emoji_u1f338.svg"}                                                          # 🌸
+         "blossom": "emoji_u1f338.svg",                                                          # 🌸
+         "hot": "emoji_u1f975.svg"}                                                              # 🥵
 
 
 @dataclass(frozen=True)

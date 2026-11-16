@@ -5,7 +5,7 @@
 
   벚꽃  기상청 관측 중이거나, 관측 전 올해 첫 개화 예상일까지   관측 기상청 · 예상 웨더아이 + 지도
   장마  예보관 서술에 장마·정체전선이 있을 때                     그 주 예보 (따로 받지 않음)
-  폭염  기준(낮 최고 33℃·아침 최저 25℃)에 닿는 날이나 예보관 언급이 있을 때  그 주 예보 (따로 받지 않음)
+  폭염  기준(낮 최고 33℃·아침 최저 25℃)에 닿는 날이나 예보관 언급이 있을 때  그 주 예보 (따로 받지 않음) + 도시 지도
   태풍  예보관이 태풍을 말하고 기상청 목록에 진행 중일 때     현재·예상 기상청 태풍정보 · 예보관 서술 (글만)
   단풍  기상청 관측 중이거나, 관측 전 올해 첫 예상일까지        관측 기상청 · 예상 웨더아이 + 지도
   첫눈  지난 7일 안에 관측됐거나, 아직인 곳에 그 주 눈 예보가 있을 때  관측 기상청 계절관측 · 평년 + 지도
@@ -28,6 +28,7 @@ from src.season.foliage import data as foliage
 from src.season.foliage import map as foliage_map
 from src.season.foliage import text as foliage_text
 from src.season.heat import data as heat
+from src.season.heat import map as heat_map
 from src.season.heat import text as heat_text
 from src.season.monsoon import data as monsoon
 from src.season.monsoon import text as monsoon_text
@@ -193,7 +194,11 @@ def heat_block(ctx: Context) -> Block | None:
     found = heat.read(week.days, _lines(week))
     if not found.showing:
         return None
-    paragraph = (Paragraph("이번 주 더위", emoji=":hot_face:")
-                 .add(heat_text.HOT_LABEL, heat_text.hot_line(found))
-                 .add(heat_text.NIGHT_LABEL, heat_text.night_line(found)))
-    return Block(_quote_rows(paragraph, found.mentioned, ctx), f"더위 · {heat_text.SOURCES}")
+    paragraph = _quote_rows(Paragraph("이번 주 더위", emoji=":hot_face:")
+                            .add(heat_text.HOT_LABEL, heat_text.hot_line(found))
+                            .add(heat_text.NIGHT_LABEL, heat_text.night_line(found)), found.mentioned, ctx)
+    if not found.cities:            # 도시별 값(중기예보)이 없는 주 — 그릴 것이 없어 글만
+        return Block(paragraph, f"더위 · {heat_text.SOURCES}")
+    return _with_map(ctx, paragraph, heat_map.INFO,
+                     lambda: heat_map.render_png(found, ctx.week_start, scale=ctx.scale),
+                     heat_text.SOURCES)

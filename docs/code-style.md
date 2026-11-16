@@ -39,7 +39,7 @@
 | 하위 패키지 | 안의 모듈 |
 | --- | --- |
 | `season/foliage` · `season/snow` · `season/blossom` | `data` 수집·읽기·다룰 때(`showing` — 고정 기간 없이 자료로) · `text` 문장 · `map` 지도 · 지점 목록(`mountains` · `stations` · `spots`) |
-| `season/heat` · `season/monsoon` | `data` 그 주 예보에서 읽기·다룰 때(`showing`) — 따로 받지 않음 · `text` 문장 (지도 없음) |
+| `season/heat` · `season/monsoon` | `data` 그 주 예보에서 읽기·다룰 때(`showing`) — 따로 받지 않음 · `text` 문장 · 더위만 `map` 지도와 도시 목록(`cities`) |
 | `mention/weather` | `region` 광역 답 · `dong` 동네예보 답 |
 | `mention/foliage` · `mention/snow` | `reply` 단독 답 · `note` 날씨 답 끝의 한 줄 |
 

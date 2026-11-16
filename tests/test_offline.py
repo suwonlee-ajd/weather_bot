@@ -878,8 +878,8 @@ def test_footer_and_region_variation() -> None:
         assert ":cold_face:" not in cold_night and "아침 최저" not in cold_night, cold_night
 
         dong.fetch_dong = lambda z, n: fake_fetch(z, n, 4)
-        mountain = dong._dong_reply("5121060000", "설악산 아래 속초시 대포동", 4,
-                                       dt.date(2026, 9, 16), quiet=True)
+        mountain = dong._quiet_dong_reply("5121060000", "설악산 아래 속초시 대포동", 4,
+                                          dt.date(2026, 9, 16))
         assert mountain and "더 먼 날이 필요" not in mountain, mountain
 
         dong.fetch_dong = lambda z, n: fake_fetch(z, n, 3)

@@ -16,11 +16,12 @@ from src.mention.parse import (
     RECENT_RE,
     TRIP_SPANS,
     WEATHER_ASK_RE,
+    Period,
     _period,
 )
 from src.mention.reply import Reply, with_map
 from src.mention.texts import NO_EMOJI
-from src.mention.weather.dong import _dong_reply
+from src.mention.weather.dong import _quiet_dong_reply
 from src.season.foliage import data as foliage
 from src.season.foliage import map as foliage_map
 from src.season.foliage.data import (
@@ -146,14 +147,15 @@ def foliage_theme(query: str, now: dt.datetime) -> Reply | None:
 
 
 def _mountain_weather(m: Mountain, start: dt.date, days: int) -> str:
-    weather = _dong_reply(m.zone, f"{m.name} 아래 {m.zone_name}", days, start, quiet=True)
+    weather = _quiet_dong_reply(m.zone, f"{m.name} 아래 {m.zone_name}", days, start)
     return (f"{weather}\n_산 아래 마을 예보입니다. 산 위는 이보다 춥고 바람이 셉니다._" if weather
             else f"_산 아래 마을 날씨는 가져오지 못했습니다 (동네예보는 오늘부터 {DONG_MAX_DAYS}일까지)._")
 
 
-def _mountain_reply(m: Mountain, start: dt.date, days: int, title: str, today: dt.date) -> str:
+def _mountain_reply(m: Mountain, period: Period, today: dt.date) -> str:
     """단풍 말 없이 산 이름으로 물은 답 ("설악산", "주말 지리산 등산") — 날씨가 먼저, 단풍은 덧붙임."""
-    if title.startswith("앞으로"):
+    start, days = period.start, period.days
+    if period.title.startswith("앞으로"):
         start, days = today, DONG_MAX_DAYS - 1
     text = _mountain_weather(m, start, days)
     if (snap := _snapshot_quietly(today)) and snap.showing(today):

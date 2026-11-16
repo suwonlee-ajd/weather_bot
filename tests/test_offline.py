@@ -256,7 +256,7 @@ def test_topic_advice() -> None:
     """활동·복장 질문에 맞춘 조언. 지역·날짜와 함께 와도 해석함."""
     from types import SimpleNamespace
 
-    from src.advice.rules import detect_topic, topic_advice
+    from src.advice.topics import detect_topic, topic_advice
     from src.kma.regions import extract_region
 
     assert detect_topic("내일 뭐 입지?") == "옷차림"

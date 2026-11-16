@@ -5,7 +5,7 @@ import datetime as dt
 import logging
 import re
 
-from src.advice.rules import detect_topic
+from src.advice.topics import detect_topic
 from src.common.config import KST
 from src.kma.dong_zone import find_wide, search_dong
 from src.kma.outlook import OutlookError, fetch_outlook

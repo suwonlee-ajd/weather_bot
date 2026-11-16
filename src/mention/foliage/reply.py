@@ -4,7 +4,7 @@ from __future__ import annotations
 import datetime as dt
 import logging
 
-from src.advice.rules import detect_topic
+from src.advice.topics import detect_topic
 from src.common.text import bold, short_date
 from src.kma.regions import extract_region
 from src.mention.foliage.note import _snapshot_quietly

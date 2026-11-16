@@ -5,7 +5,8 @@ import datetime as dt
 import logging
 from dataclasses import replace
 
-from src.advice.rules import build_advice, topic_advice
+from src.advice.rules import build_advice
+from src.advice.topics import topic_advice
 from src.common.text import day_label, range_text
 from src.kma.notice import lines_for_dates
 from src.kma.page import ScrapeError

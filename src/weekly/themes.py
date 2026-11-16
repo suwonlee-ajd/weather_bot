@@ -44,9 +44,10 @@ from src.weekly.sections import Context
 log = logging.getLogger(__name__)
 
 
-def _with_map(ctx: Context, paragraph: Paragraph, info: MapInfo, render: Callable[[], bytes], sources: str) -> Block:
-    """지도를 못 그려도 글은 남김 — 출처의 «X 지도» 도 실린 것에 맞춰 «X» 로."""
-    att = ctx.image(info.slug, info.title, info.alt, render)
+def _with_map(ctx: Context, paragraph: Paragraph, info: MapInfo, render: Callable[[], bytes] | None,
+              sources: str) -> Block:
+    """지도를 못 그려도(render 가 None — 그릴 것이 없어도) 글은 남김 — 출처의 «X 지도» 도 실린 것에 맞춰 «X» 로."""
+    att = ctx.image(info.slug, info.title, info.alt, render) if render else None
     return Block(paragraph, f"{info.title if att else info.name} · {sources}", att)
 
 
@@ -89,7 +90,7 @@ def typhoon_block(ctx: Context) -> Block | None:
     예보관 서술에 태풍이 있으면 그 줄만 글로 실음 — 위험 신호를 영역 실패로 묻지 않게. 그때는 그릴 경로가 없음.
     """
     week = ctx.forecast()
-    mentioned = _typhoon_lines(week.narratives if week else [])
+    mentioned = narrative.mentioning_in(_nearest_first(week.narratives if week else []), ("태풍",))
     if not mentioned:
         return None                       # 예보관이 태풍을 말하지 않음 — 태풍정보도 받지 않음
     try:
@@ -108,25 +109,14 @@ def typhoon_block(ctx: Context) -> Block | None:
         paragraph.add("현재", typhoon_text.now_line(storm))
         paragraph.add("예상", typhoon_text.ahead_line(storm, ctx.week_end, named=len(storms) > 1))
     paragraph.add("이번 주", " / ".join(narrative.quote(text) for text, _ in quotes))
-    sources = typhoon_text.sources(storms, (n.title for _, n in quotes))      # 실린 줄의 출처만
-    if not storms:
-        return Block(paragraph, f"태풍 · {sources}")
-    return _with_map(ctx, paragraph, typhoon_map.INFO,
-                     lambda: typhoon_map.render_png(storms, ctx.week_start, scale=ctx.scale), sources)
+    render = (lambda: typhoon_map.render_png(storms, ctx.week_start, scale=ctx.scale)) if storms else None
+    sources = typhoon_text.sources(storms, (n.title for _, n in quotes))
+    return _with_map(ctx, paragraph, typhoon_map.INFO, render, sources)
 
 
-def _notice_first(n: Narrative) -> int:
+def _nearest_first(narratives: list[Narrative]) -> list[Narrative]:
     """통보문(가까운 날)을 중기예보보다 먼저 — 수집 순서는 중기예보가 앞이고, 인용 개수를 넘으면 뒤쪽이 잘림."""
-    return 0 if "통보문" in n.title else 1
-
-
-def _typhoon_lines(narratives: list[Narrative]) -> list[tuple[str, Narrative]]:
-    """예보관 서술에서 태풍을 말한 줄과 그 서술 — 출처 줄에 실린 서술만 적으려고 짝지음."""
-    out: list[tuple[str, Narrative]] = []
-    for source in sorted(narratives, key=_notice_first):
-        out += [(text, source) for text in narrative.mentioning(source.lines, ("태풍",))
-                if all(text != seen for seen, _ in out)]
-    return out
+    return sorted(narratives, key=lambda n: "통보문" not in n.title)
 
 
 def snow_block(ctx: Context) -> Block | None:
@@ -148,7 +138,7 @@ def snow_block(ctx: Context) -> Block | None:
 
 
 def _lines(week: WeekForecast) -> list[str]:
-    return [line for n in sorted(week.narratives, key=_notice_first) for line in n.lines]
+    return [line for n in _nearest_first(week.narratives) for line in n.lines]
 
 
 def _quote_rows(paragraph: Paragraph, mentioned: list[str], ctx: Context) -> Paragraph:
@@ -181,8 +171,6 @@ def heat_block(ctx: Context) -> Block | None:
     paragraph = _quote_rows(Paragraph("이번 주 더위", emoji=":hot_face:")
                             .add(heat_text.HOT_LABEL, heat_text.hot_line(found))
                             .add(heat_text.NIGHT_LABEL, heat_text.night_line(found)), found.mentioned, ctx)
-    if not found.cities:            # 도시별 값(중기예보)이 없는 주 — 그릴 것이 없어 글만
-        return Block(paragraph, f"더위 · {heat_text.SOURCES}")
-    return _with_map(ctx, paragraph, heat_map.INFO,
-                     lambda: heat_map.render_png(found, ctx.week_start, scale=ctx.scale),
-                     heat_text.SOURCES)
+    # 도시별 값(중기예보)이 없는 주는 그릴 것이 없어 글만
+    render = (lambda: heat_map.render_png(found, ctx.week_start, scale=ctx.scale)) if found.cities else None
+    return _with_map(ctx, paragraph, heat_map.INFO, render, heat_text.SOURCES)

@@ -3,12 +3,18 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from typing import Protocol
 
 _BULLET_RE = re.compile(r"^[□○]\s*")
 _HEAD_RE = re.compile(r"^\([^)]*\)\s*")
 
 MAX_QUOTES = 2      # 많으면 철 소식 한 문단이 본문보다 길어짐
 QUOTE_CHARS = 120   # 실제 서술은 한 줄이 300자를 넘기도 함 — 길면 낱말 경계에서 자르고 «…»
+
+
+class Source(Protocol):
+    """서술 하나 — kma.page.Narrative 의 모양(season 은 kma 를 가져다 쓰지 않음)."""
+    lines: list[str]
 
 
 def mentioning(lines: Iterable[str], words: tuple[str, ...]) -> list[str]:
@@ -18,6 +24,14 @@ def mentioning(lines: Iterable[str], words: tuple[str, ...]) -> list[str]:
         text = _BULLET_RE.sub("", line).strip()
         if any(w in text for w in words) and text not in found:
             found.append(text)
+    return found
+
+
+def mentioning_in[S: Source](sources: Iterable[S], words: tuple[str, ...]) -> list[tuple[str, S]]:
+    """여러 서술에서 낱말이 든 줄과 그 서술 — 같은 줄은 앞 서술의 것만. 출처 줄에 실린 서술만 적으려고 짝지음."""
+    found: list[tuple[str, S]] = []
+    for source in sources:
+        found += [(text, source) for text in mentioning(source.lines, words) if all(text != t for t, _ in found)]
     return found
 
 

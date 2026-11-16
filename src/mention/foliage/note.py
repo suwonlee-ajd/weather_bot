@@ -40,7 +40,7 @@ def _foliage_brief(snap: Snapshot, mountains: tuple[Mountain, ...], start: dt.da
     if nationwide:
         parts = []
         if any(snap.stage(m.name) for m in MOUNTAINS):
-            parts.append(observed_line(snap, bold))
+            parts.append(observed_line(snap, bold, day=start))
         if any(week_changes(snap, start, end).values()):
             parts.append(week_line(snap, start, end, bold, muted=lambda s: s))
         return " / ".join(parts)

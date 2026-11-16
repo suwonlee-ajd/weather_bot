@@ -39,7 +39,7 @@ def foliage_block(ctx: Context) -> Block | None:
     if not snap.showing(ctx.week_start):
         return None
     paragraph = (Paragraph("이번 주 단풍", emoji=":maple_leaf:")
-                 .add("관측", foliage_text.observed_line(snap, bold))
+                 .add("관측", foliage_text.observed_line(snap, bold, day=ctx.week_start))
                  .add("이번 주", foliage_text.week_line(snap, ctx.week_start, ctx.week_end, bold,
                                                          muted=lambda s: s)))
     # 출처는 실린 것에 맞춤 — 예상을 못 읽었으면 예상 출처도 뺌

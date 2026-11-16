@@ -9,6 +9,33 @@ from src.season.foliage.mountains import MOUNTAINS
 from src.season.sources import OUTLOOK_SOURCE
 from src.season.summary import observed_summary
 
+# 절정 사진 뒤 이 날수까지를 «절정 2주 안» 으로 묶음 — 보여 주는 구간일 뿐 «졌다» 는 뜻이 아님.
+# 기상청은 낙엽을 관측하지 않음(계절관측의 낙엽 칸도 비어 있음) — 지난 날수만 사실로 적음
+FRESH_PEAK_DAYS = 14
+FRESH_SHOWN = 4                       # 이번 주 줄에 이름을 적는 산 — 넘으면 «외 N곳»
+
+
+def peak_age(snap: Snapshot, name: str, day: dt.date) -> int | None:
+    """절정 사진 뒤 지난 날수. 절정 전이거나 촬영일이 없거나 day 뒤의 관측이면 None."""
+    peaked = snap.status.peak.get(name)
+    if snap.stage(name) < 2 or peaked is None or peaked > day:
+        return None
+    return (day - peaked).days
+
+
+def past_peak(snap: Snapshot, day: dt.date) -> tuple[list[tuple[str, dt.date]], int]:
+    """(절정 2주 안인 산과 절정일 — 최근 순, 절정 2주 넘은 산의 수)."""
+    fresh, old = [], 0
+    for m in MOUNTAINS:
+        age = peak_age(snap, m.name, day)
+        if age is None:
+            continue
+        if age <= FRESH_PEAK_DAYS:
+            fresh.append((m.name, snap.status.peak[m.name]))
+        else:
+            old += 1
+    return sorted(fresh, key=lambda x: x[1], reverse=True), old
+
 
 def gap_text(predicted: dt.date | None, observed: dt.date, *, show_date: bool = False) -> str:
     if not predicted or predicted == observed:
@@ -44,8 +71,11 @@ def week_changes(snap: Snapshot, start: dt.date, end: dt.date) -> dict[str, list
     return out
 
 
-def observed_line(snap: Snapshot, bold=html_bold) -> str:
-    """관측 한 줄 — 물든 곳이 적으면 이름·날짜, 많으면 개수·최근 변화. bold 로 HTML·슬랙을 가름."""
+def observed_line(snap: Snapshot, bold=html_bold, *, day: dt.date | None = None) -> str:
+    """관측 한 줄 — 물든 곳이 적으면 이름·날짜, 많으면 개수·최근 변화. bold 로 HTML·슬랙을 가름.
+
+    day 를 주면 절정 2주 넘은 산의 수를 개수에 덧붙임 — «절정 21곳(2주 넘음 19곳)».
+    """
     s = snap.status
     if not s.in_service:
         return NOT_STARTED_TEXT
@@ -66,7 +96,9 @@ def observed_line(snap: Snapshot, bold=html_bold) -> str:
         gap = gap_text(snap.predicted(KINDS[stage - 1], name), day)
         return f"{text} {short_date(day)}" + (f" ({gap})" if gap else "")
 
-    tally = " · ".join(f"{STAGES[k]} {n}곳" for k, n in zip((2, 1, 0), counts) if n)
+    old = past_peak(snap, day)[1] if day else 0
+    tally = " · ".join(f"{STAGES[k]} {n}곳" + (f"(2주 넘음 {old}곳)" if k == 2 and old else "")
+                       for k, n in zip((2, 1, 0), counts) if n)
     return observed_summary([(e[0], event_text(e)) for e in events],
                             f"나머지 {counts[2]}곳은 단풍 전" if counts[2] else "", tally)
 
@@ -77,4 +109,18 @@ def week_line(snap: Snapshot, start: dt.date, end: dt.date, bold=html_bold, mute
                 else "올해 예상이 아직 나오지 않았습니다")
     bits = [f"{STAGES[stage]} " + " · ".join(f"{bold(n)} {short_date(d)}" for n, d in changes)
             for stage, changes in enumerate(week_changes(snap, start, end).values(), start=1) if changes]
-    return (" / ".join(bits) + " " + muted("(예상)")) if bits else "예상된 변화가 없습니다"
+    if bits:
+        return " / ".join(bits) + " " + muted("(예상)")
+    return _after_peak(snap, start, bold)
+
+
+def _after_peak(snap: Snapshot, day: dt.date, bold) -> str:
+    """남은 예상 변화가 없을 때 — 절정이 얼마나 지났는지(사실)로 채움. 늦가을 내내 빈말이 되지 않게."""
+    fresh, old = past_peak(snap, day)
+    if fresh:
+        names = " · ".join(f"{bold(n)} {short_date(d)}" for n, d in fresh[:FRESH_SHOWN])
+        more = f" 외 {len(fresh) - FRESH_SHOWN}곳" if len(fresh) > FRESH_SHOWN else ""
+        return f"예상된 변화 없음 · 절정 2주 안 {names}{more}"
+    if old and old == len(MOUNTAINS):
+        return "예상된 변화 없음 · 모든 산이 절정 뒤 2주를 넘겼습니다"
+    return "예상된 변화가 없습니다"

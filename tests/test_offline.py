@@ -1415,6 +1415,48 @@ def test_foliage_render() -> None:
     print(f"[ok] 단풍 지도 {len(png):,}B -> {IMG / 'foliage-test.png'}")
 
 
+def test_foliage_after_peak() -> None:
+    """절정 뒤 — 기상청은 낙엽을 관측하지 않아 «졌다» 대신 절정 사진 뒤 지난 날수만 사실로 적음."""
+    from src.common.text import bold
+    from src.season.foliage.map import build_html
+    from src.season.foliage.map import render_png as render_map
+    from src.season.foliage.mountains import MOUNTAINS
+    from src.season.foliage.text import observed_line, past_peak, peak_age, week_line
+
+    d = dt.date
+    monday = d(2026, 11, 16)
+    late = {"두륜산": d(2026, 11, 9), "금오산": d(2026, 11, 6)}
+    snap = fake_snapshot({m.name: 2 for m in MOUNTAINS},
+                         peak={m.name: d(2026, 10, 20) for m in MOUNTAINS} | late)
+
+    assert peak_age(snap, "두륜산", monday) == 7 and peak_age(snap, "설악산", monday) == 27
+    assert peak_age(snap, "두륜산", d(2026, 11, 8)) is None                  # 앞날의 관측은 셈하지 않음
+    assert past_peak(snap, monday) == ([("두륜산", d(2026, 11, 9)), ("금오산", d(2026, 11, 6))], 19)
+
+    line = observed_line(snap, bold, day=monday)
+    assert line.startswith("절정 21곳(2주 넘음 19곳) — 최근 *두륜산* 절정 11/9"), line
+    assert observed_line(snap, bold).startswith("절정 21곳 — "), "day 없이는 지난 날수를 붙이지 않음"
+
+    # 남은 예상 변화가 없으면 절정 2주 안인 산을 적음 — 늦가을 내내 «예상된 변화가 없습니다» 만 나오지 않게
+    week = week_line(snap, monday, monday + dt.timedelta(days=6), bold, muted=lambda s: s)
+    assert week == "예상된 변화 없음 · 절정 2주 안 *두륜산* 11/9 · *금오산* 11/6", week
+    later = week_line(snap, d(2026, 11, 30), d(2026, 12, 6), bold, muted=lambda s: s)
+    assert later == "예상된 변화 없음 · 모든 산이 절정 뒤 2주를 넘겼습니다", later
+    many = fake_snapshot({m.name: 2 for m in MOUNTAINS}, peak={m.name: d(2026, 11, 10) for m in MOUNTAINS})
+    assert week_line(many, monday, monday, bold).endswith(" 외 17곳"), "많으면 넷만 적고 나머지는 개수로"
+    assert "졌" not in week + line + later, "관측하지 않은 낙엽을 말했습니다"
+
+    html_text = build_html(snap, monday)
+    assert "절정 2주 넘음" in html_text and "(2주 넘음 19곳)" in html_text
+    assert "절정 2주 넘음" not in build_html(fake_snapshot({"설악산": 1}), d(2026, 10, 5)), "옅은 표지가 없으면 범례도 없음"
+
+    IMG.mkdir(parents=True, exist_ok=True)
+    png = render_map(snap, monday)
+    assert png.startswith(PNG_MAGIC)
+    (IMG / "foliage-after-peak.png").write_bytes(png)
+    print(f"[ok] 단풍 절정 뒤 — 2주 넘음 개수 · 절정 2주 안 산 · 옅은 표지 {len(png):,}B -> {IMG / 'foliage-after-peak.png'}")
+
+
 # --- 게시물 문단 --------------------------------------------------------------
 
 def test_paragraph() -> None:
@@ -2070,6 +2112,7 @@ if __name__ == "__main__":
     test_foliage_fetch()
     test_cache_failures()
     test_foliage_render()
+    test_foliage_after_peak()
     test_paragraph()
     test_blossom_season()
     test_blossom_parse()

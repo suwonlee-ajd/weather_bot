@@ -39,7 +39,13 @@ from src.season.foliage.mountains import (
     find_mountain,
     unknown_mountain,
 )
-from src.season.foliage.text import gap_text, observed_line, sources, week_line
+from src.season.foliage.text import (
+    gap_text,
+    observed_line,
+    peak_age,
+    sources,
+    week_line,
+)
 from src.season.sources import OUTLOOK_SOURCE
 
 log = logging.getLogger("weather-mention")
@@ -66,6 +72,9 @@ def _stage_line(snap: Snapshot, kind: str, name: str, today: dt.date) -> str:
 def _mountain_text(snap: Snapshot, m: Mountain, today: dt.date) -> str:
     if snap.status.in_service:
         head = f"*{m.name}* 단풍 — 지금 *{STAGES[snap.stage(m.name)]}* (기상청 관측)"
+        # 기상청은 낙엽을 관측하지 않음 — 졌는지 대신 절정 사진 뒤 지난 날수를 사실로
+        if age := peak_age(snap, m.name, today):
+            head += f" · 절정 관측 뒤 {age}일"
     else:
         head = f"*{m.name}* 단풍 — {NOT_STARTED_TEXT}"
     return "\n".join([
@@ -86,7 +95,7 @@ def _overview_text(snap: Snapshot, today: dt.date, unknown: str | None) -> str:
         ]
     lines += [
         f"*단풍 현황* ({short_date(today)} 기준)",
-        f"• 관측 — {observed_line(snap, bold)}",
+        f"• 관측 — {observed_line(snap, bold, day=today)}",
         f"• 앞으로 7일 — {week_line(snap, today, end, bold, muted=lambda s: s)}",
         f"_{sources(snap)} · 산 이름을 함께 불러 주시면 그 산만 자세히 알려드려요_",
     ]

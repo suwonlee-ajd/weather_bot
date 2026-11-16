@@ -11,15 +11,23 @@ from src.common.text import day_label, short_date
 from src.season.basemap import BASE_CSS, MapInfo, frame, label, place
 from src.season.foliage.data import CRITERIA_TEXT, KINDS, STAGES, Snapshot
 from src.season.foliage.mountains import MOUNTAINS, Mountain
-from src.season.foliage.text import observed_line, sources, week_changes, week_line
+from src.season.foliage.text import (
+    FRESH_PEAK_DAYS,
+    observed_line,
+    peak_age,
+    sources,
+    week_changes,
+    week_line,
+)
 
 INFO = MapInfo("단풍", "foliage", "전국 21개 명산의 단풍 현황(기상청)과 예상 시기(웨더아이) 지도")
 
-# 주황→진홍 순서형이라 색맹 검증 통과. 상태는 모양(빈 원·아래 반원·채운 원)으로도 가름
-ORANGE, RED, GRAY = "#eb6834", "#a8321f", "#898781"
+# 주황→진홍 순서형이라 색맹 검증 통과. 상태는 모양(빈 원·아래 반원·채운 원)으로도 가름.
+# 절정 2주 넘은 산은 같은 채운 원을 옅게 — 색이 아니라 밝기로 가름
+ORANGE, RED, GRAY, FADED = "#eb6834", "#a8321f", "#898781", "#e3b4a8"
 
 
-def _marker(x: float, y: float, stage: int, ring: bool = False, r: float = 6.5) -> str:
+def _marker(x: float, y: float, stage: int, ring: bool = False, r: float = 6.5, faded: bool = False) -> str:
     out = []
     if ring:
         out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r + 4.5}" fill="none" '
@@ -31,24 +39,28 @@ def _marker(x: float, y: float, stage: int, ring: bool = False, r: float = 6.5) 
         out.append(f'<path d="M{x - r:.1f},{y:.1f} A{r},{r} 0 0 0 {x + r:.1f},{y:.1f} Z" fill="{ORANGE}"/>')
     else:
         # 흰 테두리가 안쪽을 먹어 +1 해야 빈 원과 같은 크기로 보임
-        out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r + 1}" fill="{RED}" stroke="#fcfcfb" stroke-width="1.5"/>')
+        out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r + 1}" fill="{FADED if faded else RED}" '
+                   f'stroke="#fcfcfb" stroke-width="1.5"/>')
     return "".join(out)
 
 
-def _icon(stage: int) -> str:
-    return f'<svg width="14" height="14" viewBox="-7 -7 14 14">{_marker(0, 0, stage, r=5)}</svg>'
+def _icon(stage: int, faded: bool = False) -> str:
+    return f'<svg width="14" height="14" viewBox="-7 -7 14 14">{_marker(0, 0, stage, r=5, faded=faded)}</svg>'
 
 
 def build_html(snap: Snapshot, week_start: dt.date, span_label: str = "이번 주") -> str:
     week_end = week_start + dt.timedelta(days=6)
     flagged = {n for changes in week_changes(snap, week_start, week_end).values() for n, _ in changes}
+    faded = {m.name for m in MOUNTAINS
+             if (age := peak_age(snap, m.name, week_start)) is not None and age > FRESH_PEAK_DAYS}
 
     marks, labels = [], []
     for m in MOUNTAINS:
         x, y = place(m.lon, m.lat)
         stage = snap.stage(m.name)
-        marks.append(_marker(x, y, stage, ring=m.name in flagged))
-        labels.append(label(x, y, m.name, m.label, strong=m.name in flagged or stage > 0))
+        marks.append(_marker(x, y, stage, ring=m.name in flagged, faded=m.name in faded))
+        strong = m.name in flagged or (stage > 0 and m.name not in faded)
+        labels.append(label(x, y, m.name, m.label, strong=strong))
     svg = frame("".join(marks) + "".join(labels), f"전국 {len(MOUNTAINS)}개 명산 단풍 현황 지도")
 
     def cell(kind: str, name: str) -> str:
@@ -67,22 +79,23 @@ def build_html(snap: Snapshot, week_start: dt.date, span_label: str = "이번 �
 
     rows = "".join(
         f'<tr><th scope="row">{m.name}</th>'
-        f'<td class="st">{_icon(snap.stage(m.name))}<span>{STAGES[snap.stage(m.name)]}</span></td>'
+        f'<td class="st">{_icon(snap.stage(m.name), m.name in faded)}<span>{STAGES[snap.stage(m.name)]}</span></td>'
         + "".join(f"<td>{cell(kind, m.name)}</td>" for kind in KINDS) + "</tr>"
         for m in sorted(MOUNTAINS, key=order)
     )
 
+    faded_legend = f"<span>{_icon(2, faded=True)}절정 2주 넘음</span>" if faded else ""
     return f"""<!doctype html><html lang="ko"><head><meta charset="utf-8"><style>{CSS}</style></head>
 <body><div id="card">
   <div class="head"><h1>단풍 지도</h1><span class="period">{day_label(week_start)} ~ {day_label(week_end)}</span></div>
   <div class="lead">
-    <div><span class="k">관측</span><span>{observed_line(snap)}</span></div>
+    <div><span class="k">관측</span><span>{observed_line(snap, day=week_start)}</span></div>
     <div><span class="k">{span_label}</span><span>{week_line(snap, week_start, week_end)}</span></div>
   </div>
   <div class="body">
     <div class="map">{svg}
       <div class="legend">
-        <span>{_icon(0)}단풍전</span><span>{_icon(1)}첫단풍</span><span>{_icon(2)}절정</span>
+        <span>{_icon(0)}단풍전</span><span>{_icon(1)}첫단풍</span><span>{_icon(2)}절정</span>{faded_legend}
         <span><svg width="18" height="18" viewBox="-9 -9 18 18"><circle r="7" fill="none" stroke="#0b0b0b"
           stroke-width="1.4" stroke-dasharray="2.6 2.2"/></svg>이번 주 예상</span>
       </div>
